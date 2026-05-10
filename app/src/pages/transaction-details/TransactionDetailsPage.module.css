@@ -1,0 +1,220 @@
+.card {
+  display: grid;
+  gap: 1.5rem;
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  padding: 1.5rem;
+  box-shadow: var(--shadow-soft);
+}
+
+.card h2 {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 1.25rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.summaryCard {
+  display: grid;
+  gap: 1rem;
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-lg);
+  background: var(--color-secondary);
+  padding: 1.5rem;
+}
+
+.summaryCard h2 {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 1.25rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.summaryGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.summaryLabel {
+  color: var(--color-muted);
+  font-size: 0.875rem;
+}
+
+.summaryValue {
+  margin: 0.125rem 0 0;
+  color: var(--color-text);
+  font-weight: 600;
+  font-size: 0.9375rem;
+}
+
+.summaryPositive {
+  color: #16a34a;
+}
+.summaryNegative {
+  color: #dc2626;
+}
+
+.modeToggle {
+  display: inline-flex;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.modeTab {
+  padding: 0.5rem 1rem;
+  border: 0;
+  background: transparent;
+  color: var(--color-muted);
+  font-size: 0.9375rem;
+  font-family: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 160ms ease, color 160ms ease;
+}
+
+.modeTab + .modeTab {
+  border-left: 1px solid var(--color-border);
+}
+
+.modeTabActive {
+  background: var(--color-primary);
+  color: var(--color-primary-contrast);
+}
+
+.fieldLabel {
+  margin: 0 0 0.375rem;
+  color: var(--color-text);
+  font-weight: 600;
+  font-size: 0.9375rem;
+  line-height: 1.5;
+}
+
+.fieldHint {
+  margin: 0.375rem 0 0;
+  color: var(--color-muted);
+  font-size: 0.875rem;
+}
+
+.readOnlyValue {
+  min-height: 44px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: #f3f4f6;
+  color: var(--color-muted);
+  padding: 0.625rem 0.875rem;
+  display: flex;
+  align-items: center;
+}
+
+.amountField {
+  position: relative;
+}
+
+.amountPrefix {
+  position: absolute;
+  left: 0.875rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--color-muted);
+  font-size: 0.9375rem;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.amountInput {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: #f3f4f6;
+  color: var(--color-text);
+  padding: 0.625rem 0.875rem;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.amountInput::placeholder {
+  color: #818898;
+}
+
+.amountInput:focus {
+  border-color: var(--color-focus);
+  background: var(--color-surface);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.16);
+  outline: none;
+}
+
+.amountInput:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.amountInputPrefixed {
+  padding-left: 1.75rem;
+}
+
+.select {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: #f3f4f6;
+  color: var(--color-text);
+  padding: 0.625rem 0.875rem;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.select:focus {
+  border-color: var(--color-focus);
+  background: var(--color-surface);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.16);
+  outline: none;
+}
+
+.thresholdWarning {
+  margin: 0;
+  padding: 1rem 1.25rem;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: var(--radius-md);
+  color: var(--color-danger);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.infoNote {
+  margin: 0;
+  padding: 1rem 1.25rem;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: var(--radius-md);
+  color: #1e40af;
+  font-size: 0.9375rem;
+  line-height: 1.5;
+}
+
+@media (max-width: 640px) {
+  .card,
+  .summaryCard {
+    padding: 1rem;
+  }
+
+  .summaryGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .modeToggle {
+    display: flex;
+  }
+}
