@@ -1,0 +1,43 @@
+.wrap {
+  position: relative;
+  display: block;
+}
+
+.input {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: #f3f4f6;
+  color: var(--color-text);
+  padding: 0.625rem 0.875rem;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.input::placeholder {
+  color: #818898;
+}
+
+.input:focus {
+  border-color: var(--color-focus);
+  background: var(--color-surface);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.16);
+  outline: none;
+}
+
+.withIcon {
+  padding-right: 2.5rem;
+}
+
+.icon {
+  position: absolute;
+  top: 50%;
+  right: 0.875rem;
+  display: inline-flex;
+  color: var(--color-muted);
+  pointer-events: none;
+  transform: translateY(-50%);
+}
