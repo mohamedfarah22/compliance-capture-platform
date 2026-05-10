@@ -1,9 +1,9 @@
 import styles from './WizardFrame.module.css'
 
-const WizardFrame = ({ actions, children, helperText, subtitle, title }) => {
+const WizardFrame = ({ actions, children, helperText, subtitle, title, wide }) => {
   return (
     <main className={styles.page}>
-      <div className={styles.container}>
+      <div className={[styles.container, wide ? styles.wide : ''].filter(Boolean).join(' ')}>
         <header className={styles.header}>
           <h1>{title}</h1>
           <p>{subtitle}</p>

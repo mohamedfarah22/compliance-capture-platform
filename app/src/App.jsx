@@ -1,18 +1,10 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import StartTransactionPage from './pages/start/StartTransactionPage.jsx'
+import CustomerSearchPage from './pages/customers/CustomerSearchPage.jsx'
+import CreateCustomerPage from './pages/customers/create/CreateCustomerPage.jsx'
 import PlaceholderPage from './pages/PlaceholderPage.jsx'
 
 const pendingPages = [
-  {
-    path: '/customers',
-    title: 'Customer / Party Search',
-    description: 'This page will be converted next in the TTR transaction wizard.',
-  },
-  {
-    path: '/customers/create',
-    title: 'Create New Customer / Party',
-    description: 'This route is reserved for the customer creation step.',
-  },
   {
     path: '/transaction-details',
     title: 'Transaction & Cash Details',
@@ -55,6 +47,8 @@ const App = () => {
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<StartTransactionPage />} />
+        <Route path="/customers" element={<CustomerSearchPage />} />
+        <Route path="/customers/create" element={<CreateCustomerPage />} />
         {pendingPages.map((page) => (
           <Route
             key={page.path}

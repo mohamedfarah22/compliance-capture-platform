@@ -11,6 +11,10 @@
   margin: 0 auto;
 }
 
+.wide {
+  width: min(100%, 64rem);
+}
+
 .header {
   margin-bottom: 2rem;
 }
