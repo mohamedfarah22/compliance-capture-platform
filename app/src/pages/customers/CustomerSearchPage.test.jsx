@@ -9,6 +9,7 @@ function renderCustomersPage() {
   return render(
     <MemoryRouter initialEntries={['/customers']}>
       <Routes>
+        <Route path="/" element={<h1>Start TTR Transaction</h1>} />
         <Route path="/customers" element={<CustomerSearchPage />} />
         <Route path="/transaction-details" element={<h1>Transaction Details</h1>} />
         <Route path="/customers/create" element={<h1>Create Customer</h1>} />
@@ -156,5 +157,14 @@ describe('CustomerSearchPage', () => {
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     expect(screen.getByRole('heading', { name: 'Transaction Details' })).toBeInTheDocument()
+  })
+
+  it('clicking Back navigates to /', async () => {
+    const user = userEvent.setup()
+    renderCustomersPage()
+
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+
+    expect(screen.getByRole('heading', { name: 'Start TTR Transaction' })).toBeInTheDocument()
   })
 })

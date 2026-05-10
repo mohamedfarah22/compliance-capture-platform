@@ -11,6 +11,26 @@
   margin: 0 auto;
 }
 
+.back {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-bottom: 1.25rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-muted);
+  font-size: 0.875rem;
+  font-family: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 160ms ease;
+}
+
+.back:hover {
+  color: var(--color-text);
+}
+
 .wide {
   width: min(100%, 64rem);
 }

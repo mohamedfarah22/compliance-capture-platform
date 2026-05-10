@@ -132,10 +132,12 @@ const CustomerSearchPage = () => {
 
   return (
     <WizardFrame
+      backLabel="Back"
       helperText="Step 1 of 3"
       subtitle="Search for existing records first, then add all parties involved in this transaction."
       title="Add Customers / Parties"
       wide
+      onBack={() => navigate('/')}
       actions={
         <>
           <Button onClick={handleSaveDraft} variant="secondary">

@@ -109,9 +109,11 @@ const CreateCustomerPage = () => {
 
   return (
     <WizardFrame
+      backLabel="Back"
       helperText="Step 1 of 3"
       subtitle="Enter the details for a new customer or party involved in this transaction."
       title="Create New Customer / Party"
+      onBack={() => navigate('/customers')}
       actions={
         <>
           <Button onClick={handleCancel} variant="secondary">

@@ -170,4 +170,13 @@ describe('CreateCustomerPage', () => {
     expect(stored[0]).toMatchObject({ displayName: 'Sarah Johnson' })
     expect(stored[1]).toMatchObject({ displayName: 'New Person' })
   })
+
+  it('clicking Back navigates to /customers', async () => {
+    const user = userEvent.setup()
+    renderCreatePage()
+
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+
+    expect(screen.getByRole('heading', { name: 'Customer / Party Search' })).toBeInTheDocument()
+  })
 })
