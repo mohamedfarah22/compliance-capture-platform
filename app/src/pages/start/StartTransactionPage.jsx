@@ -157,6 +157,7 @@ const StartTransactionPage = () => {
           />
         </FormField>
       </form>
+
     </WizardFrame>
   )
 }

@@ -1,7 +1,8 @@
 import { ChevronLeft } from 'lucide-react'
+import Button from '../ui/Button.jsx'
 import styles from './WizardFrame.module.css'
 
-const WizardFrame = ({ actions, backLabel = 'Back', children, helperText, onBack, subtitle, title, wide }) => {
+const WizardFrame = ({ actions, backLabel = 'Back', children, exitLabel = 'Exit', helperText, onBack, onExit, subtitle, title, wide }) => {
   return (
     <main className={styles.page}>
       <div className={[styles.container, wide ? styles.wide : ''].filter(Boolean).join(' ')}>
@@ -17,7 +18,14 @@ const WizardFrame = ({ actions, backLabel = 'Back', children, helperText, onBack
           {helperText ? <p className={styles.helper}>{helperText}</p> : null}
         </header>
         {children}
-        {actions ? <div className={styles.actions}>{actions}</div> : null}
+        {(actions || onExit) ? (
+          <div className={styles.actions}>
+            {onExit ? (
+              <Button variant="secondary" onClick={onExit}>{exitLabel}</Button>
+            ) : null}
+            <div className={styles.actionsRight}>{actions}</div>
+          </div>
+        ) : null}
       </div>
     </main>
   )

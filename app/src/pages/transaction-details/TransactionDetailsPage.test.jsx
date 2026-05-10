@@ -1,6 +1,6 @@
 import { Route, Routes, MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import TransactionDetailsPage from './TransactionDetailsPage.jsx'
 import { wizardStorageKeys } from '../../components/wizardStorage.js'
@@ -250,11 +250,11 @@ describe('TransactionDetailsPage', () => {
 
   it('Exit button saves draft and navigates to /', async () => {
     const user = userEvent.setup()
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
     seedTransaction()
     renderPage()
 
     await user.click(screen.getByRole('button', { name: 'Exit' }))
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Exit' }))
 
     expect(screen.getByRole('heading', { name: 'Start TTR Transaction' })).toBeInTheDocument()
     const stored = JSON.parse(window.sessionStorage.getItem(wizardStorageKeys.transaction))

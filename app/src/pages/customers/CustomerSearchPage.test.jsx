@@ -1,6 +1,6 @@
 import { Route, Routes, MemoryRouter } from 'react-router-dom'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import CustomerSearchPage from './CustomerSearchPage.jsx'
 import { wizardStorageKeys } from '../../components/wizardStorage.js'
@@ -18,9 +18,11 @@ function renderCustomersPage() {
   )
 }
 
+
 describe('CustomerSearchPage', () => {
   afterEach(() => {
     cleanup()
+    vi.restoreAllMocks()
   })
 
   beforeEach(() => {
@@ -164,6 +166,16 @@ describe('CustomerSearchPage', () => {
     renderCustomersPage()
 
     await user.click(screen.getByRole('button', { name: 'Back' }))
+
+    expect(screen.getByRole('heading', { name: 'Start TTR Transaction' })).toBeInTheDocument()
+  })
+
+  it('Exit button navigates to / after confirmation', async () => {
+    const user = userEvent.setup()
+    renderCustomersPage()
+
+    await user.click(screen.getByRole('button', { name: 'Exit' }))
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Exit' }))
 
     expect(screen.getByRole('heading', { name: 'Start TTR Transaction' })).toBeInTheDocument()
   })

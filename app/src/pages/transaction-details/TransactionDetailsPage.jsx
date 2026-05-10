@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Button from '../../components/ui/Button.jsx'
+import ConfirmModal from '../../components/ui/ConfirmModal.jsx'
 import FormField from '../../components/ui/FormField.jsx'
 import TextInput from '../../components/ui/TextInput.jsx'
 import WizardFrame from '../../components/layout/WizardFrame.jsx'
@@ -49,6 +50,7 @@ const TransactionDetailsPage = () => {
   const [rateSource, setRateSource] = useState('')
 
   const [errors, setErrors] = useState({})
+  const [showExitModal, setShowExitModal] = useState(false)
 
   const designatedService = DESIGNATED_SERVICES[scenario] || ''
 
@@ -125,8 +127,7 @@ const TransactionDetailsPage = () => {
     writeWizardData(wizardStorageKeys.transaction, buildPayload())
   }
 
-  const handleExit = () => {
-    if (!window.confirm('Exit this transaction? Your draft will be saved.')) return
+  const handleExitConfirm = () => {
     writeWizardData(wizardStorageKeys.transaction, buildPayload())
     navigate('/')
   }
@@ -147,7 +148,7 @@ const TransactionDetailsPage = () => {
       helperText="Step 2 of 3"
       backLabel="Back"
       onBack={() => navigate('/customers')}
-      onExit={handleExit}
+      onExit={() => setShowExitModal(true)}
       actions={
         <>
           <Button variant="secondary" onClick={handleSaveDraft}>
@@ -454,6 +455,12 @@ const TransactionDetailsPage = () => {
           Ensure the cash transaction amount is greater than $10,000 for it to be reportable.
         </p>
       ) : null}
+
+      <ConfirmModal
+        isOpen={showExitModal}
+        onCancel={() => setShowExitModal(false)}
+        onConfirm={handleExitConfirm}
+      />
 
       {/* Info note */}
       <p className={styles.infoNote}>

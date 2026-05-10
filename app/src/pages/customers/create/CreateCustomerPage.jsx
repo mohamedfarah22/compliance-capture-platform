@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { format } from 'date-fns'
 import Button from '../../../components/ui/Button.jsx'
+import ConfirmModal from '../../../components/ui/ConfirmModal.jsx'
 import DatePicker from '../../../components/ui/DatePicker.jsx'
 import FormField from '../../../components/ui/FormField.jsx'
 import TextInput from '../../../components/ui/TextInput.jsx'
@@ -37,6 +38,7 @@ const CreateCustomerPage = () => {
   const [companyEmail, setCompanyEmail] = useState('')
 
   const [errors, setErrors] = useState({})
+  const [showExitModal, setShowExitModal] = useState(false)
 
   const switchPartyType = (type) => {
     setPartyType(type)
@@ -107,6 +109,10 @@ const CreateCustomerPage = () => {
     navigate('/customers')
   }
 
+  const handleExitConfirm = () => {
+    navigate('/')
+  }
+
   return (
     <WizardFrame
       backLabel="Back"
@@ -114,6 +120,7 @@ const CreateCustomerPage = () => {
       subtitle="Enter the details for a new customer or party involved in this transaction."
       title="Create New Customer / Party"
       onBack={() => navigate('/customers')}
+      onExit={() => setShowExitModal(true)}
       actions={
         <>
           <Button onClick={handleCancel} variant="secondary">
@@ -260,6 +267,12 @@ const CreateCustomerPage = () => {
           </>
         )}
       </form>
+
+      <ConfirmModal
+        isOpen={showExitModal}
+        onCancel={() => setShowExitModal(false)}
+        onConfirm={handleExitConfirm}
+      />
     </WizardFrame>
   )
 }

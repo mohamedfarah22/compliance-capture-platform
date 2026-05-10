@@ -1,6 +1,6 @@
 import { Route, Routes, MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import CreateCustomerPage from './CreateCustomerPage.jsx'
 import { wizardStorageKeys } from '../../../components/wizardStorage.js'
@@ -9,6 +9,7 @@ function renderCreatePage() {
   return render(
     <MemoryRouter initialEntries={['/customers/create']}>
       <Routes>
+        <Route path="/" element={<h1>Start TTR Transaction</h1>} />
         <Route path="/customers/create" element={<CreateCustomerPage />} />
         <Route path="/customers" element={<h1>Customer / Party Search</h1>} />
       </Routes>
@@ -178,5 +179,15 @@ describe('CreateCustomerPage', () => {
     await user.click(screen.getByRole('button', { name: 'Back' }))
 
     expect(screen.getByRole('heading', { name: 'Customer / Party Search' })).toBeInTheDocument()
+  })
+
+  it('Exit button navigates to / after confirmation', async () => {
+    const user = userEvent.setup()
+    renderCreatePage()
+
+    await user.click(screen.getByRole('button', { name: 'Exit' }))
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Exit' }))
+
+    expect(screen.getByRole('heading', { name: 'Start TTR Transaction' })).toBeInTheDocument()
   })
 })

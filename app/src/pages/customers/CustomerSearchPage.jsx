@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Button from '../../components/ui/Button.jsx'
+import ConfirmModal from '../../components/ui/ConfirmModal.jsx'
 import DatePicker from '../../components/ui/DatePicker.jsx'
 import FormField from '../../components/ui/FormField.jsx'
 import TextInput from '../../components/ui/TextInput.jsx'
@@ -32,6 +33,7 @@ const CustomerSearchPage = () => {
   const [searchError, setSearchError] = useState('')
   const [duplicateError, setDuplicateError] = useState('')
   const [continueError, setContinueError] = useState('')
+  const [showExitModal, setShowExitModal] = useState(false)
 
   const switchMode = (mode) => {
     setSearchMode(mode)
@@ -118,6 +120,10 @@ const CustomerSearchPage = () => {
     writeWizardData(wizardStorageKeys.customers, selectedParties)
   }
 
+  const handleExitConfirm = () => {
+    navigate('/')
+  }
+
   const handleContinue = () => {
     if (selectedParties.length === 0) {
       setContinueError('Add at least one customer or party to continue.')
@@ -138,6 +144,7 @@ const CustomerSearchPage = () => {
       title="Add Customers / Parties"
       wide
       onBack={() => navigate('/')}
+      onExit={() => setShowExitModal(true)}
       actions={
         <>
           <Button onClick={handleSaveDraft} variant="secondary">
@@ -311,6 +318,12 @@ const CustomerSearchPage = () => {
           )}
         </div>
       </div>
+
+      <ConfirmModal
+        isOpen={showExitModal}
+        onCancel={() => setShowExitModal(false)}
+        onConfirm={handleExitConfirm}
+      />
     </WizardFrame>
   )
 }

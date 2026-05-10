@@ -85,4 +85,5 @@ describe('StartTransactionPage', () => {
     expect(storedTransaction.dateTime).toEqual(expect.any(String))
     expect(storedTransaction.createdAt).toEqual(expect.any(String))
   })
+
 })
