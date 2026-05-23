@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from 'react'
+﻿﻿import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AlertCircle, Building2, CheckCircle2, Circle, User } from 'lucide-react'
 import Button from '../../components/ui/Button.jsx'
@@ -180,9 +180,9 @@ const PartyDetailsPage = () => {
       updatedParty.dateOfBirth = dateOfBirth
       updatedParty.residentialAddress = { street: resStreet, suburb: resSuburb, state: resState, postcode: resPostcode, country: resCountry }
       updatedParty.hasPostalAddress = hasPostalAddress
-      if (hasPostalAddress) {
-        updatedParty.postalAddress = { street: postStreet, suburb: postSuburb, state: postState, postcode: postPostcode, country: postCountry }
-      }
+      updatedParty.postalAddress = hasPostalAddress
+        ? { street: postStreet, suburb: postSuburb, state: postState, postcode: postPostcode, country: postCountry }
+        : undefined
       updatedParty.phone = phone
       updatedParty.occupation = occupation
       updatedParty.abn = abn
@@ -192,9 +192,9 @@ const PartyDetailsPage = () => {
       updatedParty.legalForm = legalForm
       updatedParty.businessAddress = { street: bizStreet, suburb: bizSuburb, state: bizState, postcode: bizPostcode, country: bizCountry }
       updatedParty.hasCompanyPostalAddress = hasCompanyPostalAddress
-      if (hasCompanyPostalAddress) {
-        updatedParty.companyPostalAddress = { street: compPostStreet, suburb: compPostSuburb, state: compPostState, postcode: compPostPostcode, country: compPostCountry }
-      }
+      updatedParty.companyPostalAddress = hasCompanyPostalAddress
+        ? { street: compPostStreet, suburb: compPostSuburb, state: compPostState, postcode: compPostPostcode, country: compPostCountry }
+        : undefined
       updatedParty.companyPhone = companyPhone
       updatedParty.registrationIdentifierType = registrationIdentifierType
       updatedParty.registrationIdentifier = registrationIdentifier
@@ -315,19 +315,19 @@ const PartyDetailsPage = () => {
                       <div className={styles.statusRow}>
                         {status === 'complete' && (
                           <>
-                            <CheckCircle2 aria-hidden="true" size={16} />
+                            <CheckCircle2 aria-hidden="true" className={styles.statusComplete} size={16} />
                             <span className={styles.statusComplete}>Complete</span>
                           </>
                         )}
                         {status === 'in-progress' && (
                           <>
-                            <AlertCircle aria-hidden="true" size={16} />
+                            <AlertCircle aria-hidden="true" className={styles.statusInProgress} size={16} />
                             <span className={styles.statusInProgress}>In progress</span>
                           </>
                         )}
                         {status === 'not-started' && (
                           <>
-                            <Circle aria-hidden="true" size={16} />
+                            <Circle aria-hidden="true" className={styles.statusNotStarted} size={16} />
                             <span className={styles.statusNotStarted}>Not started</span>
                           </>
                         )}
@@ -620,7 +620,7 @@ const PartyDetailsPage = () => {
                 />
               </FormField>
 
-              <FormField label="Trading or business name" labelFor="companyTradingName" helperText="Optional â€” only if different from the legal entity name.">
+              <FormField label="Trading or business name" labelFor="companyTradingName" helperText="Optional — only if different from the legal entity name.">
                 <input
                   id="companyTradingName"
                   type="text"
@@ -816,7 +816,7 @@ const PartyDetailsPage = () => {
                     type="text"
                     value={registrationIdentifier}
                     onChange={(e) => { setRegistrationIdentifier(e.target.value); markChanged() }}
-                    className={[styles.input, styles.idValueInput].join(' ')}
+                    className={styles.input}
                     placeholder="Enter identifier"
                   />
                 </div>
