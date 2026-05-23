@@ -3,14 +3,10 @@ import StartTransactionPage from './pages/start/StartTransactionPage.jsx'
 import CustomerSearchPage from './pages/customers/CustomerSearchPage.jsx'
 import CreateCustomerPage from './pages/customers/create/CreateCustomerPage.jsx'
 import TransactionDetailsPage from './pages/transaction-details/TransactionDetailsPage.jsx'
+import PartyDetailsPage from './pages/party-details/PartyDetailsPage.jsx'
 import PlaceholderPage from './pages/PlaceholderPage.jsx'
 
 const pendingPages = [
-  {
-    path: '/party-details',
-    title: 'Party Details',
-    description: 'This route is reserved for detailed party information.',
-  },
   {
     path: '/conducting-person',
     title: 'Conducting Person Details',
@@ -46,6 +42,7 @@ const App = () => {
         <Route path="/customers" element={<CustomerSearchPage />} />
         <Route path="/customers/create" element={<CreateCustomerPage />} />
         <Route path="/transaction-details" element={<TransactionDetailsPage />} />
+        <Route path="/party-details" element={<PartyDetailsPage />} />
         {pendingPages.map((page) => (
           <Route
             key={page.path}

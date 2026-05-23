@@ -10,7 +10,7 @@ const FormField = ({ children, error, helperText, label, labelFor }) => {
       ) : null}
       {children}
       {helperText ? <p className={styles.helper}>{helperText}</p> : null}
-      {error ? <p className={styles.error}>{error}</p> : null}
+      {error !== undefined ? <p className={styles.error}>{error}</p> : null}
     </div>
   )
 }
