@@ -1,0 +1,302 @@
+.layout {
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  gap: 2rem;
+  align-items: start;
+}
+
+/* Left panel */
+
+.partyList {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.panelHeading {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.partyCards {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.partyCard {
+  width: 100%;
+  padding: 1rem;
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 160ms ease, background 160ms ease;
+}
+
+.partyCard:hover {
+  border-color: var(--color-border);
+}
+
+.partyCardActive {
+  border-color: var(--color-primary);
+  background: var(--color-secondary);
+}
+
+.partyCardInner {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.partyIcon {
+  flex-shrink: 0;
+  color: var(--color-muted);
+  margin-top: 0.125rem;
+}
+
+.partyMeta {
+  flex: 1;
+  min-width: 0;
+}
+
+.partyName {
+  margin: 0;
+  color: var(--color-text);
+  font-weight: 600;
+  font-size: 0.9375rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.partyTypeBadge {
+  margin: 0.125rem 0 0;
+  color: var(--color-muted);
+  font-size: 0.875rem;
+}
+
+.statusRow {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  margin-top: 0.5rem;
+  font-size: 0.875rem;
+}
+
+.statusComplete {
+  color: #16a34a;
+}
+
+.statusInProgress {
+  color: #ca8a04;
+}
+
+.statusNotStarted {
+  color: var(--color-muted);
+}
+
+/* Right panel */
+
+.formPanel {
+  display: grid;
+  gap: 1rem;
+}
+
+.summaryCard {
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-lg);
+  background: var(--color-secondary);
+  padding: 1rem 1.25rem;
+}
+
+.summaryCardInner {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.formSection {
+  display: grid;
+  gap: 1.25rem;
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  padding: 1.5rem;
+  box-shadow: var(--shadow-soft);
+}
+
+.formSection h2 {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 1.125rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.addressGroup {
+  display: grid;
+  gap: 1rem;
+}
+
+.addressGroup h3 {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+.postalSection {
+  display: grid;
+  gap: 1rem;
+  padding-left: 1rem;
+  border-left: 2px solid var(--color-border-soft);
+}
+
+.postalSection h3 {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+.grid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.input {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-md);
+  background: #f3f4f6;
+  color: var(--color-text);
+  padding: 0.625rem 0.875rem;
+  font-size: 0.9375rem;
+  font-family: inherit;
+  transition: background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.input::placeholder {
+  color: #818898;
+}
+
+.input:focus {
+  border-color: var(--color-focus);
+  background: var(--color-surface);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.16);
+  outline: none;
+}
+
+.select {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-md);
+  background: #f3f4f6;
+  color: var(--color-text);
+  padding: 0.625rem 0.875rem;
+  font-size: 0.9375rem;
+  font-family: inherit;
+  transition: background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.select:focus {
+  border-color: var(--color-focus);
+  background: var(--color-surface);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.16);
+  outline: none;
+}
+
+.checkboxRow {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  cursor: pointer;
+  color: var(--color-text);
+  font-size: 0.9375rem;
+  font-weight: 500;
+}
+
+.aliasRow {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.aliasRow .input {
+  flex: 1;
+}
+
+.aliasTags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.aliasTag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.25rem 0.625rem;
+  border-radius: var(--radius-md);
+  background: var(--color-secondary);
+  color: var(--color-text);
+  font-size: 0.875rem;
+}
+
+.aliasRemove {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-muted);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 160ms ease;
+}
+
+.aliasRemove:hover {
+  color: var(--color-danger);
+}
+
+.idTypeRow {
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  gap: 0.75rem;
+}
+
+.continueError {
+  margin: 0 0 1rem;
+  padding: 0.875rem 1.125rem;
+  border: 1px solid #fecaca;
+  border-radius: var(--radius-md);
+  background: #fef2f2;
+  color: var(--color-danger);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+@media (max-width: 1024px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .formSection {
+    padding: 1rem;
+  }
+
+  .grid2 {
+    grid-template-columns: 1fr;
+  }
+
+  .idTypeRow {
+    grid-template-columns: 1fr;
+  }
+}

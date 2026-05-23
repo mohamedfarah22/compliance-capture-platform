@@ -1,0 +1,54 @@
+.card {
+  display: grid;
+  gap: 1.5rem;
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  padding: 1.5rem;
+  box-shadow: var(--shadow-soft);
+}
+
+.modeToggle {
+  display: flex;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.modeTab {
+  flex: 1;
+  padding: 0.5rem 1rem;
+  border: 0;
+  background: transparent;
+  color: var(--color-muted);
+  font-size: 0.9375rem;
+  font-family: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 160ms ease, color 160ms ease;
+}
+
+.modeTab + .modeTab {
+  border-left: 1px solid var(--color-border);
+}
+
+.modeTabActive {
+  background: var(--color-primary);
+  color: var(--color-primary-contrast);
+}
+
+.fieldRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+@media (max-width: 640px) {
+  .card {
+    padding: 1rem;
+  }
+
+  .fieldRow {
+    grid-template-columns: 1fr;
+  }
+}
