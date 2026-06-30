@@ -1,0 +1,74 @@
+.state {
+  color: var(--color-muted);
+  font-size: 0.9375rem;
+}
+
+.error {
+  color: var(--color-error, #dc2626);
+  font-size: 0.9375rem;
+}
+
+.tableWrap {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.table th,
+.table td {
+  padding: 0.625rem 0.875rem;
+  text-align: left;
+  border-bottom: 1px solid var(--color-border-soft);
+}
+
+.table th {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--color-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.table tbody tr:hover {
+  background: var(--color-surface-hover, rgba(0, 0, 0, 0.025));
+}
+
+.badge {
+  display: inline-block;
+  padding: 0.2rem 0.55rem;
+  border-radius: 99px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  background: var(--color-border-soft);
+  color: var(--color-muted);
+}
+
+.badge_pending_review {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.badge_submitted {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.badge_rejected {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.action {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--color-primary, #1a56db);
+  text-decoration: none;
+}
+
+.action:hover {
+  text-decoration: underline;
+}

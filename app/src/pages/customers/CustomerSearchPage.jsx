@@ -7,7 +7,7 @@ import FormField from '../../components/ui/FormField.jsx'
 import TextInput from '../../components/ui/TextInput.jsx'
 import WizardFrame from '../../components/layout/WizardFrame.jsx'
 import { wizardStorageKeys, writeWizardData, readWizardData } from '../../components/wizardStorage.js'
-import { mockCompanies, mockIndividuals } from './customerMockData.js'
+import { deleteTransaction, searchIndividualCustomers, searchCompanyCustomers } from '../../lib/wizardApi.js'
 import styles from './CustomerSearchPage.module.css'
 
 const CustomerSearchPage = () => {
@@ -30,6 +30,7 @@ const CustomerSearchPage = () => {
     readWizardData(wizardStorageKeys.customers, []),
   )
 
+  const [searching, setSearching] = useState(false)
   const [searchError, setSearchError] = useState('')
   const [duplicateError, setDuplicateError] = useState('')
   const [continueError, setContinueError] = useState('')
@@ -43,7 +44,7 @@ const CustomerSearchPage = () => {
     setResults([])
   }
 
-  const handleSearch = (e) => {
+  const handleSearch = async (e) => {
     e.preventDefault()
     setDuplicateError('')
 
@@ -51,48 +52,48 @@ const CustomerSearchPage = () => {
       const fn = firstName.trim()
       const ln = lastName.trim()
 
-      if (!((fn && ln) || (ln && dateOfBirth))) {
-        setSearchError('Enter First Name + Last Name, or Last Name + DOB to search.')
+      const dob = dateOfBirth.trim()
+      if (!fn || !ln || !dob) {
+        setSearchError('Enter First Name, Last Name and Date of Birth to search.')
         setHasSearched(false)
         setResults([])
         return
       }
 
       setSearchError('')
-
-      const filtered = mockIndividuals.filter((p) => {
-        const matchesFirstLast =
-          fn && ln && p.firstName.toLowerCase().includes(fn.toLowerCase()) && p.lastName.toLowerCase().includes(ln.toLowerCase())
-        const matchesLastDob =
-          ln && dateOfBirth && p.lastName.toLowerCase().includes(ln.toLowerCase()) && p.dateOfBirth === dateOfBirth
-        return matchesFirstLast || matchesLastDob
-      })
-
-      setResults(filtered)
-      setHasSearched(true)
+      setSearching(true)
+      try {
+        const data = await searchIndividualCustomers({ firstName: fn, lastName: ln, dob: dateOfBirth || null })
+        setResults(data)
+        setHasSearched(true)
+      } catch {
+        setSearchError('Search failed. Please try again.')
+      } finally {
+        setSearching(false)
+      }
     } else {
       const en = entityName.trim()
       const abn = abnAcn.trim()
 
-      if (!en && !abn) {
-        setSearchError('Enter Registered Entity Name or ABN / ACN to search.')
+      const sub = suburb.trim()
+      if (!en || !abn || !sub) {
+        setSearchError('Enter Entity Name, ABN / ACN and Suburb / Postcode to search.')
         setHasSearched(false)
         setResults([])
         return
       }
 
       setSearchError('')
-
-      const filtered = mockCompanies.filter((p) => {
-        const matchesEntity = en && p.entityName.toLowerCase().includes(en.toLowerCase())
-        const matchesAbn =
-          abn &&
-          p.abnAcn.toLowerCase().replace(/\s/g, '').includes(abn.toLowerCase().replace(/\s/g, ''))
-        return matchesEntity || matchesAbn
-      })
-
-      setResults(filtered)
-      setHasSearched(true)
+      setSearching(true)
+      try {
+        const data = await searchCompanyCustomers({ entityName: en, regIdentifier: abn, suburb: suburb.trim() || null })
+        setResults(data)
+        setHasSearched(true)
+      } catch {
+        setSearchError('Search failed. Please try again.')
+      } finally {
+        setSearching(false)
+      }
     }
   }
 
@@ -116,12 +117,9 @@ const CustomerSearchPage = () => {
     writeWizardData(wizardStorageKeys.customers, updated)
   }
 
-  const handleSaveDraft = () => {
-    writeWizardData(wizardStorageKeys.customers, selectedParties)
-  }
-
-  const handleExitConfirm = () => {
-    navigate('/')
+  const handleExitConfirm = async () => {
+    await deleteTransaction()
+    navigate('/start')
   }
 
   const handleContinue = () => {
@@ -143,15 +141,10 @@ const CustomerSearchPage = () => {
       subtitle="Search for existing records first, then add all parties involved in this transaction."
       title="Add Customers / Parties"
       wide
-      onBack={() => navigate('/')}
+      onBack={() => navigate('/start')}
       onExit={() => setShowExitModal(true)}
       actions={
-        <>
-          <Button onClick={handleSaveDraft} variant="secondary">
-            Save draft
-          </Button>
-          <Button onClick={handleContinue}>Continue</Button>
-        </>
+        <Button onClick={handleContinue}>Continue</Button>
       }
     >
       {continueError ? <p className={styles.continueError}>{continueError}</p> : null}
@@ -252,7 +245,7 @@ const CustomerSearchPage = () => {
             {duplicateError ? <p className={styles.searchError}>{duplicateError}</p> : null}
 
             <div className={styles.searchActions}>
-              <Button type="submit">Search</Button>
+              <Button disabled={searching} type="submit">{searching ? 'Searching…' : 'Search'}</Button>
               <Button type="button" variant="secondary" onClick={() => navigate('/customers/create')}>
                 Create new customer / party
               </Button>

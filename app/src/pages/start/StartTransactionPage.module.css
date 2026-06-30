@@ -47,6 +47,13 @@
   line-height: 1.45;
 }
 
+.draftNotice {
+  margin: 0;
+  color: var(--color-text-muted, #6b7280);
+  font-size: 0.875rem;
+  line-height: 1.45;
+}
+
 @media (max-width: 640px) {
   .card {
     padding: 1rem;

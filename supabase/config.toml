@@ -1,0 +1,50 @@
+project_id = "compliance-capture-platform"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "ttr", "storage", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+shadow_port = 54320
+major_version = 15
+
+[studio]
+enabled = true
+port = 54323
+
+[inbucket]
+enabled = true
+port = 54324
+
+[storage]
+enabled = true
+file_size_limit = "10MiB"
+
+[auth]
+enabled = true
+site_url = "http://127.0.0.1:3000"
+additional_redirect_urls = ["http://localhost:3000"]
+jwt_expiry = 3600
+enable_signup = false
+
+[functions.complete-transaction]
+verify_jwt = true
+
+[functions.delete-draft-transaction]
+verify_jwt = true
+
+[functions.upload-id-image]
+verify_jwt = true
+
+[functions.cleanup-stale-drafts]
+verify_jwt = false
+
+[functions.generate-austrac-report]
+verify_jwt = false
+
+[functions.approve-batch]
+verify_jwt = true

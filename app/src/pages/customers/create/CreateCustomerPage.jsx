@@ -8,6 +8,7 @@ import FormField from '../../../components/ui/FormField.jsx'
 import TextInput from '../../../components/ui/TextInput.jsx'
 import WizardFrame from '../../../components/layout/WizardFrame.jsx'
 import { wizardStorageKeys, readWizardData, writeWizardData } from '../../../components/wizardStorage.js'
+import { deleteTransaction } from '../../../lib/wizardApi.js'
 import styles from './CreateCustomerPage.module.css'
 
 const formatDobDetail = (isoDate) => {
@@ -109,8 +110,9 @@ const CreateCustomerPage = () => {
     navigate('/customers')
   }
 
-  const handleExitConfirm = () => {
-    navigate('/')
+  const handleExitConfirm = async () => {
+    await deleteTransaction()
+    navigate('/start')
   }
 
   return (
@@ -201,6 +203,7 @@ const CreateCustomerPage = () => {
                 type="tel"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
+                maxLength={20}
               />
             </FormField>
             <FormField label="Email address" labelFor="email">
@@ -226,6 +229,7 @@ const CreateCustomerPage = () => {
                 type="text"
                 value={entityName}
                 onChange={(e) => setEntityName(e.target.value)}
+                maxLength={140}
               />
             </FormField>
             <FormField error={errors.abnAcn} label="ABN / ACN" labelFor="abnAcn">
@@ -253,6 +257,7 @@ const CreateCustomerPage = () => {
                 type="tel"
                 value={companyPhone}
                 onChange={(e) => setCompanyPhone(e.target.value)}
+                maxLength={20}
               />
             </FormField>
             <FormField label="Email address" labelFor="companyEmail">

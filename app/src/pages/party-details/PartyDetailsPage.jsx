@@ -1,4 +1,4 @@
-﻿﻿import { useState, useEffect } from 'react'
+﻿import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AlertCircle, Building2, CheckCircle2, Circle, User } from 'lucide-react'
 import Button from '../../components/ui/Button.jsx'
@@ -6,7 +6,7 @@ import ConfirmModal from '../../components/ui/ConfirmModal.jsx'
 import DatePicker from '../../components/ui/DatePicker.jsx'
 import FormField from '../../components/ui/FormField.jsx'
 import WizardFrame from '../../components/layout/WizardFrame.jsx'
-import { wizardStorageKeys, readWizardData, writeWizardData } from '../../components/wizardStorage.js'
+import { deleteTransaction, loadCustomers, saveCustomers } from '../../lib/wizardApi.js'
 import styles from './PartyDetailsPage.module.css'
 
 const STATES = ['VIC', 'NSW', 'QLD', 'WA', 'SA', 'TAS', 'ACT', 'NT']
@@ -14,14 +14,8 @@ const STATES = ['VIC', 'NSW', 'QLD', 'WA', 'SA', 'TAS', 'ACT', 'NT']
 const PartyDetailsPage = () => {
   const navigate = useNavigate()
 
-  const [parties, setParties] = useState(() =>
-    readWizardData(wizardStorageKeys.customers, []).map(party => ({
-      ...party,
-      partyType: party.type === 'individual' ? 'Individual' : 'Company',
-      isComplete: party.isComplete || false,
-    }))
-  )
-
+  const [parties, setParties] = useState([])
+  const [loading, setLoading] = useState(true)
   const [currentPartyIndex, setCurrentPartyIndex] = useState(0)
   const [errors, setErrors] = useState({})
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
@@ -48,6 +42,9 @@ const PartyDetailsPage = () => {
   const [phone, setPhone] = useState('')
   const [occupation, setOccupation] = useState('')
   const [abn, setAbn] = useState('')
+  const [gender, setGender] = useState('')
+  const [citizenshipCountryCode, setCitizenshipCountryCode] = useState('AU')
+  const [taxResidencyCountryCode, setTaxResidencyCountryCode] = useState('AU')
 
   // Company fields
   const [entityName, setEntityName] = useState('')
@@ -69,12 +66,7 @@ const PartyDetailsPage = () => {
   const [registrationIdentifier, setRegistrationIdentifier] = useState('')
   const [principalActivity, setPrincipalActivity] = useState('')
 
-  const currentParty = parties[currentPartyIndex]
-
-  useEffect(() => {
-    if (currentParty) loadPartyData(currentParty)
-  }, [currentPartyIndex])
-
+  // Must be declared before the useEffect that calls it
   const loadPartyData = (party) => {
     if (party.partyType === 'Individual') {
       setFullName(party.fullName || party.displayName || `${party.firstName || ''} ${party.lastName || ''}`.trim())
@@ -95,6 +87,9 @@ const PartyDetailsPage = () => {
       setPhone(party.phone || '')
       setOccupation(party.occupation || '')
       setAbn(party.abn || '')
+      setGender(party.gender || '')
+      setCitizenshipCountryCode(party.citizenshipCountryCode || 'AU')
+      setTaxResidencyCountryCode(party.taxResidencyCountryCode || 'AU')
     } else {
       setEntityName(party.entityName || '')
       setCompanyTradingName(party.companyTradingName || '')
@@ -120,6 +115,27 @@ const PartyDetailsPage = () => {
     setContinueError('')
   }
 
+  // Load parties from Supabase on mount — loadPartyData is stable (no deps), safe to call here
+  useEffect(() => {
+    loadCustomers()
+      .then((loaded) => {
+        const mapped = loaded.map((p) => ({
+          ...p,
+          partyType: p.type === 'individual' ? 'Individual' : 'Company',
+        }))
+        setParties(mapped)
+        if (mapped.length > 0) loadPartyData(mapped[0])
+      })
+      .finally(() => setLoading(false))
+  }, [])
+
+  const currentParty = parties[currentPartyIndex]
+
+  const switchToParty = (index, loadedParties = parties) => {
+    setCurrentPartyIndex(index)
+    loadPartyData(loadedParties[index])
+  }
+
   const validateIndividual = () => {
     const newErrors = {}
     if (!fullName.trim()) newErrors.fullName = 'Enter the full legal name.'
@@ -131,6 +147,9 @@ const PartyDetailsPage = () => {
     if (!resCountry.trim()) newErrors.resCountry = 'Enter the country.'
     if (!phone.trim()) newErrors.phone = 'Enter the phone number.'
     if (!occupation.trim()) newErrors.occupation = 'Enter the occupation or principal activity.'
+    if (!gender) newErrors.gender = 'Select the gender.'
+    if (!citizenshipCountryCode.trim()) newErrors.citizenshipCountryCode = 'Enter the citizenship country code.'
+    if (!taxResidencyCountryCode.trim()) newErrors.taxResidencyCountryCode = 'Enter the tax residency country code.'
     if (hasPostalAddress) {
       if (!postStreet.trim()) newErrors.postStreet = 'Enter the postal street address.'
       if (!postSuburb.trim()) newErrors.postSuburb = 'Enter the postal suburb.'
@@ -186,6 +205,9 @@ const PartyDetailsPage = () => {
       updatedParty.phone = phone
       updatedParty.occupation = occupation
       updatedParty.abn = abn
+      updatedParty.gender = gender
+      updatedParty.citizenshipCountryCode = citizenshipCountryCode
+      updatedParty.taxResidencyCountryCode = taxResidencyCountryCode
     } else {
       updatedParty.entityName = entityName
       updatedParty.companyTradingName = companyTradingName
@@ -204,32 +226,32 @@ const PartyDetailsPage = () => {
     return updatedParty
   }
 
-  const commitSave = (updatedParty) => {
+  const commitSave = async (updatedParty) => {
     const updatedParties = [...parties]
     updatedParties[currentPartyIndex] = updatedParty
     setParties(updatedParties)
-    writeWizardData(wizardStorageKeys.customers, updatedParties)
+    await saveCustomers([updatedParty])
     setHasUnsavedChanges(false)
     return updatedParties
   }
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const updatedParty = buildSavedParty()
-    if (updatedParty) commitSave(updatedParty)
+    if (updatedParty) await commitSave(updatedParty)
   }
 
-  const handleSaveAndNext = () => {
+  const handleSaveAndNext = async () => {
     const updatedParty = buildSavedParty()
     if (!updatedParty) return
-    const updatedParties = commitSave(updatedParty)
+    const updatedParties = await commitSave(updatedParty)
     const nextIndex = updatedParties.findIndex((p, idx) => idx > currentPartyIndex && !p.isComplete)
-    if (nextIndex !== -1) setCurrentPartyIndex(nextIndex)
+    if (nextIndex !== -1) switchToParty(nextIndex, updatedParties)
   }
 
-  const handleContinue = () => {
+  const handleContinue = async () => {
     const updatedParty = buildSavedParty()
     if (!updatedParty) return
-    const updatedParties = commitSave(updatedParty)
+    const updatedParties = await commitSave(updatedParty)
     if (updatedParties.every(p => p.isComplete)) {
       navigate('/conducting-person')
     } else {
@@ -267,7 +289,7 @@ const PartyDetailsPage = () => {
     return party.entityName || party.displayName || 'Company Party'
   }
 
-  if (!currentParty) return null
+  if (loading || !currentParty) return null
 
   return (
     <WizardFrame
@@ -301,7 +323,7 @@ const PartyDetailsPage = () => {
                 <button
                   key={party.id}
                   type="button"
-                  onClick={() => setCurrentPartyIndex(index)}
+                  onClick={() => switchToParty(index)}
                   className={[styles.partyCard, isActive ? styles.partyCardActive : ''].filter(Boolean).join(' ')}
                 >
                   <div className={styles.partyCardInner}>
@@ -369,6 +391,7 @@ const PartyDetailsPage = () => {
                   onChange={(e) => { setFullName(e.target.value); markChanged() }}
                   className={styles.input}
                   placeholder="Enter full legal name"
+                  maxLength={140}
                 />
               </FormField>
 
@@ -575,6 +598,7 @@ const PartyDetailsPage = () => {
                   type="tel"
                   value={phone}
                   onChange={(e) => { setPhone(e.target.value); markChanged() }}
+                  maxLength={20}
                   className={styles.input}
                   placeholder="Enter phone number"
                 />
@@ -601,6 +625,46 @@ const PartyDetailsPage = () => {
                   placeholder="Enter ABN if relevant"
                 />
               </FormField>
+
+              <FormField label="Gender" labelFor="gender" error={errors.gender ?? ""}>
+                <select
+                  id="gender"
+                  value={gender}
+                  onChange={(e) => { setGender(e.target.value); markChanged() }}
+                  className={styles.select}
+                >
+                  <option value="">Select gender</option>
+                  <option value="M">Male</option>
+                  <option value="F">Female</option>
+                  <option value="U">Unknown / not stated</option>
+                </select>
+              </FormField>
+
+              <div className={styles.grid2}>
+                <FormField label="Citizenship country" labelFor="citizenshipCountryCode" helperText="ISO 2-letter code, e.g. AU" error={errors.citizenshipCountryCode ?? ""}>
+                  <input
+                    id="citizenshipCountryCode"
+                    type="text"
+                    value={citizenshipCountryCode}
+                    onChange={(e) => { setCitizenshipCountryCode(e.target.value.toUpperCase().slice(0, 2)); markChanged() }}
+                    className={styles.input}
+                    placeholder="AU"
+                    maxLength={2}
+                  />
+                </FormField>
+
+                <FormField label="Tax residency country" labelFor="taxResidencyCountryCode" helperText="ISO 2-letter code, e.g. AU" error={errors.taxResidencyCountryCode ?? ""}>
+                  <input
+                    id="taxResidencyCountryCode"
+                    type="text"
+                    value={taxResidencyCountryCode}
+                    onChange={(e) => { setTaxResidencyCountryCode(e.target.value.toUpperCase().slice(0, 2)); markChanged() }}
+                    className={styles.input}
+                    placeholder="AU"
+                    maxLength={2}
+                  />
+                </FormField>
+              </div>
             </div>
           )}
 
@@ -793,6 +857,7 @@ const PartyDetailsPage = () => {
                   type="tel"
                   value={companyPhone}
                   onChange={(e) => { setCompanyPhone(e.target.value); markChanged() }}
+                  maxLength={20}
                   className={styles.input}
                   placeholder="Enter phone number"
                 />
@@ -840,7 +905,7 @@ const PartyDetailsPage = () => {
       <ConfirmModal
         isOpen={showExitModal}
         onCancel={() => setShowExitModal(false)}
-        onConfirm={() => navigate('/')}
+        onConfirm={async () => { await deleteTransaction(); navigate('/start') }}
       />
     </WizardFrame>
   )

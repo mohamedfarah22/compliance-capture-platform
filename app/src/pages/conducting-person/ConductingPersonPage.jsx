@@ -6,7 +6,7 @@ import ConfirmModal from '../../components/ui/ConfirmModal.jsx'
 import DatePicker from '../../components/ui/DatePicker.jsx'
 import FormField from '../../components/ui/FormField.jsx'
 import WizardFrame from '../../components/layout/WizardFrame.jsx'
-import { wizardStorageKeys, readWizardData, writeWizardData } from '../../components/wizardStorage.js'
+import { deleteTransaction, loadConductingPerson, loadCustomers, saveConductingPerson } from '../../lib/wizardApi.js'
 import styles from './ConductingPersonPage.module.css'
 
 const STATES = ['VIC', 'NSW', 'QLD', 'WA', 'SA', 'TAS', 'ACT', 'NT']
@@ -67,9 +67,10 @@ const ConductingPersonPage = () => {
   const [showClearWarning, setShowClearWarning] = useState(false)
 
   useEffect(() => {
-    setParties(readWizardData(wizardStorageKeys.customers, []))
-    const saved = readWizardData(wizardStorageKeys.conductingPerson, null)
-    if (saved) setData(saved)
+    Promise.all([loadCustomers(), loadConductingPerson()]).then(([loaded, cp]) => {
+      setParties(loaded)
+      if (cp) setData((prev) => ({ ...prev, ...cp }))
+    })
   }, [])
 
   const updateData = (updates) => setData((prev) => ({ ...prev, ...updates }))
@@ -141,9 +142,9 @@ const ConductingPersonPage = () => {
     return Object.keys(e).length === 0
   }
 
-  const handleContinue = () => {
+  const handleContinue = async () => {
     if (!validate()) return
-    writeWizardData(wizardStorageKeys.conductingPerson, data)
+    await saveConductingPerson(data)
     navigate('/id-verification')
   }
 
@@ -752,7 +753,7 @@ const ConductingPersonPage = () => {
       <ConfirmModal
         isOpen={showExitModal}
         onCancel={() => setShowExitModal(false)}
-        onConfirm={() => navigate('/')}
+        onConfirm={async () => { await deleteTransaction(); navigate('/start') }}
       />
     </WizardFrame>
   )
