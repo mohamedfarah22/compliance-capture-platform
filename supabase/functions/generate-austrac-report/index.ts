@@ -12,26 +12,42 @@ const NS = "http://austrac.gov.au/schema/reporting/TTR-1-0";
 
 // ─── AUSTRAC code mappings ────────────────────────────────────────────────────
 
-const ID_TYPE_MAP: Record<string, string> = {
+export const ID_TYPE_MAP: Record<string, string> = {
   "Driver licence": "D",
   "Passport": "P",
   "Proof of age card": "PHOT",
   "National identity card": "PHOT",
   "Medicare card": "BENE",
   "Other government document": "PHOT",
-  "Electronic verification source": "ELEC",
+  "Electronic verification source": "OVS",
+  "Birth certificate": "BCNO",
 };
 
-const BULLION_TYPE_MAP: Record<string, string> = {
+export const BULLION_TYPE_MAP: Record<string, string> = {
   "Gold": "GOLD",
   "Silver": "SILVER",
   "Platinum": "PLATINUM",
   "Palladium": "PALLADIUM",
 };
 
-const DESIGNATED_SERVICE_MAP: Record<string, string> = {
+export const PRECIOUS_METAL_TYPE_MAP: Record<string, string> = {
+  "Gold": "GOLD",
+  "Iridium": "IRIDIUM",
+  "Osmium": "OSMIUM",
+  "Palladium": "PALLADIUM",
+  "Platinum": "PLATINUM",
+  "Rhodium": "RHODIUM",
+  "Ruthenium": "RUTHENIUM",
+  "Silver": "SILVER",
+  "Alloy": "ALLOY",
+  "Other": "OTHER",
+};
+
+export const DESIGNATED_SERVICE_MAP: Record<string, string> = {
   "bullion_sell": "BULSER",
   "bullion_buy": "BULSER",
+  "precious_metal_sell": "PRECIOUS",
+  "precious_metal_buy": "PRECIOUS",
 };
 
 // ─── XML helpers ─────────────────────────────────────────────────────────────
@@ -41,6 +57,7 @@ type Row = Record<string, unknown>;
 function xmlEsc(s: unknown): string {
   if (s === null || s === undefined) return "";
   return String(s)
+    .trim()
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
@@ -63,38 +80,63 @@ function fmtAmount(n: unknown): string {
   return Number(n ?? 0).toFixed(2);
 }
 
-// ─── Address (TTR-1-0 AddressType) ───────────────────────────────────────────
-// Elements: <addr>, <suburb>, <state>, <postcode>, <countryCode>
+// ─── xs:ID generation ─────────────────────────────────────────────────────────
+// Every complex-type element in TTR-1-0 (Address, AudAmount, CurrencyAmount,
+// Identification, transaction, moneyReceived/moneyProvided, etc.) requires a unique
+// xs:ID attribute — unique across the whole <ttrList> document, not just one <ttr>
+// block. One generator instance per <ttr> block, prefixed with the transaction id.
 
-function buildAddress(
+export type IdGen = (prefix: string) => string;
+
+export function makeIdGen(txId: string): IdGen {
+  let n = 0;
+  return (prefix: string) => `${prefix}-${txId}-${++n}`;
+}
+
+// ─── Address (TTR-1-0 Address / PostalAddress / AddressOrLocation types) ─────
+// All three real address complex types share the same content sequence
+// (addr, suburb, state, postcode, countryCode) and each require a unique id
+// attribute — only the wrapping tag name differs by usage.
+
+function buildAddressEl(
+  idGen: IdGen,
+  tag: string,
   street: unknown,
   suburb: unknown,
   state: unknown,
   postcode: unknown,
   country: unknown,
 ): string {
-  return [
-    el("addr", street),
-    el("suburb", suburb),
-    el("state", state),
-    el("postcode", postcode),
-    el("countryCode", (country as string ?? "AU").toUpperCase().slice(0, 2)),
-  ].join("");
+  return `<${tag} id="${xmlEsc(idGen("addr"))}">${el("addr", street)}${el("suburb", suburb)}${el("state", state)}${el("postcode", postcode)}${el("countryCode", (country as string ?? "AU").toUpperCase().slice(0, 2))}</${tag}>`;
+}
+
+// ─── AudAmount / CurrencyAmount (TTR-1-0 money types) ────────────────────────
+
+function buildAudAmountInner(amount: unknown): string {
+  return `${el("currencyCode", "AUD")}${el("amount", fmtAmount(amount))}`;
+}
+
+function buildCurrencyAmountInner(currencyCode: unknown, amount: unknown, exchangeRate?: unknown): string {
+  return `${el("currencyCode", currencyCode)}${el("amount", fmtAmount(amount))}${exchangeRate ? el("exchangeRate", exchangeRate) : ""}`;
 }
 
 // ─── Identification (TTR-1-0 IdentificationType) ─────────────────────────────
 
-function buildIdElement(idv: Row | null): string {
+export function buildIdElement(idGen: IdGen, idv: Row | null): string {
   if (!idv) return "";
   const rawType = idv.document_type as string;
   const idType = ID_TYPE_MAP[rawType] ?? "PHOT";
   const typeOther = idType === "PHOT" && !ID_TYPE_MAP[rawType] ? rawType : "";
-  return `<identification>${el("type", idType)}${opt("typeOther", typeOther)}${el("number", idv.document_number)}${opt("issuer", idv.issuer)}${opt("countryCode", idv.id_country_code)}</identification>`;
+  // countryCode must be entirely absent for OVS (electronic verification source) —
+  // the schema forbids it there, unlike every other identification type.
+  const countryCodeEl = idType === "OVS" ? "" : opt("countryCode", idv.id_country_code);
+  return `<identification id="${xmlEsc(idGen("id"))}">${el("type", idType)}${opt("typeOther", typeOther)}${el("number", idv.document_number)}${opt("issuer", idv.issuer)}${countryCodeEl}</identification>`;
 }
 
 // ─── IndividualDetails ────────────────────────────────────────────────────────
 
 function buildIndividualDetails(
+  idGen: IdGen,
   person: Row,
   idv: Row | null,
   aliases: Row[],
@@ -107,14 +149,15 @@ function buildIndividualDetails(
         .filter(Boolean)
         .join(" ");
 
-  const altNames = aliases.map((a) => opt("altName", a.alias_name)).join("");
+  // ttr.party_aliases' column is `alias`, not `alias_name`.
+  const altNames = aliases.map((a) => opt("altName", a.alias)).join("");
 
   const resAddr = person.res_street
-    ? `<residentialAddress>${buildAddress(person.res_street, person.res_suburb, person.res_state, person.res_postcode, person.res_country)}</residentialAddress>`
+    ? buildAddressEl(idGen, "residentialAddress", person.res_street, person.res_suburb, person.res_state, person.res_postcode, person.res_country)
     : "";
 
   const postAddr = person.post_street
-    ? `<postalAddress>${buildAddress(person.post_street, person.post_suburb, person.post_state, person.post_postcode, person.post_country)}</postalAddress>`
+    ? buildAddressEl(idGen, "postalAddress", person.post_street, person.post_suburb, person.post_state, person.post_postcode, person.post_country)
     : "";
 
   const isAbnHolder = !!(person.abn);
@@ -128,100 +171,214 @@ function buildIndividualDetails(
     opt("citizenshipCountryCode", person.citizenship_country_code),
     opt("taxResidencyCountryCode", person.tax_residency_country_code),
     el("isSoleTrader", yesNo(isSoleTrader)),
-    el("isAbnHolder", yesNo(isAbnHolder)),
-    isAbnHolder ? el("abn", person.abn) : "",
+    // isAbnHolder/abn are only valid when the individual is a sole trader — the schema
+    // requires both to be absent entirely otherwise, not just set to "N".
+    isSoleTrader ? el("isAbnHolder", yesNo(isAbnHolder)) : "",
+    isSoleTrader && isAbnHolder ? el("abn", person.abn) : "",
     resAddr,
     postAddr,
     opt("phone", person.phone ?? person.company_phone),
     opt("email", person.email),
     opt("occupationBusinessActivity", person.occupation ?? person.principal_activity),
     el("isIdentityVerified", yesNo(hasIdv)),
-    buildIdElement(idv),
+    buildIdElement(idGen, idv),
   ].join("");
 }
 
 // ─── OrganisationDetails ──────────────────────────────────────────────────────
 
-const LEGAL_FORM_MAP: Record<string, string> = {
+// TTR-1-0 BusinessStructure enumeration only defines these codes. "Sole trader" and any
+// unmapped legal form have no valid code — those must be reported via businessStructureOther
+// instead (see buildOrganisationDetails), never coerced to a codes that doesn't exist.
+export const LEGAL_FORM_MAP: Record<string, string> = {
   "Company": "C",
   "Partnership": "P",
   "Trust": "T",
-  "Sole trader": "I",
   "Association": "A",
 };
 
-function buildOrganisationDetails(party: Row): string {
-  const bsCode = LEGAL_FORM_MAP[party.legal_form as string] ?? "R";
+// TTR-1-0 BaseOrganisationDetails/OrganisationDetails sequence: fullLegalName, abn/acn,
+// businessName*, businessAddress, postalAddress, phone*, occupationBusinessActivity,
+// then the businessStructure/businessStructureOther choice LAST, followed (per
+// OrganisationDetails) by isIdentityVerified/identification. There is no <entityName>,
+// <tradingName>, or <principalActivity> element in the real schema.
+export function buildOrganisationDetails(idGen: IdGen, party: Row, idv: Row | null): string {
+  const legalForm = party.legal_form as string;
+  const bsCode = LEGAL_FORM_MAP[legalForm];
+  const businessStructureEl = bsCode
+    ? el("businessStructure", bsCode)
+    : el("businessStructureOther", legalForm || "Unknown");
   const regTag = (party.reg_id_type as string)?.toUpperCase() === "ABN" ? "abn" : "acn";
-  const bizAddr = `<businessAddress>${buildAddress(party.biz_street, party.biz_suburb, party.biz_state, party.biz_postcode, party.biz_country)}</businessAddress>`;
-  const postAddr = party.post_street
-    ? `<postalAddress>${buildAddress(party.post_street, party.post_suburb, party.post_state, party.post_postcode, party.post_country)}</postalAddress>`
+  const bizAddr = buildAddressEl(idGen, "businessAddress", party.biz_street, party.biz_suburb, party.biz_state, party.biz_postcode, party.biz_country);
+  const postAddr = party.co_post_street
+    ? buildAddressEl(idGen, "postalAddress", party.co_post_street, party.co_post_suburb, party.co_post_state, party.co_post_postcode, party.co_post_country)
+    : "";
+  // isExpressTrust is only valid (and required) when businessStructure='T'. trustDetails
+  // is required iff isExpressTrust='Y' — trustParticipant/trustBeneficiary sub-structures
+  // are deliberately not modeled (both schema-optional, see 20260716000001_trust_details.sql).
+  const isExpressTrustEl = bsCode === "T" ? el("isExpressTrust", yesNo(!!party.is_express_trust)) : "";
+  const trustDetailsEl = bsCode === "T" && party.is_express_trust
+    ? `<trustDetails id="${xmlEsc(idGen("trust"))}">${opt("trustTypeOther", party.trust_type_other)}${opt("trustName", party.trust_name)}</trustDetails>`
     : "";
   return [
-    el("entityName", party.entity_name),
-    opt("tradingName", party.trading_name),
-    el("businessStructure", bsCode),
+    el("fullLegalName", party.entity_name),
     el(regTag, party.reg_identifier),
+    opt("businessName", party.trading_name),
     bizAddr,
     postAddr,
     opt("phone", party.company_phone),
-    opt("principalActivity", party.principal_activity),
+    opt("occupationBusinessActivity", party.principal_activity),
+    businessStructureEl,
+    isExpressTrustEl,
+    trustDetailsEl,
+    el("isIdentityVerified", yesNo(!!idv)),
+    buildIdElement(idGen, idv),
   ].join("");
 }
 
 // ─── Customer element ─────────────────────────────────────────────────────────
 
-function buildCustomer(party: Row, idv: Row | null, aliases: Row[]): string {
+// TTR-1-0 <customer> contains <individualDetails>/<organisationDetails> directly —
+// there is no wrapping <individual>/<organisation> element in the real schema.
+export function buildCustomer(idGen: IdGen, party: Row, idv: Row | null, aliases: Row[], customerId: string): string {
   if (party.party_type === "individual") {
-    return `<customer><individual>${buildIndividualDetails(party, idv, aliases, !!idv)}</individual></customer>`;
+    return `<customer id="${xmlEsc(customerId)}"><individualDetails>${buildIndividualDetails(idGen, party, idv, aliases, !!idv)}</individualDetails></customer>`;
   }
-  return `<customer><organisation>${buildOrganisationDetails(party)}</organisation></customer>`;
+  return `<customer id="${xmlEsc(customerId)}"><organisationDetails>${buildOrganisationDetails(idGen, party, idv)}</organisationDetails></customer>`;
 }
 
 // ─── otherPerson element (replaces individualConductingTxn) ──────────────────
-// TTR-1-0: <otherPerson> is 1..* mandatory.
-// If a conducting person record exists, use it; otherwise use the first customer party.
+// TTR-1-0 §7.1: the <ttr> level has a mandatory choice between the
+// (otherPerson, representedOrganisation*) sequence and <methodOfConductingTxn> — this
+// function returns both possible outputs so the caller can splice them into <ttr> at
+// the right sibling positions (representedOrganisation is a SIBLING of otherPerson,
+// never nested inside it).
+//
+// Within <otherPerson> itself (§7.5), <customerEmployee>/<individualDetails>/
+// <isRepresentingOrganisation>/<representsOrganisation>/<isAuthorisationUsed>/
+// <agencyAuthorisation> are all flat siblings — <customerEmployee> is an EMPTY
+// PartyReference (just a refId attribute); the employee's actual details go in a
+// separate sibling <individualDetails> using the same full IndividualDetails type
+// as a customer (not a stripped-down shape).
 
-function buildOtherPerson(person: Row, idv: Row | null, aliases: Row[]): string {
-  return `<otherPerson><individual>${buildIndividualDetails(person, idv, aliases, !!idv)}</individual></otherPerson>`;
+// TTR-1-0's otherPerson type has no dedicated element for employee role or for a
+// third-party entity a conducting person acts through, so both are folded into the
+// existing agencyAuthorisation free-text description rather than inventing element
+// names the schema doesn't define.
+function buildAgencyAuthorisationText(cp: Row): string {
+  const parts: string[] = [];
+  if (cp.authority_to_act) parts.push(cp.authority_to_act as string);
+  if (cp.is_employee === "yes" && cp.employee_role) {
+    parts.push(`Employee role: ${cp.employee_role as string}`);
+  }
+  if (cp.acting_via_entity) {
+    const entityAddr = cp.entity_street
+      ? `, ${[cp.entity_street, cp.entity_suburb, cp.entity_state, cp.entity_postcode, cp.entity_country].filter(Boolean).join(", ")}`
+      : "";
+    const reg = cp.entity_reg_number ? ` (${(cp.entity_reg_type as string) ?? "reg"} ${cp.entity_reg_number as string})` : "";
+    parts.push(`Acting via entity: ${cp.entity_name as string}${entityAddr}${reg}`);
+  }
+  // Plain ASCII hyphen, not an em-dash — non-ASCII punctuation here has been observed
+  // to come out mangled (mojibake) depending on how the response is transported/decoded
+  // downstream, and this text goes straight into a legal AUSTRAC filing.
+  return parts.join(" - ");
 }
 
-// Adapts a conducting_person row to the shape expected by buildIndividualDetails
-function cpAsRow(cp: Row): Row {
+// Shapes a conducting_persons row as the Row expected by buildIndividualDetails
+// (same full IndividualDetails type the schema uses for a customer).
+function cpAsIndividualRow(cp: Row): Row {
   return {
     full_name: cp.full_name,
     date_of_birth: cp.date_of_birth,
-    gender: null,
-    citizenship_country_code: null,
-    tax_residency_country_code: null,
-    abn: null,
-    legal_form: null,
     phone: cp.phone,
-    email: null,
-    occupation: null,
+    occupation: cp.occupation,
     res_street: cp.res_street,
     res_suburb: cp.res_suburb,
     res_state: cp.res_state,
     res_postcode: cp.res_postcode,
     res_country: cp.res_country,
-    post_street: cp.post_street ?? null,
-    post_suburb: cp.post_suburb ?? null,
-    post_state: cp.post_state ?? null,
-    post_postcode: cp.post_postcode ?? null,
-    post_country: cp.post_country ?? null,
+    post_street: cp.has_postal_address ? cp.post_street : null,
+    post_suburb: cp.post_suburb,
+    post_state: cp.post_state,
+    post_postcode: cp.post_postcode,
+    post_country: cp.post_country,
+  };
+}
+
+export function buildOtherPersonBlock(
+  idGen: IdGen,
+  primaryCP: Row | null,
+  cpIdv: Row | null,
+  cpAliases: Row[],
+  tx: Row,
+  parties: Row[],
+  partyIdToCustomerId: Record<string, string>,
+): { otherPerson: string; representedOrganisation: string } {
+  if (!primaryCP) {
+    if (tx.method_of_conducting_txn) {
+      // <methodOfConductingTxn> is itself a complex type (id attribute + a <method>/
+      // <otherMethod> choice child) — not a plain text element.
+      return {
+        otherPerson: `<methodOfConductingTxn id="${xmlEsc(idGen("mct"))}">${el("method", tx.method_of_conducting_txn)}</methodOfConductingTxn>`,
+        representedOrganisation: "",
+      };
+    }
+    const conductedParty = parties.find((p) => p.id === tx.conducted_by_party_id) ?? parties[0];
+    const refId = partyIdToCustomerId[conductedParty.id as string];
+    return {
+      otherPerson: `<otherPerson id="${xmlEsc(idGen("otherPerson"))}"><sameAsCustomer refId="${xmlEsc(refId)}"/></otherPerson>`,
+      representedOrganisation: "",
+    };
+  }
+
+  const representedParty = parties.find((p) => p.id === primaryCP.represented_party_id) ?? null;
+  const employerRefId = representedParty ? partyIdToCustomerId[representedParty.id as string] : undefined;
+  // agencyAuthorisation's refId is mandatory whenever the element is emitted — fall
+  // back to the represented party, else the first customer, so it's never dropped.
+  const fallbackRefId = employerRefId ?? partyIdToCustomerId[parties[0]?.id as string];
+
+  const cpIndividualDetails = buildIndividualDetails(idGen, cpAsIndividualRow(primaryCP), cpIdv, cpAliases, !!cpIdv);
+
+  let body: string;
+  let representedOrganisation = "";
+
+  if (primaryCP.relationship === "Employee") {
+    body = `<customerEmployee${employerRefId ? ` refId="${xmlEsc(employerRefId)}"` : ""}/><individualDetails>${cpIndividualDetails}</individualDetails>`;
+  } else {
+    const isRepresentingOrg = representedParty?.party_type === "company";
+    let representsOrgEl = "";
+    if (isRepresentingOrg && representedParty) {
+      const orgId = idGen("org");
+      representedOrganisation = `<representedOrganisation id="${xmlEsc(orgId)}"><organisationDetails>${buildOrganisationDetails(idGen, representedParty, null)}</organisationDetails></representedOrganisation>`;
+      representsOrgEl = `<representsOrganisation refId="${xmlEsc(orgId)}"/>`;
+    }
+    body = `<individualDetails>${cpIndividualDetails}</individualDetails>${el("isRepresentingOrganisation", yesNo(isRepresentingOrg))}${representsOrgEl}`;
+  }
+
+  const agencyAuthText = buildAgencyAuthorisationText(primaryCP);
+  const isAuthorisationUsedEl = el("isAuthorisationUsed", yesNo(!!agencyAuthText));
+  const agencyAuth = agencyAuthText
+    ? `<agencyAuthorisation refId="${xmlEsc(fallbackRefId)}">${xmlEsc(agencyAuthText)}</agencyAuthorisation>`
+    : "";
+
+  return {
+    otherPerson: `<otherPerson id="${xmlEsc(idGen("otherPerson"))}">${body}${isAuthorisationUsedEl}${agencyAuth}</otherPerson>`,
+    representedOrganisation,
   };
 }
 
 // ─── Recipient element ────────────────────────────────────────────────────────
+// TTR-1-0 §7.7 has no delivery-logistics concept at all — the choices are
+// sameAsCustomer / sameAsOtherPerson / sameAsRepresentedOrganisation /
+// isSameAsReportingEntity / full details. Returns the content to go inside
+// <recipient id="...">; the caller adds the id (mandatory per §7.7).
 
-function buildRecipient(rd: Row, parties: Row[], idvByParty: Record<string, Row>): string {
+function buildRecipientInner(idGen: IdGen, rd: Row, parties: Row[], idvByParty: Record<string, Row>, partyIdToCustomerId: Record<string, string>): string {
   if (rd.recipient_is_party) {
     const p = parties.find((x) => x.id === rd.selected_party_id);
     if (p) {
-      if (p.party_type === "individual") {
-        return `<recipient><individual>${buildIndividualDetails(p, idvByParty[p.id as string] ?? null, [], !!(idvByParty[p.id as string]))}</individual></recipient>`;
-      }
-      return `<recipient><organisation>${buildOrganisationDetails(p)}</organisation></recipient>`;
+      const refId = partyIdToCustomerId[p.id as string];
+      return `<sameAsCustomer refId="${xmlEsc(refId)}"/>`;
     }
   }
   // Non-party recipient — emit minimal individual with what was captured
@@ -247,53 +404,75 @@ function buildRecipient(rd: Row, parties: Row[], idvByParty: Record<string, Row>
     post_postcode: null,
     post_country: null,
   };
-  return `<recipient><individual>${buildIndividualDetails(recipRow, null, [], false)}</individual></recipient>`;
+  return `<individualDetails>${buildIndividualDetails(idGen, recipRow, null, [], false)}</individualDetails>`;
 }
 
-// ─── Cash element ─────────────────────────────────────────────────────────────
+// ─── Cash element (AudAmount / CurrencyAmount) ───────────────────────────────
 
-function buildCashEl(tx: Row): string {
+function buildCashEl(idGen: IdGen, tx: Row): string {
   if ((tx.cash_currency as string) === "AUD") {
-    return `<ausCash>${fmtAmount(tx.cash_amount)}</ausCash>`;
+    return `<ausCash id="${xmlEsc(idGen("cash"))}">${buildAudAmountInner(tx.cash_amount)}</ausCash>`;
   }
-  return `<foreignCash>${el("amount", tx.fx_currency_amount)}${el("currency", tx.fx_currency_code)}${el("audEquivalent", fmtAmount(tx.aud_value))}</foreignCash>`;
+  return `<foreignCash id="${xmlEsc(idGen("cash"))}">${buildCurrencyAmountInner(tx.fx_currency_code, tx.fx_currency_amount, tx.fx_rate)}</foreignCash>`;
 }
 
 // ─── Bullion item elements (<bui> / <buo>) ────────────────────────────────────
+// Bullion extends CurrencyAmount (§8.14/§8.15) — currencyCode + amount come before
+// the type-specific fields, and the element needs an id.
 
-function buildBullionItem(item: Row, tag: "bui" | "buo"): string {
+function buildBullionItem(idGen: IdGen, item: Row, tag: "bui" | "buo"): string {
   const type = BULLION_TYPE_MAP[item.metal_type as string];
   if (!type) throw new Error(`Unmappable bullion metal type: ${item.metal_type}`);
-  return `<${tag}>${el("amount", fmtAmount(item.line_total_aud))}${el("type", type)}${opt("description", item.description)}</${tag}>`;
+  return `<${tag} id="${xmlEsc(idGen(tag))}">${buildAudAmountInner(item.line_total_aud)}${el("type", type)}${opt("description", item.description)}${opt("serialNumber", item.serial_number)}</${tag}>`;
 }
 
-function buildMoneyReceived(tx: Row, bullionItems: Row[]): string {
-  if ((tx.scenario as string) === "bullion_buy") {
+// ─── Precious metal item elements (<pmi> / <pmo>) ─────────────────────────────
+
+function buildPreciousMetalItem(idGen: IdGen, item: Row, tag: "pmi" | "pmo"): string {
+  const type = PRECIOUS_METAL_TYPE_MAP[item.metal_type as string];
+  if (!type) throw new Error(`Unmappable precious metal type: ${item.metal_type}`);
+  return `<${tag} id="${xmlEsc(idGen(tag))}">${buildAudAmountInner(item.line_total_aud)}${el("metal", type)}${opt("description", item.description)}${opt("serialNumber", item.serial_number)}</${tag}>`;
+}
+
+function buildMoneyReceived(idGen: IdGen, tx: Row, bullionItems: Row[], preciousMetalItems: Row[]): string {
+  const scenario = tx.scenario as string;
+  if (scenario === "bullion_buy") {
     // RE buys bullion: receives bullion items
-    const buis = bullionItems.map((b) => buildBullionItem(b, "bui")).join("");
+    const buis = bullionItems.map((b) => buildBullionItem(idGen, b, "bui")).join("");
     return `<otherMoneyReceived>${buis}</otherMoneyReceived>`;
   }
-  // RE sells bullion: receives cash
-  return `<cash>${buildCashEl(tx)}</cash>`;
+  if (scenario === "precious_metal_buy") {
+    // RE buys precious metal: receives precious metal items
+    const pmis = preciousMetalItems.map((p) => buildPreciousMetalItem(idGen, p, "pmi")).join("");
+    return `<otherMoneyReceived>${pmis}</otherMoneyReceived>`;
+  }
+  // RE sells bullion/precious metal: receives cash
+  return `<cash>${buildCashEl(idGen, tx)}</cash>`;
 }
 
-function buildMoneyProvided(tx: Row, bullionItems: Row[]): string {
-  if ((tx.scenario as string) === "bullion_sell") {
+function buildMoneyProvided(idGen: IdGen, tx: Row, bullionItems: Row[], preciousMetalItems: Row[]): string {
+  const scenario = tx.scenario as string;
+  if (scenario === "bullion_sell") {
     // RE sells bullion: provides bullion items
-    const buos = bullionItems.map((b) => buildBullionItem(b, "buo")).join("");
+    const buos = bullionItems.map((b) => buildBullionItem(idGen, b, "buo")).join("");
     return `<otherMoneyProvided>${buos}</otherMoneyProvided>`;
   }
-  // RE buys bullion: provides cash
-  return `<cash>${buildCashEl(tx)}</cash>`;
+  if (scenario === "precious_metal_sell") {
+    // RE sells precious metal: provides precious metal items
+    const pmos = preciousMetalItems.map((p) => buildPreciousMetalItem(idGen, p, "pmo")).join("");
+    return `<otherMoneyProvided>${pmos}</otherMoneyProvided>`;
+  }
+  // RE buys bullion/precious metal: provides cash
+  return `<cash>${buildCashEl(idGen, tx)}</cash>`;
 }
 
 // ─── Full TTR block ───────────────────────────────────────────────────────────
 
-interface EntityRecord {
+export interface EntityRecord {
   id: string;
   legal_name: string;
   trading_name: string | null;
-  austrac_re_number: string | null;
+  austrac_account_number: string | null;
   address_street: string | null;
   address_suburb: string | null;
   address_state: string | null;
@@ -301,20 +480,22 @@ interface EntityRecord {
   address_country: string | null;
 }
 
-function buildTTRBlock(
+export function buildTTRBlock(
   tx: Row,
+  entity: EntityRecord,
   parties: Row[],
   conductingPersons: Row[],
   idvs: Row[],
   allAliases: Row[],
-  cpAliases: Row[],
   recipientDeliveries: Row[],
   bullionItems: Row[],
+  preciousMetalItems: Row[],
 ): string {
+  const idGen = makeIdGen(tx.id as string);
   const idvByParty = Object.fromEntries(
     idvs.filter((v) => v.party_id).map((v) => [v.party_id as string, v]),
   );
-  const idvByCP = Object.fromEntries(
+  const idvByConductingPerson = Object.fromEntries(
     idvs.filter((v) => v.conducting_person_id).map((v) => [v.conducting_person_id as string, v]),
   );
   const aliasesByParty: Record<string, Row[]> = {};
@@ -327,45 +508,57 @@ function buildTTRBlock(
   // 1. lppDetails
   const lppDetails = `<lppDetails>${el("lppFlag", yesNo(tx.lpp_flag))}</lppDetails>`;
 
-  // 2. customer blocks
+  // 2. customer blocks — xs:ID prefixed with the (unique) transaction id so identifiers
+  // stay unique across every <ttr> block in a multi-transaction report document.
+  const partyIdToCustomerId: Record<string, string> = {};
+  parties.forEach((p, i) => {
+    partyIdToCustomerId[p.id as string] = `customer-${tx.id as string}-${i + 1}`;
+  });
   const customers = parties
-    .map((p) => buildCustomer(p, idvByParty[p.id as string] ?? null, aliasesByParty[p.id as string] ?? []))
+    .map((p) => buildCustomer(idGen, p, idvByParty[p.id as string] ?? null, aliasesByParty[p.id as string] ?? [], partyIdToCustomerId[p.id as string]))
     .join("");
 
-  // 3. otherPerson (mandatory 1..*): use primary CP if present, else fall back to first party
-  const primaryCP = conductingPersons.find((cp) => cp.is_primary);
-  let otherPersonEl: string;
-  if (primaryCP) {
-    const cpIdv = idvByCP[primaryCP.id as string] ?? null;
-    const cpAliasList = cpAliases.filter((a) => a.conducting_person_id === primaryCP.id);
-    otherPersonEl = buildOtherPerson(cpAsRow(primaryCP), cpIdv, cpAliasList);
-  } else {
-    // No separate conducting person — customer conducted transaction themselves
-    const p = parties[0];
-    otherPersonEl = buildOtherPerson(p, idvByParty[p.id as string] ?? null, aliasesByParty[p.id as string] ?? []);
-  }
+  // 3. otherPerson (mandatory 1..*) + its optional representedOrganisation sibling(s):
+  // use primary CP if present, else fall back to first party.
+  const primaryCP = conductingPersons.find((cp) => cp.is_primary) ?? null;
+  const cpIdv = primaryCP ? (idvByConductingPerson[primaryCP.id as string] ?? null) : null;
+  const { otherPerson: otherPersonEl, representedOrganisation } = buildOtherPersonBlock(
+    idGen,
+    primaryCP,
+    cpIdv,
+    [],
+    tx,
+    parties,
+    partyIdToCustomerId,
+  );
 
   // 4. transaction
   const txDate = (tx.transaction_datetime as string ?? "").slice(0, 10);
   const txTime = (tx.transaction_datetime as string ?? "").slice(11, 19) || "00:00:00";
-  const physDir = (tx.scenario as string) === "bullion_sell" ? "RECEIVED" : "PROVIDED";
+  const physDir = (tx.scenario as string).endsWith("_sell") ? "RECEIVED" : "PROVIDED";
   const rd = recipientDeliveries[0] ?? null;
   const txnPurpose = rd ? (rd.purpose_of_transfer as string ?? "") : "";
+  // Bullion dealers transact at their own counter — txnLocation is the reporting
+  // entity's own registered address, not a per-transaction capture.
+  const txnLocationEl = buildAddressEl(idGen, "txnLocation", entity.address_street, entity.address_suburb, entity.address_state, entity.address_postcode, entity.address_country);
+  const totalAmountEl = `<totalAmount id="${xmlEsc(idGen("total"))}">${buildAudAmountInner(tx.aud_value)}</totalAmount>`;
 
-  const transaction = `<transaction>${el("designatedService", DESIGNATED_SERVICE_MAP[tx.scenario as string] ?? "BULSER")}${el("txnLocation", tx.transaction_location ?? "")}${el("txnDate", txDate)}${el("txnTime", txTime)}${el("txnRefNo", tx.transaction_ref)}<txnPurpose>${xmlEsc(txnPurpose)}</txnPurpose>${el("physicalCurrencyDirection", physDir)}<moneyReceived>${buildMoneyReceived(tx, bullionItems)}</moneyReceived><moneyProvided>${buildMoneyProvided(tx, bullionItems)}</moneyProvided>${el("totalAmount", fmtAmount(tx.aud_value))}</transaction>`;
+  const transaction = `<transaction id="${xmlEsc(idGen("txn"))}">${el("designatedService", DESIGNATED_SERVICE_MAP[tx.scenario as string] ?? "BULSER")}${txnLocationEl}${el("txnDate", txDate)}${el("txnTime", txTime)}${el("txnRefNo", tx.transaction_ref)}${opt("txnPurpose", txnPurpose)}${el("physicalCurrencyDirection", physDir)}<moneyReceived id="${xmlEsc(idGen("mrv"))}">${buildMoneyReceived(idGen, tx, bullionItems, preciousMetalItems)}</moneyReceived><moneyProvided id="${xmlEsc(idGen("mpr"))}">${buildMoneyProvided(idGen, tx, bullionItems, preciousMetalItems)}</moneyProvided>${totalAmountEl}</transaction>`;
 
   // 5. recipient
-  const recipientEl = rd ? buildRecipient(rd, parties, idvByParty) : "";
+  const recipientEl = rd ? `<recipient id="${xmlEsc(idGen("recipient"))}">${buildRecipientInner(idGen, rd, parties, idvByParty, partyIdToCustomerId)}</recipient>` : "";
 
   // 6. isOtherDsProviderInvolved
   const otherDsEl = el("isOtherDsProviderInvolved", yesNo(tx.is_other_ds_provider_involved));
 
-  return `<ttr id="${xmlEsc(tx.id as string)}">${lppDetails}${customers}${otherPersonEl}${transaction}${recipientEl}${otherDsEl}</ttr>`;
+  // xs:ID/NCName values must start with a letter, not a digit — the raw transaction
+  // UUID can't be used directly since it's effectively random hex.
+  return `<ttr id="${xmlEsc(`ttr-${tx.id}`)}">${lppDetails}${customers}${otherPersonEl}${representedOrganisation}${transaction}${recipientEl}${otherDsEl}</ttr>`;
 }
 
 // ─── Root ttrList wrapper ─────────────────────────────────────────────────────
 
-function buildTTRXML(
+export function buildTTRXML(
   blocks: string[],
   entity: EntityRecord,
   reportDate: string,
@@ -374,7 +567,7 @@ function buildTTRXML(
   const datePart = reportDate.replace(/-/g, "");
   const seqPart = String(batchSeq).padStart(8, "0");
   const fileName = `TTR${datePart}${seqPart}.xml`;
-  const aan = xmlEsc(entity.austrac_re_number ?? "");
+  const aan = xmlEsc(entity.austrac_account_number ?? "");
   const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<ttrList xmlns="${NS}">\n${el("reAustracAccountNumber", aan)}\n${el("submitterAustracAccountNumber", aan)}\n${el("fileName", fileName)}\n${el("reportCount", blocks.length)}\n${blocks.join("\n")}\n</ttrList>`;
   return { xml, fileName };
 }
@@ -448,9 +641,79 @@ async function sendApprovalEmail(params: {
   }
 }
 
+// ─── Per-entity data-loading (parties, aliases, etc.) ────────────────────────
+// supabase-js query builders resolve (never reject) even when PostgREST returns
+// an error response (e.g. 400 for a query against a non-existent column) — the
+// `error` field must be checked explicitly, or a broken query silently degrades
+// to empty data, which for a legal filing (AUSTRAC TTR) means silently omitting
+// data instead of failing loudly. Every query in loadTxnScopedData is routed
+// through this helper for that reason.
+export function unwrapQuery<T = Row>(
+  label: string,
+  result: { data: T[] | null; error: { message: string } | null },
+): T[] {
+  if (result.error) {
+    throw new Error(`${label} query failed: ${result.error.message}`);
+  }
+  return result.data ?? [];
+}
+
+// Loads every per-transaction child record needed to build TTR blocks for one
+// entity's batch of transactions. party_aliases has no transaction_id column
+// of its own (see 20260621000011_party_aliases.sql) — ttr.parties is the
+// one-row-per-transaction snapshot party_id belongs to, so aliases must be
+// fetched by party_id once the parties query has resolved, not folded into
+// the transaction_id-keyed Promise.all below.
+export async function loadTxnScopedData(
+  // deno-lint-ignore no-explicit-any
+  ttr: any,
+  allTxnIds: string[],
+): Promise<{
+  allParties: Row[];
+  allCPs: Row[];
+  allIDVs: Row[];
+  allRDs: Row[];
+  allBIs: Row[];
+  allPMIs: Row[];
+  allAliases: Row[];
+}> {
+  const [partiesRes, cpsRes, idvsRes, rdsRes, bisRes, pmisRes] = await Promise.all([
+    ttr.from("parties").select("*").in("transaction_id", allTxnIds),
+    ttr.from("conducting_persons").select("*").in("transaction_id", allTxnIds),
+    ttr.from("id_verifications").select("*").in("transaction_id", allTxnIds),
+    ttr.from("recipient_deliveries").select("*").in("transaction_id", allTxnIds),
+    ttr.from("bullion_items").select("*").in("transaction_id", allTxnIds),
+    ttr.from("precious_metal_items").select("*").in("transaction_id", allTxnIds),
+  ]);
+
+  const allParties = unwrapQuery("parties", partiesRes);
+  const allCPs = unwrapQuery("conducting_persons", cpsRes);
+  const allIDVs = unwrapQuery("id_verifications", idvsRes);
+  const allRDs = unwrapQuery("recipient_deliveries", rdsRes);
+  const allBIs = unwrapQuery("bullion_items", bisRes);
+  const allPMIs = unwrapQuery("precious_metal_items", pmisRes);
+
+  const allPartyIds = allParties.map((p) => p.id as string);
+  const aliasesRes = allPartyIds.length > 0
+    ? await ttr.from("party_aliases").select("*").in("party_id", allPartyIds)
+    : { data: [] as Row[], error: null };
+  const allAliases = unwrapQuery("party_aliases", aliasesRes);
+
+  return { allParties, allCPs, allIDVs, allRDs, allBIs, allPMIs, allAliases };
+}
+
+// party_aliases rows carry party_id only (no transaction_id) — scope a
+// transaction's aliases to the party_ids belonging to it (that transaction's
+// own filtered `parties` rows). buildTTRBlock's internal aliasesByParty
+// grouping (keyed off party_id) needs no changes.
+export function aliasesForParties(allAliases: Row[], txParties: Row[]): Row[] {
+  const partyIds = new Set(txParties.map((p) => p.id as string));
+  return allAliases.filter((a) => partyIds.has(a.party_id as string));
+}
+
 // ─── Main handler ─────────────────────────────────────────────────────────────
 
-Deno.serve(async (req: Request) => {
+export async function handleRequest(req: Request): Promise<Response> {
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
   const auth = req.headers.get("Authorization");
@@ -517,7 +780,7 @@ Deno.serve(async (req: Request) => {
     try {
       const { data: entity, error: entityErr } = await serviceClient
         .from("reporting_entities")
-        .select("id, legal_name, trading_name, austrac_re_number, address_street, address_suburb, address_state, address_postcode, address_country")
+        .select("id, legal_name, trading_name, austrac_account_number, address_street, address_suburb, address_state, address_postcode, address_country")
         .eq("id", entityId)
         .single();
 
@@ -536,23 +799,8 @@ Deno.serve(async (req: Request) => {
 
       const allTxnIds = txns.map((t) => t.id as string);
 
-      const [
-        { data: allParties },
-        { data: allCPs },
-        { data: allIDVs },
-        { data: allRDs },
-        { data: allBIs },
-        { data: allAliases },
-        { data: allCPAliases },
-      ] = await Promise.all([
-        ttr.from("parties").select("*").in("transaction_id", allTxnIds),
-        ttr.from("conducting_persons").select("*").in("transaction_id", allTxnIds),
-        ttr.from("id_verifications").select("*").in("transaction_id", allTxnIds),
-        ttr.from("recipient_deliveries").select("*").in("transaction_id", allTxnIds),
-        ttr.from("bullion_items").select("*").in("transaction_id", allTxnIds),
-        ttr.from("party_aliases").select("*").in("transaction_id", allTxnIds),
-        ttr.from("cp_aliases").select("*").in("transaction_id", allTxnIds),
-      ]);
+      const { allParties, allCPs, allIDVs, allRDs, allBIs, allPMIs, allAliases } =
+        await loadTxnScopedData(ttr, allTxnIds);
 
       // Determine batch sequence number (1-based count of existing batches for this entity+date)
       const { count: existingBatches } = await ttr
@@ -564,15 +812,17 @@ Deno.serve(async (req: Request) => {
 
       const ttrBlocks = txns.map((tx) => {
         const txId = tx.id as string;
+        const txParties = allParties.filter((p) => p.transaction_id === txId);
         return buildTTRBlock(
           tx,
-          ((allParties ?? []) as Row[]).filter((p) => p.transaction_id === txId),
-          ((allCPs ?? []) as Row[]).filter((cp) => cp.transaction_id === txId),
-          ((allIDVs ?? []) as Row[]).filter((v) => v.transaction_id === txId),
-          ((allAliases ?? []) as Row[]).filter((a) => a.transaction_id === txId),
-          ((allCPAliases ?? []) as Row[]).filter((a) => a.transaction_id === txId),
-          ((allRDs ?? []) as Row[]).filter((r) => r.transaction_id === txId),
-          ((allBIs ?? []) as Row[]).filter((b) => b.transaction_id === txId),
+          entity as EntityRecord,
+          txParties,
+          allCPs.filter((cp) => cp.transaction_id === txId),
+          allIDVs.filter((v) => v.transaction_id === txId),
+          aliasesForParties(allAliases, txParties),
+          allRDs.filter((r) => r.transaction_id === txId),
+          allBIs.filter((b) => b.transaction_id === txId),
+          allPMIs.filter((p) => p.transaction_id === txId),
         );
       });
 
@@ -639,7 +889,11 @@ Deno.serve(async (req: Request) => {
 
   const status = errors.length > 0 && results.length === 0 ? 500 : 200;
   return json({ reportDate, results, errors }, status);
-});
+}
+
+if (import.meta.main) {
+  Deno.serve(handleRequest);
+}
 
 function json(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), {

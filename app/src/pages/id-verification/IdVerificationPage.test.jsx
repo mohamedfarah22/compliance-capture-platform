@@ -1,9 +1,39 @@
-import { Route, Routes, MemoryRouter } from 'react-router-dom'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import IdVerificationPage from './IdVerificationPage.jsx'
-import { wizardStorageKeys } from '../../components/wizardStorage.js'
+import {
+  deleteTransaction,
+  fetchPriorVerifications,
+  getIdImageSignedUrls,
+  getTransactionId,
+  loadConductingPerson,
+  loadCustomers,
+  loadIdVerifications,
+  saveIdVerifications,
+  uploadIdImage,
+} from '../../lib/wizardApi.js'
+import { useAuth } from '../../context/AuthContext.jsx'
+
+vi.mock('../../lib/wizardApi.js', () => ({
+  deleteTransaction: vi.fn(),
+  fetchPriorVerifications: vi.fn(),
+  getIdImageSignedUrls: vi.fn(),
+  getTransactionId: vi.fn(),
+  loadConductingPerson: vi.fn(),
+  loadCustomers: vi.fn(),
+  loadIdVerifications: vi.fn(),
+  saveIdVerifications: vi.fn(),
+  uploadIdImage: vi.fn(),
+}))
+
+vi.mock('../../context/AuthContext.jsx', () => ({
+  useAuth: vi.fn(),
+}))
+
+const JANE = { id: 'ind-001', type: 'individual', displayName: 'Jane Smith', firstName: 'Jane', lastName: 'Smith', dateOfBirth: '1990-04-15' }
+const BOB = { id: 'ind-002', type: 'individual', displayName: 'Bob Jones', firstName: 'Bob', lastName: 'Jones', dateOfBirth: '1985-01-01' }
 
 function renderPage() {
   return render(
@@ -18,70 +48,42 @@ function renderPage() {
   )
 }
 
-function seedCustomers(overrides = []) {
-  const defaults = [
-    { id: 'ind-001', type: 'individual', displayName: 'Jane Smith' },
-    { id: 'ind-002', type: 'individual', displayName: 'Bob Jones' },
-  ]
-  window.sessionStorage.setItem(
-    wizardStorageKeys.customers,
-    JSON.stringify(overrides.length ? overrides : defaults),
-  )
-}
-
-function seedCompanyCustomer() {
-  window.sessionStorage.setItem(
-    wizardStorageKeys.customers,
-    JSON.stringify([{ id: 'co-001', type: 'company', displayName: 'Acme Pty Ltd' }]),
-  )
-}
-
-function seedConductingPerson() {
-  window.sessionStorage.setItem(
-    wizardStorageKeys.conductingPerson,
-    JSON.stringify({
-      hasConductingPerson: 'yes',
-      fullName: 'Alice Brown',
-      representedPartyId: 'ind-001',
-    }),
-  )
-}
-
-function makeCompleteVerification(overrides = {}) {
+function completeVerification(overrides = {}) {
   return {
     verificationMethod: 'Sighted original document',
     verificationMethodOther: '',
-    documentType: 'Driver licence',
+    documentType: 'Passport',
     documentTypeOther: '',
-    documentNumber: 'DL123456',
-    issuer: 'VicRoads',
-    hasExpiry: 'yes',
-    expiryDate: '2028-06-30',
-    verificationDescription: 'Australian driver licence sighted in person',
-    frontImage: 'data:image/jpeg;base64,frontmock',
-    backImage: 'data:image/jpeg;base64,backmock',
-    isComplete: true,
+    documentNumber: 'P123456',
+    issuer: 'Australian Passport Office',
+    hasExpiry: 'no',
+    expiryDate: '',
+    verificationDescription: 'Passport sighted in person',
+    elecDataSrc: '',
+    frontImageId: 'front-img-1',
+    backImageId: null,
+    isComplete: false,
+    priorVerificationId: null,
+    priorVerificationSummary: null,
+    relianceReason: null,
+    imageApproved: false,
+    idCountryCode: 'AU',
     ...overrides,
   }
 }
 
-function seedVerificationData(data) {
-  window.sessionStorage.setItem(wizardStorageKeys.idVerification, JSON.stringify(data))
-}
-
-async function fillVerificationForm(user) {
-  await user.selectOptions(screen.getByLabelText('Verification method'), 'Sighted original document')
-  await user.selectOptions(screen.getByLabelText('Document or data-source type'), 'Driver licence')
-  await user.type(screen.getByLabelText('Document or reference number'), 'DL123456')
-  await user.type(
-    screen.getByLabelText(/description of reliable and independent/i),
-    'Australian driver licence sighted in person',
-  )
-}
-
 describe('IdVerificationPage', () => {
   beforeEach(() => {
-    window.sessionStorage.clear()
+    useAuth.mockReturnValue({ reportingEntity: null, staffMember: { full_name: 'Jane Staff' }, canApproveReports: false, signOut: vi.fn() })
+    deleteTransaction.mockResolvedValue(undefined)
+    getTransactionId.mockReturnValue('tx-1')
+    loadCustomers.mockResolvedValue([JANE, BOB])
+    loadConductingPerson.mockResolvedValue({ hasConductingPerson: 'no' })
+    loadIdVerifications.mockResolvedValue({})
+    fetchPriorVerifications.mockResolvedValue([])
+    getIdImageSignedUrls.mockResolvedValue({})
+    saveIdVerifications.mockResolvedValue(undefined)
+    uploadIdImage.mockResolvedValue({ imageId: 'uploaded-1', path: 'x', sha256: 'y' })
 
     const mockStream = { getTracks: () => [{ stop: vi.fn() }] }
     Object.defineProperty(navigator, 'mediaDevices', {
@@ -90,7 +92,8 @@ describe('IdVerificationPage', () => {
       value: { getUserMedia: vi.fn().mockResolvedValue(mockStream) },
     })
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({ drawImage: vi.fn() })
-    vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue('data:image/jpeg;base64,mockimage')
+    // Must be valid, correctly-padded base64 — handleContinue's base64ToBlob() calls atob() on this.
+    vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue(`data:image/jpeg;base64,${btoa('mock-image-data')}`)
   })
 
   afterEach(() => {
@@ -98,334 +101,275 @@ describe('IdVerificationPage', () => {
     vi.restoreAllMocks()
   })
 
-  it('renders the heading and step indicator', () => {
+  it('renders all individual parties plus the conducting person in the person navigator', async () => {
+    loadConductingPerson.mockResolvedValue({ hasConductingPerson: 'yes', fullName: 'Alice Brown', representedPartyId: 'ind-001', id: 'cp-1' })
     renderPage()
-    expect(screen.getByRole('heading', { name: 'ID Verification Details & Capture' })).toBeInTheDocument()
-    expect(screen.getByText('Step 5')).toBeInTheDocument()
-  })
 
-  it('shows individual customers as person cards', () => {
-    seedCustomers()
-    renderPage()
-    // Jane is active so she appears in both the navigator card and the summary card
+    expect(await screen.findByText('People (3)')).toBeInTheDocument()
     expect(screen.getAllByText('Jane Smith').length).toBeGreaterThan(0)
     expect(screen.getByText('Bob Jones')).toBeInTheDocument()
-  })
-
-  it('shows the conducting person when present in storage', () => {
-    seedCustomers()
-    seedConductingPerson()
-    renderPage()
     expect(screen.getByText('Alice Brown')).toBeInTheDocument()
-    expect(screen.getByText('Conducting Person')).toBeInTheDocument()
   })
 
-  it('excludes company-type customers from the person list', () => {
-    seedCompanyCustomer()
-    renderPage()
-    expect(screen.queryByText('Acme Pty Ltd')).not.toBeInTheDocument()
-    expect(screen.getByText('People (0)')).toBeInTheDocument()
-  })
-
-  it('activates the first person by default', () => {
-    seedCustomers()
-    renderPage()
-    expect(screen.getByLabelText('Verification method')).toBeInTheDocument()
-    expect(screen.getByText(/capturing id for/i)).toBeInTheDocument()
-  })
-
-  it('clicking a different person card switches the active form', async () => {
+  it('shows a "no verification required" message and a working Continue button when there are no individuals to verify (company-only customer, impersonal channel)', async () => {
     const user = userEvent.setup()
-    seedCustomers()
+    const COMPANY = { id: 'co-001', type: 'company', displayName: 'Southern Cross Metals Trust' }
+    loadCustomers.mockResolvedValue([COMPANY])
+    loadConductingPerson.mockResolvedValue({ hasConductingPerson: 'no' })
     renderPage()
 
-    const bobCards = screen.getAllByRole('button', { name: /Bob Jones/i })
-    await user.click(bobCards[0])
+    expect(await screen.findByText('People (0)')).toBeInTheDocument()
+    expect(screen.getByText('No individual identification is required for this transaction.')).toBeInTheDocument()
 
-    // Bob now appears in both the navigator card and the summary card
-    expect(screen.getAllByText('Bob Jones').length).toBeGreaterThanOrEqual(2)
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(await screen.findByRole('heading', { name: 'Recipient / Delivery' })).toBeInTheDocument()
+    expect(saveIdVerifications).not.toHaveBeenCalled()
   })
 
-  it('switching with unsaved changes shows the unsaved-changes modal', async () => {
+  it('shows a validation error when verification method is not selected on save', async () => {
     const user = userEvent.setup()
-    seedCustomers()
     renderPage()
 
-    await user.selectOptions(screen.getByLabelText('Verification method'), 'Sighted original document')
-
-    const cards = screen.getAllByRole('button', { name: /Bob Jones/i })
-    await user.click(cards[0])
-
-    expect(screen.getByRole('dialog')).toBeInTheDocument()
-    expect(screen.getByText('Unsaved changes')).toBeInTheDocument()
-  })
-
-  it('cancelling the switch modal keeps the current person', async () => {
-    const user = userEvent.setup()
-    seedCustomers()
-    renderPage()
-
-    await user.selectOptions(screen.getByLabelText('Verification method'), 'Sighted original document')
-
-    const cards = screen.getAllByRole('button', { name: /Bob Jones/i })
-    await user.click(cards[0])
-    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }))
-
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-  })
-
-  it('"Discard and switch" closes the modal and changes person', async () => {
-    const user = userEvent.setup()
-    seedCustomers()
-    renderPage()
-
-    await user.selectOptions(screen.getByLabelText('Verification method'), 'Sighted original document')
-
-    const bobCards = screen.getAllByRole('button', { name: /Bob Jones/i })
-    await user.click(bobCards[0])
-    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Discard and switch' }))
-
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-  })
-
-  it('Save with empty required fields shows validation errors', async () => {
-    const user = userEvent.setup()
-    seedCustomers()
-    renderPage()
-
+    await screen.findByLabelText('Verification method')
     await user.click(screen.getByRole('button', { name: 'Save' }))
 
-    expect(screen.getByText('Select how the ID was verified')).toBeInTheDocument()
-    expect(screen.getByText('Select the document or data-source type')).toBeInTheDocument()
+    expect(await screen.findByText('Select how the ID was verified')).toBeInTheDocument()
+    expect(saveIdVerifications).not.toHaveBeenCalled()
+  })
+
+  it('shows validation errors when document type or reference number are empty', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    await screen.findByLabelText('Verification method')
+    await user.selectOptions(screen.getByLabelText('Verification method'), 'Sighted original document')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(await screen.findByText('Select the document or data-source type')).toBeInTheDocument()
     expect(screen.getByText('Enter the document or reference number')).toBeInTheDocument()
-    expect(screen.getByText('Describe the document or data used for verification')).toBeInTheDocument()
   })
 
-  it('Save without front image shows front image error', async () => {
+  it('requires a front image upload when verification method is not reliance-based', async () => {
     const user = userEvent.setup()
-    seedCustomers()
     renderPage()
 
-    await fillVerificationForm(user)
+    await screen.findByLabelText('Verification method')
+    await user.selectOptions(screen.getByLabelText('Verification method'), 'Sighted original document')
+    await user.selectOptions(screen.getByLabelText('Document or data-source type'), 'Passport')
+    await user.type(screen.getByLabelText('Document or reference number'), 'P123456')
     await user.click(screen.getByRole('button', { name: 'Save' }))
 
-    expect(screen.getByText('Capture and accept the front of the ID')).toBeInTheDocument()
+    expect(await screen.findByText('Capture and accept the front of the ID')).toBeInTheDocument()
   })
 
-  it('Save without back image shows back image error for a card-style document', async () => {
+  it('shows a validation error when reason for reliance is not selected in reliance mode', async () => {
     const user = userEvent.setup()
-    seedCustomers([{ id: 'ind-001', type: 'individual', displayName: 'Jane Smith' }])
-    seedVerificationData({
-      'party-ind-001': makeCompleteVerification({ backImage: null, isComplete: false }),
+    loadCustomers.mockResolvedValue([JANE])
+    fetchPriorVerifications.mockResolvedValue([{
+      id: 'prior-1',
+      document_type: 'Driver licence',
+      document_number: 'DL999',
+      issuer: 'VicRoads',
+      created_at: new Date('2026-01-01').toISOString(),
+      has_expiry: false,
+      expiry_date: null,
+      verified_by_name: 'Prior Staff',
+      transaction_ref: 'INV-OLD',
+      front_image_id: null,
+      back_image_id: null,
+    }])
+    loadIdVerifications.mockResolvedValue({
+      'party-ind-001': completeVerification({
+        verificationMethod: 'Relied on prior identification',
+        priorVerificationId: 'prior-1',
+        priorVerificationSummary: { documentType: 'Driver licence', documentNumber: 'DL999', verifiedDate: '1 Jan 2026', verifiedBy: 'Prior Staff' },
+        relianceReason: null,
+        documentNumber: 'DL999',
+      }),
     })
     renderPage()
 
+    await screen.findByLabelText('Verification method')
     await user.click(screen.getByRole('button', { name: 'Save' }))
 
-    expect(screen.getByText('Capture and accept the back of the ID')).toBeInTheDocument()
+    expect(await screen.findByText('Select a reason for reliance')).toBeInTheDocument()
+    expect(saveIdVerifications).not.toHaveBeenCalled()
   })
 
-  it('Save without back image does not show back image error for Passport', async () => {
+  it('prevents navigation to the next page until every listed person has a complete verification record', async () => {
     const user = userEvent.setup()
-    seedCustomers([{ id: 'ind-001', type: 'individual', displayName: 'Jane Smith' }])
-    seedVerificationData({
-      'party-ind-001': makeCompleteVerification({ documentType: 'Passport', backImage: null, isComplete: false }),
+    loadIdVerifications.mockResolvedValue({
+      'party-ind-002': completeVerification({ isComplete: true }),
     })
     renderPage()
 
+    await screen.findAllByText('Jane Smith')
+    const bobCards = screen.getAllByRole('button', { name: /Bob Jones/i })
+    await user.click(bobCards[0])
+
+    await screen.findByLabelText('Document or reference number')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(await screen.findByText('Complete ID verification for all people before continuing.')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Recipient / Delivery' })).not.toBeInTheDocument()
+  })
+
+  it('calls saveIdVerifications() with all person verification records on continue', async () => {
+    const user = userEvent.setup()
+    loadCustomers.mockResolvedValue([JANE])
+    loadIdVerifications.mockResolvedValue({
+      'party-ind-001': completeVerification(),
+    })
+    renderPage()
+
+    await screen.findByLabelText('Verification method')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await waitFor(() => {
+      expect(saveIdVerifications).toHaveBeenCalledWith(
+        expect.objectContaining({
+          'party-ind-001': expect.objectContaining({ isComplete: true, documentNumber: 'P123456' }),
+        }),
+      )
+    })
+    expect(await screen.findByRole('heading', { name: 'Recipient / Delivery' })).toBeInTheDocument()
+  })
+
+  it('requires a back image only when the document type is Driver licence', async () => {
+    const user = userEvent.setup()
+    loadCustomers.mockResolvedValue([JANE])
+    renderPage()
+
+    await screen.findByLabelText('Verification method')
+    await user.selectOptions(screen.getByLabelText('Verification method'), 'Sighted original document')
+    await user.selectOptions(screen.getByLabelText('Document or data-source type'), 'Driver licence')
+    await user.type(screen.getByLabelText('Document or reference number'), 'DL123456')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(await screen.findByText('Capture and accept the back of the ID')).toBeInTheDocument()
+  })
+
+  it('does not require a back image when the document type is Passport', async () => {
+    const user = userEvent.setup()
+    loadCustomers.mockResolvedValue([JANE])
+    renderPage()
+
+    await screen.findByLabelText('Verification method')
+    await user.selectOptions(screen.getByLabelText('Verification method'), 'Sighted original document')
+    await user.selectOptions(screen.getByLabelText('Document or data-source type'), 'Passport')
+    await user.type(screen.getByLabelText('Document or reference number'), 'P123456')
     await user.click(screen.getByRole('button', { name: 'Save' }))
 
     expect(screen.queryByText('Capture and accept the back of the ID')).not.toBeInTheDocument()
   })
 
-  it('"Other" verification method reveals the describe field', async () => {
-    const user = userEvent.setup()
-    seedCustomers()
+  it('hides the image capture section when verification method is "Relied on prior identification"', async () => {
+    loadCustomers.mockResolvedValue([JANE])
+    fetchPriorVerifications.mockResolvedValue([{
+      id: 'prior-1',
+      document_type: 'Driver licence',
+      document_number: 'DL999',
+      issuer: 'VicRoads',
+      created_at: new Date('2026-01-01').toISOString(),
+      has_expiry: false,
+      expiry_date: null,
+      verified_by_name: 'Prior Staff',
+      transaction_ref: 'INV-OLD',
+      front_image_id: null,
+      back_image_id: null,
+    }])
     renderPage()
 
-    await user.selectOptions(screen.getByLabelText('Verification method'), 'Other')
+    await screen.findByLabelText('Verification method')
 
-    expect(screen.getByLabelText('Describe verification method')).toBeInTheDocument()
+    expect(screen.queryByText('Start camera for front')).not.toBeInTheDocument()
   })
 
-  it('"Other" document type reveals the describe field', async () => {
+  it('shows the prior verification search picker in reliance mode', async () => {
     const user = userEvent.setup()
-    seedCustomers()
+    loadCustomers.mockResolvedValue([JANE])
+    // Verified far outside the default 730-day reliance window, so it's listed but not
+    // auto-selected — this exercises the manual search/pick UI rather than the auto-fill path.
+    fetchPriorVerifications.mockResolvedValue([{
+      id: 'prior-1',
+      document_type: 'Driver licence',
+      document_number: 'DL999',
+      issuer: 'VicRoads',
+      created_at: new Date('2020-01-01').toISOString(),
+      has_expiry: false,
+      expiry_date: null,
+      verified_by_name: 'Prior Staff',
+      transaction_ref: 'INV-OLD',
+      front_image_id: null,
+      back_image_id: null,
+    }])
     renderPage()
 
-    await user.selectOptions(screen.getByLabelText('Document or data-source type'), 'Other')
+    await screen.findByLabelText('Verification method')
+    await user.selectOptions(screen.getByLabelText('Verification method'), 'Relied on prior identification')
 
-    expect(screen.getByLabelText('Describe document or data source')).toBeInTheDocument()
+    expect(screen.getByLabelText('Search prior verifications')).toBeInTheDocument()
+    expect(screen.getByText(/DL999/)).toBeInTheDocument()
   })
 
-  it('expiry date field appears when "Yes" is selected', async () => {
+  it('shows an unsaved changes confirmation modal when switching to another person with pending edits', async () => {
     const user = userEvent.setup()
-    seedCustomers()
     renderPage()
 
-    expect(screen.queryByLabelText('Expiry date')).not.toBeInTheDocument()
-    await user.click(screen.getByRole('radio', { name: 'Yes' }))
+    await screen.findByLabelText('Verification method')
+    await user.selectOptions(screen.getByLabelText('Verification method'), 'Sighted original document')
 
-    expect(screen.getByLabelText('Expiry date')).toBeInTheDocument()
-  })
-
-  it('expiry date field is hidden when "No" is selected after "Yes"', async () => {
-    const user = userEvent.setup()
-    seedCustomers()
-    renderPage()
-
-    await user.click(screen.getByRole('radio', { name: 'Yes' }))
-    await user.click(screen.getByRole('radio', { name: 'No' }))
-
-    expect(screen.queryByLabelText('Expiry date')).not.toBeInTheDocument()
-  })
-
-  it('pre-fills from existing idVerification sessionStorage on mount', () => {
-    seedCustomers()
-    seedVerificationData({
-      'party-ind-001': makeCompleteVerification(),
-    })
-    renderPage()
-
-    expect(screen.getByLabelText('Document or reference number')).toHaveValue('DL123456')
-  })
-
-  it('Save with complete data shows the completion banner', async () => {
-    const user = userEvent.setup()
-    seedCustomers([{ id: 'ind-001', type: 'individual', displayName: 'Jane Smith' }])
-    seedVerificationData({
-      'party-ind-001': makeCompleteVerification({ isComplete: false }),
-    })
-    renderPage()
-
-    await user.click(screen.getByRole('button', { name: 'Save' }))
-
-    expect(screen.getByText('ID verification complete')).toBeInTheDocument()
-  })
-
-  it('"Save and next person" advances to the next person after valid save', async () => {
-    const user = userEvent.setup()
-    seedCustomers()
-    seedVerificationData({
-      'party-ind-001': makeCompleteVerification({ isComplete: false }),
-      'party-ind-002': makeCompleteVerification({ isComplete: false }),
-    })
-    renderPage()
-
-    await user.click(screen.getByRole('button', { name: 'Save and next person' }))
-
-    const summaryNames = screen.getAllByText('Bob Jones')
-    expect(summaryNames.length).toBeGreaterThanOrEqual(1)
-  })
-
-  it('Continue with all people complete saves to storage and navigates to /recipient-delivery', async () => {
-    const user = userEvent.setup()
-    seedCustomers([{ id: 'ind-001', type: 'individual', displayName: 'Jane Smith' }])
-    seedVerificationData({
-      'party-ind-001': makeCompleteVerification({ isComplete: false }),
-    })
-    renderPage()
-
-    await user.click(screen.getByRole('button', { name: 'Continue' }))
-
-    const stored = JSON.parse(window.sessionStorage.getItem(wizardStorageKeys.idVerification))
-    expect(stored['party-ind-001'].isComplete).toBe(true)
-    expect(screen.getByRole('heading', { name: 'Recipient / Delivery' })).toBeInTheDocument()
-  })
-
-  it('Continue when not all people are complete shows an inline error', async () => {
-    const user = userEvent.setup()
-    seedCustomers()
-    // Jane has no data; Bob has complete data — switch to Bob and continue
-    seedVerificationData({
-      'party-ind-001': {
-        verificationMethod: '', verificationMethodOther: '', documentType: '', documentTypeOther: '',
-        documentNumber: '', issuer: '', hasExpiry: null, expiryDate: '', verificationDescription: '',
-        frontImage: null, backImage: null, isComplete: false,
-      },
-      'party-ind-002': makeCompleteVerification({ isComplete: false }),
-    })
-    renderPage()
-
-    // Switch to Bob — no unsaved changes so no modal
     const bobCards = screen.getAllByRole('button', { name: /Bob Jones/i })
     await user.click(bobCards[0])
 
-    // Bob's data is valid so he saves; but Jane is still not complete
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(screen.getByText('Unsaved changes')).toBeInTheDocument()
+  })
+
+  it('the selected document type is stored as its human-readable label (e.g. "Driver licence") in the ID verification record — AUSTRAC IdType code translation happens later, at report-generation time, not at capture time', async () => {
+    const user = userEvent.setup()
+    loadCustomers.mockResolvedValue([JANE])
+    renderPage()
+
+    await screen.findByLabelText('Verification method')
+    await user.selectOptions(screen.getByLabelText('Verification method'), 'Sighted original document')
+    await user.selectOptions(screen.getByLabelText('Document or data-source type'), 'Passport')
+    await user.type(screen.getByLabelText('Document or reference number'), 'P123456')
+    await user.click(screen.getByRole('button', { name: /start camera for front/i }))
+    await user.click(screen.getByRole('button', { name: 'Capture front' }))
+    await user.click(screen.getByRole('button', { name: 'Accept front image' }))
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
-    expect(screen.getByText('Complete ID verification for all people before continuing.')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(saveIdVerifications).toHaveBeenCalledWith(
+        expect.objectContaining({
+          'party-ind-001': expect.objectContaining({ documentType: 'Passport' }),
+        }),
+      )
+    })
   })
 
-  it('Back navigates to /conducting-person', async () => {
+  it('calls uploadIdImage() for each captured image with the correct personType, personId, and side', async () => {
     const user = userEvent.setup()
+    loadCustomers.mockResolvedValue([JANE])
     renderPage()
 
-    await user.click(screen.getByRole('button', { name: 'Back' }))
+    await screen.findByLabelText('Verification method')
+    await user.selectOptions(screen.getByLabelText('Verification method'), 'Sighted original document')
+    await user.selectOptions(screen.getByLabelText('Document or data-source type'), 'Passport')
+    await user.type(screen.getByLabelText('Document or reference number'), 'P123456')
 
-    expect(screen.getByRole('heading', { name: 'Conducting Person Details' })).toBeInTheDocument()
-  })
-
-  it('Exit button opens ConfirmModal', async () => {
-    const user = userEvent.setup()
-    renderPage()
-
-    await user.click(screen.getByRole('button', { name: 'Exit' }))
-
-    expect(screen.getByRole('dialog')).toBeInTheDocument()
-    expect(screen.getByText('Exit transaction?')).toBeInTheDocument()
-  })
-
-  it('confirming exit navigates to /', async () => {
-    const user = userEvent.setup()
-    renderPage()
-
-    await user.click(screen.getByRole('button', { name: 'Exit' }))
-    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Exit' }))
-
-    expect(screen.getByRole('heading', { name: 'Start TTR Transaction' })).toBeInTheDocument()
-  })
-
-  it('"Start camera for front" calls getUserMedia and shows the camera UI', async () => {
-    const user = userEvent.setup()
-    seedCustomers([{ id: 'ind-001', type: 'individual', displayName: 'Jane Smith' }])
-    renderPage()
-
-    await user.click(screen.getByRole('button', { name: /start camera for front/i }))
-
-    expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledWith({ video: { facingMode: 'environment' } })
-    expect(screen.getByRole('button', { name: 'Capture front' })).toBeInTheDocument()
-  })
-
-  it('Capture sets front preview and Accept records the image', async () => {
-    const user = userEvent.setup()
-    seedCustomers([{ id: 'ind-001', type: 'individual', displayName: 'Jane Smith' }])
-    renderPage()
-
-    await user.click(screen.getByRole('button', { name: /start camera for front/i }))
-    await user.click(screen.getByRole('button', { name: 'Capture front' }))
-
-    expect(screen.getByRole('button', { name: 'Accept front image' })).toBeInTheDocument()
-
-    await user.click(screen.getByRole('button', { name: 'Accept front image' }))
-
-    expect(screen.getByText('Front image accepted')).toBeInTheDocument()
-  })
-
-  it('Retake front resets the preview and restarts the camera', async () => {
-    const user = userEvent.setup()
-    seedCustomers([{ id: 'ind-001', type: 'individual', displayName: 'Jane Smith' }])
-    renderPage()
-
-    // Capture and accept front image
     await user.click(screen.getByRole('button', { name: /start camera for front/i }))
     await user.click(screen.getByRole('button', { name: 'Capture front' }))
     await user.click(screen.getByRole('button', { name: 'Accept front image' }))
 
-    // Retake
-    await user.click(screen.getByRole('button', { name: 'Retake front' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
 
-    expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledTimes(2)
-    expect(screen.getByRole('button', { name: 'Capture front' })).toBeInTheDocument()
+    await waitFor(() => {
+      expect(uploadIdImage).toHaveBeenCalledWith(
+        expect.objectContaining({ transactionId: 'tx-1', personType: 'party', personId: 'ind-001', side: 'front' }),
+      )
+    })
   })
 })

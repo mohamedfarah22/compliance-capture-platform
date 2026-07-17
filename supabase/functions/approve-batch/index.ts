@@ -54,8 +54,8 @@ Deno.serve(async (req: Request) => {
     return json({ error: "Request body must contain batchId, token, and action" }, 400);
   }
 
-  if (!["submit", "reject"].includes(action)) {
-    return json({ error: "action must be 'submit' or 'reject'" }, 400);
+  if (!["submit", "reject", "regenerate"].includes(action)) {
+    return json({ error: "action must be 'submit', 'reject', or 'regenerate'" }, 400);
   }
 
   // deno-lint-ignore no-explicit-any
@@ -64,7 +64,7 @@ Deno.serve(async (req: Request) => {
   // Load and verify batch
   const { data: batch, error: batchErr } = await ttr
     .from("report_batches")
-    .select("id, status, approval_token, reporting_entity_id")
+    .select("id, status, approval_token, reporting_entity_id, report_date")
     .eq("id", batchId)
     .single();
 
@@ -75,11 +75,21 @@ Deno.serve(async (req: Request) => {
   if (b.reporting_entity_id !== (staff as Row).reporting_entity_id) {
     return json({ error: "Not authorized for this batch" }, 403);
   }
-  if (b.status !== "pending_review") {
+  // regenerate is allowed on pending_review or already-rejected batches — only a
+  // submitted batch (a real AUSTRAC filing) must stay permanently untouchable.
+  if (action === "regenerate") {
+    if (b.status === "submitted") {
+      return json({ error: "Cannot regenerate a submitted batch" }, 409);
+    }
+  } else if (b.status !== "pending_review") {
     return json({ error: `Batch is already ${b.status}` }, 409);
   }
   if (b.approval_token !== token) {
     return json({ error: "Invalid approval token" }, 403);
+  }
+
+  if (action === "regenerate") {
+    return await regenerateBatch(ttr, b);
   }
 
   const now = new Date().toISOString();
@@ -99,6 +109,91 @@ Deno.serve(async (req: Request) => {
 
   return json({ ok: true, batchId, action }, 200);
 });
+
+// Deletes a not-yet-submitted batch and its transaction links, then re-triggers
+// generate-austrac-report for the same date so the now-unlinked transactions
+// are picked up again — producing a fresh batch reflecting current generator
+// code. The two deletes and the regeneration call aren't atomic; if generation
+// fails after the deletes succeed, the error below says so explicitly rather
+// than claiming success, since that date is left with no batch until retried.
+// deno-lint-ignore no-explicit-any
+async function regenerateBatch(ttr: any, b: Row): Promise<Response> {
+  const batchId = b.id as string;
+
+  const { error: unlinkErr } = await ttr
+    .from("transaction_reports")
+    .delete()
+    .eq("batch_id", batchId);
+  if (unlinkErr) {
+    console.error("Failed to unlink transactions from batch:", unlinkErr);
+    return json({ error: "Failed to unlink transactions from batch — nothing was changed" }, 500);
+  }
+
+  const { error: deleteErr } = await ttr
+    .from("report_batches")
+    .delete()
+    .eq("id", batchId);
+  if (deleteErr) {
+    console.error("Failed to delete batch:", deleteErr);
+    return json({
+      error: "Batch's transactions were unlinked but the batch row itself failed to delete — inconsistent state, needs manual cleanup",
+    }, 500);
+  }
+
+  let genResult: Row;
+  try {
+    const genRes = await fetch(`${SUPABASE_URL}/functions/v1/generate-austrac-report`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+        apikey: SUPABASE_SERVICE_ROLE_KEY,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ reportDate: b.report_date }),
+    });
+    genResult = await genRes.json();
+  } catch (err) {
+    console.error("generate-austrac-report call failed:", err);
+    return json({
+      error: "Old batch was cleared, but the regeneration call failed to reach generate-austrac-report — retry manually",
+    }, 502);
+  }
+
+  const results = (genResult.results ?? []) as Row[];
+  const ourResult = results.find((r) => r.entityId === b.reporting_entity_id);
+  if (!ourResult) {
+    console.error("generate-austrac-report did not return a result for this entity:", genResult);
+    return json({
+      error: "Old batch was cleared, but regeneration did not produce a new batch for this entity — retry manually",
+      generatorResponse: genResult,
+    }, 502);
+  }
+
+  const newBatchId = ourResult.batchId as string;
+  const { data: newBatch, error: newBatchErr } = await ttr
+    .from("report_batches")
+    .select("approval_token")
+    .eq("id", newBatchId)
+    .single();
+  if (newBatchErr || !newBatch) {
+    console.error("Failed to load new batch's approval token:", newBatchErr);
+    return json({
+      error: "A new batch was generated, but its approval token could not be loaded",
+      newBatchId,
+    }, 500);
+  }
+
+  return json({
+    ok: true,
+    action: "regenerate",
+    newBatch: {
+      id: newBatchId,
+      approvalToken: (newBatch as Row).approval_token,
+      fileName: ourResult.fileName,
+      txnCount: ourResult.txnCount,
+    },
+  }, 200);
+}
 
 function json(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), {

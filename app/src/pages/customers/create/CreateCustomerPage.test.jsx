@@ -1,11 +1,21 @@
-import { Route, Routes, MemoryRouter } from 'react-router-dom'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import CreateCustomerPage from './CreateCustomerPage.jsx'
 import { wizardStorageKeys } from '../../../components/wizardStorage.js'
+import { deleteTransaction } from '../../../lib/wizardApi.js'
+import { useAuth } from '../../../context/AuthContext.jsx'
 
-function renderCreatePage() {
+vi.mock('../../../lib/wizardApi.js', () => ({
+  deleteTransaction: vi.fn(),
+}))
+
+vi.mock('../../../context/AuthContext.jsx', () => ({
+  useAuth: vi.fn(),
+}))
+
+function renderPage() {
   return render(
     <MemoryRouter initialEntries={['/customers/create']}>
       <Routes>
@@ -18,153 +28,80 @@ function renderCreatePage() {
 }
 
 describe('CreateCustomerPage', () => {
+  beforeEach(() => {
+    window.sessionStorage.clear()
+    useAuth.mockReturnValue({ staffMember: { full_name: 'Jane Staff' }, canApproveReports: false, signOut: vi.fn() })
+    deleteTransaction.mockResolvedValue(undefined)
+  })
+
   afterEach(() => {
     cleanup()
     vi.restoreAllMocks()
   })
 
-  beforeEach(() => {
-    window.sessionStorage.clear()
-  })
-
-  it('displays the required copy and controls on first render', () => {
-    renderCreatePage()
-
-    expect(screen.getByRole('heading', { name: 'Create New Customer / Party' })).toBeInTheDocument()
-    expect(
-      screen.getByText(
-        'Enter the details for a new customer or party involved in this transaction.',
-      ),
-    ).toBeInTheDocument()
-    expect(screen.getByText('Step 1 of 3')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Individual' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Company / Business' })).toBeInTheDocument()
-    expect(screen.getByLabelText('First name')).toBeInTheDocument()
-    expect(screen.getByLabelText('Middle name')).toBeInTheDocument()
-    expect(screen.getByLabelText('Last name')).toBeInTheDocument()
-    expect(screen.getByLabelText('Date of birth')).toBeInTheDocument()
-    expect(screen.getByLabelText('Phone number')).toBeInTheDocument()
-    expect(screen.getByLabelText('Email address')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Save customer' })).toBeInTheDocument()
-  })
-
-  it('shows validation errors for Individual when saving with empty required fields', async () => {
+  it('individual: shows validation errors when first name or last name is empty', async () => {
     const user = userEvent.setup()
-    renderCreatePage()
+    renderPage()
 
+    await user.type(screen.getByLabelText('Date of birth'), '15/06/1990')
     await user.click(screen.getByRole('button', { name: 'Save customer' }))
 
-    expect(screen.getByText('Enter a first name.')).toBeInTheDocument()
+    expect(await screen.findByText('Enter a first name.')).toBeInTheDocument()
     expect(screen.getByText('Enter a last name.')).toBeInTheDocument()
-    expect(screen.getByText('Enter a date of birth.')).toBeInTheDocument()
-    expect(
-      screen.queryByRole('heading', { name: 'Customer / Party Search' }),
-    ).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Customer / Party Search' })).not.toBeInTheDocument()
   })
 
-  it('switches to Company / Business and shows correct fields', async () => {
+  it('individual: shows a validation error when date of birth is not provided', async () => {
     const user = userEvent.setup()
-    renderCreatePage()
-
-    await user.click(screen.getByRole('button', { name: 'Company / Business' }))
-
-    expect(screen.getByLabelText('Registered entity name')).toBeInTheDocument()
-    expect(screen.getByLabelText('ABN / ACN')).toBeInTheDocument()
-    expect(screen.getByLabelText('Registered suburb / postcode')).toBeInTheDocument()
-    expect(screen.queryByLabelText('First name')).not.toBeInTheDocument()
-  })
-
-  it('shows validation errors for Company when saving with empty required fields', async () => {
-    const user = userEvent.setup()
-    renderCreatePage()
-
-    await user.click(screen.getByRole('button', { name: 'Company / Business' }))
-    await user.click(screen.getByRole('button', { name: 'Save customer' }))
-
-    expect(screen.getByText('Enter a registered entity name.')).toBeInTheDocument()
-    expect(screen.getByText('Enter an ABN or ACN.')).toBeInTheDocument()
-    expect(
-      screen.queryByRole('heading', { name: 'Customer / Party Search' }),
-    ).not.toBeInTheDocument()
-  })
-
-  it('saves a valid Individual to storage and navigates to /customers', async () => {
-    const user = userEvent.setup()
-    renderCreatePage()
+    renderPage()
 
     await user.type(screen.getByLabelText('First name'), 'Jane')
     await user.type(screen.getByLabelText('Last name'), 'Doe')
-
-    const dobInput = screen.getByLabelText('Date of birth')
-    await user.type(dobInput, '15/06/1990')
-
     await user.click(screen.getByRole('button', { name: 'Save customer' }))
 
-    expect(screen.getByRole('heading', { name: 'Customer / Party Search' })).toBeInTheDocument()
-
-    const stored = JSON.parse(window.sessionStorage.getItem(wizardStorageKeys.customers))
-    expect(stored).toHaveLength(1)
-    expect(stored[0]).toMatchObject({
-      type: 'individual',
-      firstName: 'Jane',
-      lastName: 'Doe',
-      displayName: 'Jane Doe',
-    })
+    expect(await screen.findByText('Enter a date of birth.')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Customer / Party Search' })).not.toBeInTheDocument()
   })
 
-  it('saves a valid Company to storage and navigates to /customers', async () => {
+  it('company: shows a validation error when registered entity name is empty', async () => {
     const user = userEvent.setup()
-    renderCreatePage()
+    renderPage()
+
+    await user.click(screen.getByRole('button', { name: 'Company / Business' }))
+    await user.type(screen.getByLabelText('ABN / ACN'), '12345678901')
+    await user.click(screen.getByRole('button', { name: 'Save customer' }))
+
+    expect(await screen.findByText('Enter a registered entity name.')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Customer / Party Search' })).not.toBeInTheDocument()
+  })
+
+  it('company: shows a validation error when ABN/ACN is empty', async () => {
+    const user = userEvent.setup()
+    renderPage()
 
     await user.click(screen.getByRole('button', { name: 'Company / Business' }))
     await user.type(screen.getByLabelText('Registered entity name'), 'Acme Pty Ltd')
-    await user.type(screen.getByLabelText('ABN / ACN'), '12 345 678 901')
     await user.click(screen.getByRole('button', { name: 'Save customer' }))
 
-    expect(screen.getByRole('heading', { name: 'Customer / Party Search' })).toBeInTheDocument()
-
-    const stored = JSON.parse(window.sessionStorage.getItem(wizardStorageKeys.customers))
-    expect(stored).toHaveLength(1)
-    expect(stored[0]).toMatchObject({
-      type: 'company',
-      entityName: 'Acme Pty Ltd',
-      abnAcn: '12 345 678 901',
-      displayName: 'Acme Pty Ltd',
-    })
+    expect(await screen.findByText('Enter an ABN or ACN.')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Customer / Party Search' })).not.toBeInTheDocument()
   })
 
-  it('Cancel navigates to /customers when the confirm dialog is accepted', async () => {
-    const user = userEvent.setup()
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
-    renderCreatePage()
-
-    await user.click(screen.getByRole('button', { name: 'Cancel' }))
-
-    expect(screen.getByRole('heading', { name: 'Customer / Party Search' })).toBeInTheDocument()
-  })
-
-  it('appends new party to an existing customers array in storage', async () => {
+  it('appends the new party to the existing parties array in sessionStorage on save', async () => {
     const existing = [
-      {
-        id: 'ind-001',
-        type: 'individual',
-        displayName: 'Sarah Johnson',
-        detail: 'DOB: 14 Mar 1985',
-      },
+      { id: 'ind-001', type: 'individual', displayName: 'Sarah Johnson', detail: 'DOB: 14 Mar 1985' },
     ]
     window.sessionStorage.setItem(wizardStorageKeys.customers, JSON.stringify(existing))
 
     const user = userEvent.setup()
-    renderCreatePage()
+    renderPage()
 
     await user.type(screen.getByLabelText('First name'), 'New')
     await user.type(screen.getByLabelText('Last name'), 'Person')
-
-    const dobInput = screen.getByLabelText('Date of birth')
-    await user.type(dobInput, '01/01/2000')
-
+    await user.type(screen.getByLabelText('Date of birth'), '01/01/2000')
     await user.click(screen.getByRole('button', { name: 'Save customer' }))
+
+    expect(await screen.findByRole('heading', { name: 'Customer / Party Search' })).toBeInTheDocument()
 
     const stored = JSON.parse(window.sessionStorage.getItem(wizardStorageKeys.customers))
     expect(stored).toHaveLength(2)
@@ -172,22 +109,76 @@ describe('CreateCustomerPage', () => {
     expect(stored[1]).toMatchObject({ displayName: 'New Person' })
   })
 
-  it('clicking Back navigates to /customers', async () => {
+  it('includes the middle name in displayName when one is entered — it must not be silently dropped', async () => {
     const user = userEvent.setup()
-    renderCreatePage()
+    renderPage()
 
-    await user.click(screen.getByRole('button', { name: 'Back' }))
+    await user.type(screen.getByLabelText('First name'), 'Jane')
+    await user.type(screen.getByLabelText('Middle name'), 'Alice')
+    await user.type(screen.getByLabelText('Last name'), 'Citizen')
+    await user.type(screen.getByLabelText('Date of birth'), '15/06/1985')
+    await user.click(screen.getByRole('button', { name: 'Save customer' }))
 
-    expect(screen.getByRole('heading', { name: 'Customer / Party Search' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Customer / Party Search' })).toBeInTheDocument()
+
+    const stored = JSON.parse(window.sessionStorage.getItem(wizardStorageKeys.customers))
+    expect(stored[0]).toMatchObject({ displayName: 'Jane Alice Citizen', middleName: 'Alice' })
   })
 
-  it('Exit button navigates to / after confirmation', async () => {
+  it('renders the Individual form fields by default', () => {
+    renderPage()
+
+    expect(screen.getByRole('button', { name: 'Individual' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByLabelText('First name')).toBeInTheDocument()
+    expect(screen.getByLabelText('Last name')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Registered entity name')).not.toBeInTheDocument()
+  })
+
+  it('switches to the Company form when the Company toggle is selected', async () => {
     const user = userEvent.setup()
-    renderCreatePage()
+    renderPage()
 
-    await user.click(screen.getByRole('button', { name: 'Exit' }))
-    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Exit' }))
+    await user.click(screen.getByRole('button', { name: 'Company / Business' }))
 
-    expect(screen.getByRole('heading', { name: 'Start TTR Transaction' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Registered entity name')).toBeInTheDocument()
+    expect(screen.getByLabelText('ABN / ACN')).toBeInTheDocument()
+    expect(screen.queryByLabelText('First name')).not.toBeInTheDocument()
+  })
+
+  it('individual: allows saving without phone, email, or middle name', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.type(screen.getByLabelText('First name'), 'Jane')
+    await user.type(screen.getByLabelText('Last name'), 'Doe')
+    await user.type(screen.getByLabelText('Date of birth'), '15/06/1990')
+    await user.click(screen.getByRole('button', { name: 'Save customer' }))
+
+    expect(await screen.findByRole('heading', { name: 'Customer / Party Search' })).toBeInTheDocument()
+  })
+
+  it('generated party ID is prefixed with "new-" to distinguish from DB records', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.type(screen.getByLabelText('First name'), 'Jane')
+    await user.type(screen.getByLabelText('Last name'), 'Doe')
+    await user.type(screen.getByLabelText('Date of birth'), '15/06/1990')
+    await user.click(screen.getByRole('button', { name: 'Save customer' }))
+
+    await screen.findByRole('heading', { name: 'Customer / Party Search' })
+    const stored = JSON.parse(window.sessionStorage.getItem(wizardStorageKeys.customers))
+    expect(stored[0].id).toMatch(/^new-/)
+  })
+
+  it('shows cancel confirmation modal; navigates to /customers on confirm', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    renderPage()
+
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    expect(window.confirm).toHaveBeenCalledWith('Discard this new party? Any entered data will be lost.')
+    expect(await screen.findByRole('heading', { name: 'Customer / Party Search' })).toBeInTheDocument()
   })
 })

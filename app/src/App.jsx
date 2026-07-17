@@ -8,6 +8,7 @@ import CreateCustomerPage from './pages/customers/create/CreateCustomerPage.jsx'
 import IdVerificationPage from './pages/id-verification/IdVerificationPage.jsx'
 import LoginPage from './pages/login/LoginPage.jsx'
 import PartyDetailsPage from './pages/party-details/PartyDetailsPage.jsx'
+import PreciousMetalDetailsPage from './pages/precious-metal-details/PreciousMetalDetailsPage.jsx'
 import RecipientDeliveryPage from './pages/recipient-delivery/RecipientDeliveryPage.jsx'
 import ReportsPage from './pages/reports/ReportsPage.jsx'
 import ReviewBatchPage from './pages/review-batch/ReviewBatchPage.jsx'
@@ -91,6 +92,14 @@ const App = () => {
             element={
               <ProtectedRoute>
                 <BullionDetailsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/precious-metal-details"
+            element={
+              <ProtectedRoute>
+                <PreciousMetalDetailsPage />
               </ProtectedRoute>
             }
           />

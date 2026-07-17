@@ -1,9 +1,28 @@
-import { Route, Routes, MemoryRouter } from 'react-router-dom'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import ConductingPersonPage from './ConductingPersonPage.jsx'
-import { wizardStorageKeys } from '../../components/wizardStorage.js'
+import { deleteTransaction, loadConductingPerson, loadCustomers, loadTransaction, saveConductingPerson, saveConductorInfo } from '../../lib/wizardApi.js'
+import { useAuth } from '../../context/AuthContext.jsx'
+
+vi.mock('../../lib/wizardApi.js', () => ({
+  deleteTransaction: vi.fn(),
+  loadConductingPerson: vi.fn(),
+  loadCustomers: vi.fn(),
+  loadTransaction: vi.fn(),
+  saveConductingPerson: vi.fn(),
+  saveConductorInfo: vi.fn(),
+}))
+
+vi.mock('../../context/AuthContext.jsx', () => ({
+  useAuth: vi.fn(),
+}))
+
+const PARTIES = [
+  { id: 'ind-001', type: 'individual', displayName: 'Jane Smith', dateOfBirth: '1990-04-15' },
+  { id: 'co-001', type: 'company', displayName: 'Acme Pty Ltd', abnAcn: '12345678901' },
+]
 
 function renderPage() {
   return render(
@@ -13,64 +32,9 @@ function renderPage() {
         <Route path="/party-details" element={<h1>Party Details</h1>} />
         <Route path="/conducting-person" element={<ConductingPersonPage />} />
         <Route path="/id-verification" element={<h1>ID Verification Details</h1>} />
+        <Route path="/recipient-delivery" element={<h1>Recipient / Delivery</h1>} />
       </Routes>
     </MemoryRouter>,
-  )
-}
-
-function seedParties() {
-  window.sessionStorage.setItem(
-    wizardStorageKeys.customers,
-    JSON.stringify([
-      {
-        id: 'ind-001',
-        type: 'individual',
-        displayName: 'Jane Smith',
-        dateOfBirth: '1990-04-15',
-      },
-      {
-        id: 'co-001',
-        type: 'company',
-        displayName: 'Acme Pty Ltd',
-        abnAcn: '12 345 678 901',
-      },
-    ]),
-  )
-}
-
-function seedSavedData(overrides = {}) {
-  window.sessionStorage.setItem(
-    wizardStorageKeys.conductingPerson,
-    JSON.stringify({
-      hasConductingPerson: 'yes',
-      representedPartyId: 'ind-001',
-      fullName: 'John Doe',
-      aliases: [],
-      dobKnown: null,
-      dateOfBirth: '',
-      residentialAddress: {
-        street: '10 Park Rd',
-        suburb: 'Fitzroy',
-        state: 'VIC',
-        postcode: '3065',
-        country: 'Australia',
-      },
-      postalAddressDifferent: false,
-      postalAddress: { street: '', suburb: '', state: '', postcode: '', country: 'Australia' },
-      phone: '0411222333',
-      occupation: 'Lawyer',
-      relationship: 'Agent',
-      relationshipOther: '',
-      authorityToAct: 'Power of attorney',
-      isEmployee: null,
-      employeeRole: '',
-      actingViaEntity: null,
-      entityName: '',
-      entityAddress: { street: '', suburb: '', state: '', postcode: '', country: 'Australia' },
-      entityRegType: '',
-      entityRegNumber: '',
-      ...overrides,
-    }),
   )
 }
 
@@ -86,64 +50,171 @@ async function fillMinimumYesForm(user) {
 }
 
 describe('ConductingPersonPage', () => {
+  beforeEach(() => {
+    useAuth.mockReturnValue({ staffMember: { full_name: 'Jane Staff' }, canApproveReports: false, signOut: vi.fn() })
+    deleteTransaction.mockResolvedValue(undefined)
+    loadCustomers.mockResolvedValue(PARTIES)
+    loadConductingPerson.mockResolvedValue(null)
+    loadTransaction.mockResolvedValue(null)
+    saveConductingPerson.mockResolvedValue(undefined)
+    saveConductorInfo.mockResolvedValue(undefined)
+  })
+
   afterEach(() => {
     cleanup()
+    vi.restoreAllMocks()
   })
 
-  beforeEach(() => {
-    window.sessionStorage.clear()
-  })
-
-  it('displays the heading and subtitle', () => {
+  it('renders only the "Is a different person conducting the transaction?" question on first render', async () => {
     renderPage()
 
-    expect(
-      screen.getByRole('heading', { name: 'Conducting Person Details' }),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByText(/record the person physically conducting the transaction/i),
-    ).toBeInTheDocument()
-  })
-
-  it('displays the step indicator', () => {
-    renderPage()
-
-    expect(screen.getByText('Step 4')).toBeInTheDocument()
-  })
-
-  it('shows radio options and hides the full form by default', () => {
-    renderPage()
-
+    expect(await screen.findByText('Is a different person conducting the transaction on behalf of a party?')).toBeInTheDocument()
     expect(screen.getByRole('radio', { name: 'No' })).toBeInTheDocument()
     expect(screen.getByRole('radio', { name: 'Yes' })).toBeInTheDocument()
     expect(screen.queryByLabelText('Full legal name')).not.toBeInTheDocument()
   })
 
-  it('selecting No shows the same-as-customer confirmation banner', async () => {
+  it('selecting No hides the full form and marks conducting person as same as party', async () => {
     const user = userEvent.setup()
     renderPage()
 
+    await screen.findByText('Is a different person conducting the transaction on behalf of a party?')
     await user.click(screen.getByRole('radio', { name: 'No' }))
 
-    expect(
-      screen.getByText(/the conducting person is the same as the customer/i),
-    ).toBeInTheDocument()
+    expect(screen.queryByLabelText('Full legal name')).not.toBeInTheDocument()
+    expect(screen.getByText(/the conducting person is the same as the customer/i)).toBeInTheDocument()
   })
 
-  it('selecting Yes reveals the full form', async () => {
+  it('selecting Yes reveals the full conducting person detail form', async () => {
     const user = userEvent.setup()
     renderPage()
 
+    await screen.findByText('Is a different person conducting the transaction on behalf of a party?')
     await user.click(screen.getByRole('radio', { name: 'Yes' }))
 
     expect(screen.getByLabelText('Full legal name')).toBeInTheDocument()
     expect(screen.getByLabelText('Customer / party being represented')).toBeInTheDocument()
   })
 
-  it('switching from Yes (with form data) to No shows the clear warning dialog', async () => {
+  it('shows a validation error when fullLegalName is empty and Yes is selected', async () => {
     const user = userEvent.setup()
     renderPage()
 
+    await screen.findByText('Is a different person conducting the transaction on behalf of a party?')
+    await user.click(screen.getByRole('radio', { name: 'Yes' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(await screen.findByText('Enter the full legal name.')).toBeInTheDocument()
+    expect(saveConductingPerson).not.toHaveBeenCalled()
+  })
+
+  it('shows validation errors when any residential address field is empty and Yes is selected', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    await screen.findByText('Is a different person conducting the transaction on behalf of a party?')
+    await user.click(screen.getByRole('radio', { name: 'Yes' }))
+    await user.type(screen.getByLabelText('Full legal name'), 'Alice Brown')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(await screen.findByText('Enter the residential address.')).toBeInTheDocument()
+  })
+
+  it('shows a validation error when partyRepresented is not selected', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    await screen.findByText('Is a different person conducting the transaction on behalf of a party?')
+    await user.click(screen.getByRole('radio', { name: 'Yes' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(await screen.findByText('Select the party this person is acting for.')).toBeInTheDocument()
+  })
+
+  it('shows a validation error when authorityToAct text is empty', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    await screen.findByText('Is a different person conducting the transaction on behalf of a party?')
+    await user.click(screen.getByRole('radio', { name: 'Yes' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(await screen.findByText('Describe the authority to act.')).toBeInTheDocument()
+  })
+
+  it('calls saveConductingPerson() with the correctly structured data on continue', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    await screen.findByText('Is a different person conducting the transaction on behalf of a party?')
+    await user.click(screen.getByRole('radio', { name: 'Yes' }))
+    await fillMinimumYesForm(user)
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await waitFor(() => {
+      expect(saveConductingPerson).toHaveBeenCalledWith(
+        expect.objectContaining({
+          hasConductingPerson: 'yes',
+          representedPartyId: 'ind-001',
+          fullName: 'Alice Brown',
+          relationship: 'Agent',
+          authorityToAct: 'Power of attorney',
+          residentialAddress: expect.objectContaining({
+            street: '5 High St',
+            suburb: 'Richmond',
+            state: 'VIC',
+            postcode: '3121',
+          }),
+        }),
+      )
+    })
+    expect(await screen.findByRole('heading', { name: 'ID Verification Details' })).toBeInTheDocument()
+  })
+
+  it('shows the "describe relationship" text field only when relationship is set to Other', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    await screen.findByText('Is a different person conducting the transaction on behalf of a party?')
+    await user.click(screen.getByRole('radio', { name: 'Yes' }))
+    expect(screen.queryByLabelText('Describe relationship')).not.toBeInTheDocument()
+
+    await user.selectOptions(screen.getByLabelText('Relationship to the customer / party'), 'Other')
+
+    expect(screen.getByLabelText('Describe relationship')).toBeInTheDocument()
+  })
+
+  it('shows the employee role field only when "is employee" is set to yes', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    await screen.findByText('Is a different person conducting the transaction on behalf of a party?')
+    await user.click(screen.getByRole('radio', { name: 'Yes' }))
+    expect(screen.queryByLabelText('Employee title or role')).not.toBeInTheDocument()
+
+    await user.click(within(screen.getByTestId('isEmployee-group')).getByRole('radio', { name: 'Yes' }))
+
+    expect(screen.getByLabelText('Employee title or role')).toBeInTheDocument()
+  })
+
+  it('reveals the another entity fields when "acting through another entity" is set to yes', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    await screen.findByText('Is a different person conducting the transaction on behalf of a party?')
+    await user.click(screen.getByRole('radio', { name: 'Yes' }))
+    expect(screen.queryByLabelText('Entity name')).not.toBeInTheDocument()
+
+    await user.click(within(screen.getByTestId('actingViaEntity-group')).getByRole('radio', { name: 'Yes' }))
+
+    expect(screen.getByLabelText('Entity name')).toBeInTheDocument()
+  })
+
+  it('shows a warning modal when the user switches from Yes back to No after entering data', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    await screen.findByText('Is a different person conducting the transaction on behalf of a party?')
     await user.click(screen.getByRole('radio', { name: 'Yes' }))
     await user.type(screen.getByLabelText('Full legal name'), 'Alice Brown')
     await user.click(within(screen.getByTestId('hasConductingPerson-group')).getByRole('radio', { name: 'No' }))
@@ -152,198 +223,77 @@ describe('ConductingPersonPage', () => {
     expect(screen.getByText('Clear conducting person details?')).toBeInTheDocument()
   })
 
-  it('confirming clear resets the form and shows the No confirmation banner', async () => {
+  it('when multiple parties exist and no separate conducting person is recorded, requires selecting which party conducted the transaction', async () => {
     const user = userEvent.setup()
+    loadCustomers.mockResolvedValue([
+      { id: 'ind-001', type: 'individual', displayName: 'Jane Smith' },
+      { id: 'ind-002', type: 'individual', displayName: 'Bob Jones' },
+    ])
     renderPage()
 
-    await user.click(screen.getByRole('radio', { name: 'Yes' }))
-    await user.type(screen.getByLabelText('Full legal name'), 'Alice Brown')
-    await user.click(within(screen.getByTestId('hasConductingPerson-group')).getByRole('radio', { name: 'No' }))
-    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Continue' }))
-
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-    expect(screen.queryByLabelText('Full legal name')).not.toBeInTheDocument()
-    expect(
-      screen.getByText(/the conducting person is the same as the customer/i),
-    ).toBeInTheDocument()
-  })
-
-  it('cancelling clear closes the dialog and keeps the form data', async () => {
-    const user = userEvent.setup()
-    renderPage()
-
-    await user.click(screen.getByRole('radio', { name: 'Yes' }))
-    await user.type(screen.getByLabelText('Full legal name'), 'Alice Brown')
-    await user.click(within(screen.getByTestId('hasConductingPerson-group')).getByRole('radio', { name: 'No' }))
-    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }))
-
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-    expect(screen.getByLabelText('Full legal name')).toHaveValue('Alice Brown')
-  })
-
-  it('Continue with no selection shows the hasConductingPerson validation error', async () => {
-    const user = userEvent.setup()
-    renderPage()
-
-    await user.click(screen.getByRole('button', { name: 'Continue' }))
-
-    expect(
-      screen.getByText('Select whether a different person is conducting the transaction.'),
-    ).toBeInTheDocument()
-  })
-
-  it('Continue with No saves to storage and navigates to /id-verification', async () => {
-    const user = userEvent.setup()
-    renderPage()
-
+    await screen.findByText('Is a different person conducting the transaction on behalf of a party?')
     await user.click(screen.getByRole('radio', { name: 'No' }))
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
-    const stored = JSON.parse(window.sessionStorage.getItem(wizardStorageKeys.conductingPerson))
-    expect(stored.hasConductingPerson).toBe('no')
-    expect(screen.getByRole('heading', { name: 'ID Verification Details' })).toBeInTheDocument()
-  })
+    expect(await screen.findByText('Select the party that conducted this transaction.')).toBeInTheDocument()
+    expect(saveConductorInfo).not.toHaveBeenCalled()
 
-  it('Continue with Yes and empty required fields shows validation errors', async () => {
-    const user = userEvent.setup()
-    renderPage()
-
-    await user.click(screen.getByRole('radio', { name: 'Yes' }))
+    await user.selectOptions(screen.getByLabelText('Which party conducted this transaction?'), 'ind-002')
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
-    expect(screen.getByText('Select the party this person is acting for.')).toBeInTheDocument()
-    expect(screen.getByText('Enter the full legal name.')).toBeInTheDocument()
-    expect(screen.getByText('Enter the residential address.')).toBeInTheDocument()
-    expect(screen.getByText('Select the relationship to the party.')).toBeInTheDocument()
-    expect(screen.getByText('Describe the authority to act.')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(saveConductorInfo).toHaveBeenCalledWith({ conductedByPartyId: 'ind-002', methodOfConductingTxn: null })
+    })
   })
 
-  it('Continue with Yes and minimum valid data saves and navigates', async () => {
+  it('when the conducting individual for a company customer cannot be identified, requires a methodOfConductingTxn code instead of otherPerson details', async () => {
     const user = userEvent.setup()
-    seedParties()
     renderPage()
 
-    await user.click(screen.getByRole('radio', { name: 'Yes' }))
-    await fillMinimumYesForm(user)
+    await screen.findByText('Is a different person conducting the transaction on behalf of a party?')
+    await user.click(screen.getByRole('radio', { name: 'No' }))
+
+    expect(await screen.findByText('Can the individual who conducted this transaction be identified?')).toBeInTheDocument()
+    await user.click(within(screen.getByTestId('conductorIdentifiable-group')).getByRole('radio', { name: 'Yes' }))
+    expect(screen.queryByLabelText('Method of conducting the transaction')).not.toBeInTheDocument()
+
+    await user.click(within(screen.getByTestId('conductorIdentifiable-group')).getByRole('radio', { name: /No — impersonal channel/ }))
+    expect(screen.getByLabelText('Method of conducting the transaction')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(await screen.findByText('Select the method of conducting the transaction.')).toBeInTheDocument()
+
+    await user.selectOptions(screen.getByLabelText('Method of conducting the transaction'), 'N')
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
-    const stored = JSON.parse(window.sessionStorage.getItem(wizardStorageKeys.conductingPerson))
-    expect(stored).toMatchObject({ hasConductingPerson: 'yes', fullName: 'Alice Brown' })
-    expect(screen.getByRole('heading', { name: 'ID Verification Details' })).toBeInTheDocument()
+    await waitFor(() => {
+      expect(saveConductorInfo).toHaveBeenCalledWith({ conductedByPartyId: 'co-001', methodOfConductingTxn: 'N' })
+    })
   })
 
-  it('pre-fills from sessionStorage on mount', () => {
-    seedParties()
-    seedSavedData()
-    renderPage()
-
-    expect(screen.getByLabelText('Full legal name')).toHaveValue('John Doe')
-    expect(screen.getByLabelText('Authority to act')).toHaveValue('Power of attorney')
-  })
-
-  it('Back button navigates to /party-details', async () => {
+  it('skips straight to /recipient-delivery — bypassing /id-verification — when there is no individual to verify (company-only customer, impersonal channel)', async () => {
     const user = userEvent.setup()
+    loadCustomers.mockResolvedValue([{ id: 'co-001', type: 'company', displayName: 'Acme Pty Ltd', abnAcn: '12345678901' }])
     renderPage()
 
-    await user.click(screen.getByRole('button', { name: 'Back' }))
+    await screen.findByText('Is a different person conducting the transaction on behalf of a party?')
+    await user.click(screen.getByRole('radio', { name: 'No' }))
+    await user.click(within(screen.getByTestId('conductorIdentifiable-group')).getByRole('radio', { name: /No — impersonal channel/ }))
+    await user.selectOptions(screen.getByLabelText('Method of conducting the transaction'), 'N')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
 
-    expect(screen.getByRole('heading', { name: 'Party Details' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Recipient / Delivery' })).toBeInTheDocument()
   })
 
-  it('Exit button shows the ConfirmModal', async () => {
+  it('still navigates to /id-verification when an individual party exists', async () => {
     const user = userEvent.setup()
+    loadCustomers.mockResolvedValue([{ id: 'ind-001', type: 'individual', displayName: 'Jane Smith' }])
     renderPage()
 
-    await user.click(screen.getByRole('button', { name: 'Exit' }))
+    await screen.findByText('Is a different person conducting the transaction on behalf of a party?')
+    await user.click(screen.getByRole('radio', { name: 'No' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
 
-    expect(screen.getByRole('dialog')).toBeInTheDocument()
-    expect(screen.getByText('Exit transaction?')).toBeInTheDocument()
-  })
-
-  it('confirming exit navigates to /', async () => {
-    const user = userEvent.setup()
-    renderPage()
-
-    await user.click(screen.getByRole('button', { name: 'Exit' }))
-    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Exit' }))
-
-    expect(screen.getByRole('heading', { name: 'Start TTR Transaction' })).toBeInTheDocument()
-  })
-
-  it('cancelling exit closes the modal and stays on the page', async () => {
-    const user = userEvent.setup()
-    renderPage()
-
-    await user.click(screen.getByRole('button', { name: 'Exit' }))
-    await user.click(screen.getByRole('button', { name: 'Cancel' }))
-
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-    expect(
-      screen.getByRole('heading', { name: 'Conducting Person Details' }),
-    ).toBeInTheDocument()
-  })
-
-  it('adds a new alias row when "+ Add alias" is clicked', async () => {
-    const user = userEvent.setup()
-    renderPage()
-
-    await user.click(screen.getByRole('radio', { name: 'Yes' }))
-    await user.click(screen.getByRole('button', { name: '+ Add alias' }))
-
-    expect(screen.getByPlaceholderText('Enter alias')).toBeInTheDocument()
-  })
-
-  it('removes an alias row when the remove button is clicked', async () => {
-    const user = userEvent.setup()
-    renderPage()
-
-    await user.click(screen.getByRole('radio', { name: 'Yes' }))
-    await user.click(screen.getByRole('button', { name: '+ Add alias' }))
-    await user.type(screen.getByPlaceholderText('Enter alias'), 'J. Doe')
-    await user.click(screen.getByRole('button', { name: 'Remove alias J. Doe' }))
-
-    expect(screen.queryByPlaceholderText('Enter alias')).not.toBeInTheDocument()
-  })
-
-  it('postal address fields appear when the checkbox is checked', async () => {
-    const user = userEvent.setup()
-    renderPage()
-
-    await user.click(screen.getByRole('radio', { name: 'Yes' }))
-    expect(screen.queryByLabelText('Street / PO Box')).not.toBeInTheDocument()
-
-    await user.click(screen.getByRole('checkbox', { name: /postal address is different/i }))
-
-    expect(screen.getByLabelText('Street / PO Box')).toBeInTheDocument()
-  })
-
-  it('entity details appear when actingViaEntity Yes is selected', async () => {
-    const user = userEvent.setup()
-    renderPage()
-
-    await user.click(screen.getByRole('radio', { name: 'Yes' }))
-    await user.click(within(screen.getByTestId('actingViaEntity-group')).getByRole('radio', { name: 'Yes' }))
-
-    expect(screen.getByLabelText('Entity name')).toBeInTheDocument()
-  })
-
-  it('employee role field appears when isEmployee Yes is selected', async () => {
-    const user = userEvent.setup()
-    renderPage()
-
-    await user.click(screen.getByRole('radio', { name: 'Yes' }))
-    await user.click(within(screen.getByTestId('isEmployee-group')).getByRole('radio', { name: 'Yes' }))
-
-    expect(screen.getByLabelText('Employee title or role')).toBeInTheDocument()
-  })
-
-  it('Describe relationship field appears when relationship is Other', async () => {
-    const user = userEvent.setup()
-    renderPage()
-
-    await user.click(screen.getByRole('radio', { name: 'Yes' }))
-    await user.selectOptions(screen.getByLabelText('Relationship to the customer / party'), 'Other')
-
-    expect(screen.getByLabelText('Describe relationship')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'ID Verification Details' })).toBeInTheDocument()
   })
 })

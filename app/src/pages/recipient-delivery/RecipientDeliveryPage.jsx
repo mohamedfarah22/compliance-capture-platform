@@ -5,10 +5,18 @@ import Button from '../../components/ui/Button.jsx'
 import DatePicker from '../../components/ui/DatePicker.jsx'
 import FormField from '../../components/ui/FormField.jsx'
 import WizardFrame from '../../components/layout/WizardFrame.jsx'
-import { loadCustomers, loadRecipientDelivery, saveRecipientDelivery } from '../../lib/wizardApi.js'
+import { loadConductingPerson, loadCustomers, loadRecipientDelivery, loadTransaction, saveRecipientDelivery } from '../../lib/wizardApi.js'
+import { MAX_SUBURB_LENGTH } from '../../lib/austrac.js'
 import styles from './RecipientDeliveryPage.module.css'
 
 const DELIVERY_METHODS = ['Collected', 'Shipped', 'Courier', 'Other']
+
+const PURPOSE_OPTIONS = [
+  'Collecting bullion',
+  'Dropping off bullion',
+  'Collecting precious metal',
+  'Dropping off precious metal',
+]
 
 const emptyAddress = () => ({
   street: '',
@@ -36,7 +44,7 @@ const initialData = () => ({
 const getPartyLabel = (party) => {
   const name =
     party.type === 'individual'
-      ? party.displayName || [party.firstName, party.lastName].filter(Boolean).join(' ')
+      ? party.displayName || [party.firstName, party.middleName, party.lastName].filter(Boolean).join(' ')
       : party.entityName || party.displayName
   const typeLabel = party.type === 'individual' ? 'Individual' : 'Company'
   return party.dateOfBirth
@@ -47,17 +55,23 @@ const getPartyLabel = (party) => {
 const RecipientDeliveryPage = () => {
   const navigate = useNavigate()
   const [parties, setParties] = useState([])
+  const [txn, setTxn] = useState({})
+  const [conductingPerson, setConductingPerson] = useState(null)
   const [data, setData] = useState(initialData)
   const [errors, setErrors] = useState({})
 
   useEffect(() => {
     const init = async () => {
-      const [customers, saved] = await Promise.all([loadCustomers(), loadRecipientDelivery()])
+      const [txnData, customers, cpData, saved] = await Promise.all([loadTransaction(), loadCustomers(), loadConductingPerson(), loadRecipientDelivery()])
+      if (txnData) setTxn(txnData)
       setParties(customers)
+      setConductingPerson(cpData)
       if (saved) setData(saved)
     }
     init()
   }, [])
+
+  const hasIndividualToVerify = conductingPerson?.hasConductingPerson === 'yes' || parties.some((p) => p.type === 'individual')
 
   const updateData = (updates) => setData((prev) => ({ ...prev, ...updates }))
 
@@ -85,8 +99,8 @@ const RecipientDeliveryPage = () => {
       }
     }
 
-    if (!data.purposeOfTransfer.trim()) {
-      e.purposeOfTransfer = 'Enter the purpose of the transfer.'
+    if (!data.purposeOfTransfer) {
+      e.purposeOfTransfer = 'Select the purpose of the transfer.'
     }
 
     if (!data.deliveryMethod) {
@@ -111,7 +125,7 @@ const RecipientDeliveryPage = () => {
   const handleContinue = async () => {
     if (!validate()) return
     await saveRecipientDelivery(data)
-    navigate('/bullion-details')
+    navigate(txn.serviceType === 'precious_metal' ? '/precious-metal-details' : '/bullion-details')
   }
 
   const isComplete = () => {
@@ -128,7 +142,7 @@ const RecipientDeliveryPage = () => {
     <WizardFrame
       title="Recipient / Delivery"
       subtitle="Record the recipient and any delivery or handover details for this transaction."
-      onBack={() => navigate('/id-verification')}
+      onBack={() => navigate(hasIndividualToVerify ? '/id-verification' : '/conducting-person')}
       actions={<Button onClick={handleContinue}>Continue</Button>}
     >
       <div className={styles.card}>
@@ -246,6 +260,7 @@ const RecipientDeliveryPage = () => {
                     placeholder="Suburb"
                     value={data.recipientAddress.suburb}
                     onChange={(e) => updateAddress('recipientAddress', 'suburb', e.target.value)}
+                    maxLength={MAX_SUBURB_LENGTH}
                   />
                   <input
                     className={styles.input}
@@ -281,13 +296,16 @@ const RecipientDeliveryPage = () => {
           <div className={styles.section}>
             <h2 className={styles.sectionTitle}>Purpose of transfer</h2>
             <FormField label="Purpose of the transfer" error={errors.purposeOfTransfer}>
-              <input
-                className={styles.input}
-                type="text"
-                placeholder="e.g. customer collecting bullion purchase, delivery to authorised recipient"
+              <select
+                className={styles.select}
                 value={data.purposeOfTransfer}
                 onChange={(e) => updateData({ purposeOfTransfer: e.target.value })}
-              />
+              >
+                <option value="">Select purpose…</option>
+                {PURPOSE_OPTIONS.map((p) => (
+                  <option key={p} value={p}>{p}</option>
+                ))}
+              </select>
             </FormField>
           </div>
         )}
@@ -337,20 +355,20 @@ const RecipientDeliveryPage = () => {
                     <label className={styles.radioLabel}>
                       <input
                         type="radio"
+                        checked={data.deliveryAddressDifferent === 'yes'}
+                        onChange={() => updateData({ deliveryAddressDifferent: 'yes' })}
+                      />
+                      Yes
+                    </label>
+                    <label className={styles.radioLabel}>
+                      <input
+                        type="radio"
                         checked={data.deliveryAddressDifferent === 'no'}
                         onChange={() =>
                           updateData({ deliveryAddressDifferent: 'no', deliveryAddress: emptyAddress() })
                         }
                       />
                       No
-                    </label>
-                    <label className={styles.radioLabel}>
-                      <input
-                        type="radio"
-                        checked={data.deliveryAddressDifferent === 'yes'}
-                        onChange={() => updateData({ deliveryAddressDifferent: 'yes' })}
-                      />
-                      Yes
                     </label>
                   </div>
                 </FormField>
@@ -372,6 +390,7 @@ const RecipientDeliveryPage = () => {
                           placeholder="Suburb"
                           value={data.deliveryAddress.suburb}
                           onChange={(e) => updateAddress('deliveryAddress', 'suburb', e.target.value)}
+                          maxLength={MAX_SUBURB_LENGTH}
                         />
                         <input
                           className={styles.input}

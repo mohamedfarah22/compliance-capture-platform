@@ -20,6 +20,7 @@ const currentLocalDateTime = () => {
 const StartTransactionPage = () => {
   const navigate = useNavigate()
   const [scenario, setScenario] = useState('')
+  const [serviceType, setServiceType] = useState('bullion')
   const [transactionRef, setTransactionRef] = useState('')
   const [dateTime, setDateTime] = useState(currentLocalDateTime)
   const [errors, setErrors] = useState({})
@@ -43,12 +44,18 @@ const StartTransactionPage = () => {
       const draft = await findDraftByRef(ref)
       if (draft) {
         setScenario(draft.scenario)
+        setServiceType(draft.serviceType || 'bullion')
         setDateTime(draft.dateTime)
         setDraftNotice('Existing draft found — fields pre-filled.')
       } else {
         setDraftNotice('')
       }
     } catch { /* ignore */ }
+  }
+
+  const handleScenarioChoice = (nextServiceType, nextScenario) => {
+    setServiceType(nextServiceType)
+    setScenario(nextScenario)
   }
 
   const handleStartTransaction = async (event) => {
@@ -60,9 +67,12 @@ const StartTransactionPage = () => {
       const draft = await findDraftByRef(transactionRef.trim())
       if (draft) {
         const customers = await loadCustomers()
-        writeWizardData(wizardStorageKeys.customers, customers)
+        // Every party loadCustomers() returns already has a row in ttr.parties for this
+        // transaction — flag as migrated so re-entering Transaction Details doesn't re-insert them.
+        writeWizardData(wizardStorageKeys.customers, customers.map((c) => ({ ...c, _migrated: true })))
         writeWizardData(wizardStorageKeys.transaction, {
           scenario: draft.scenario,
+          serviceType: draft.serviceType || 'bullion',
           transactionRef: draft.transactionRef,
           dateTime: draft.dateTime,
           status: draft.status,
@@ -72,6 +82,7 @@ const StartTransactionPage = () => {
         await deleteTransaction()
         writeWizardData(wizardStorageKeys.transaction, {
           scenario,
+          serviceType,
           transactionRef: transactionRef.trim(),
           dateTime,
           status: 'Draft',
@@ -88,6 +99,7 @@ const StartTransactionPage = () => {
     if (!window.confirm('Cancel transaction creation? Any entered data will be lost.')) return
     await deleteTransaction()
     setScenario('')
+    setServiceType('bullion')
     setTransactionRef('')
     setDateTime(currentLocalDateTime())
     setErrors({})
@@ -96,7 +108,7 @@ const StartTransactionPage = () => {
   return (
     <WizardFrame
       title="Start TTR Transaction"
-      subtitle="Create a new reportable bullion transaction record."
+      subtitle="Create a new reportable bullion or precious metal transaction record."
       helperText="This flow is for reportable TTR transactions only."
       actions={
         <>
@@ -116,20 +128,36 @@ const StartTransactionPage = () => {
           <legend>Transaction scenario</legend>
           <div className={styles.choiceStack}>
             <ChoiceCard
-              checked={scenario === 'sell'}
+              checked={serviceType === 'bullion' && scenario === 'sell'}
               description="Customer pays business"
               label="Sell bullion to customer"
               name="scenario"
-              onChange={(event) => setScenario(event.target.value)}
-              value="sell"
+              onChange={() => handleScenarioChoice('bullion', 'sell')}
+              value="bullion_sell"
             />
             <ChoiceCard
-              checked={scenario === 'buy'}
+              checked={serviceType === 'bullion' && scenario === 'buy'}
               description="Business pays customer"
               label="Buy bullion from customer"
               name="scenario"
-              onChange={(event) => setScenario(event.target.value)}
-              value="buy"
+              onChange={() => handleScenarioChoice('bullion', 'buy')}
+              value="bullion_buy"
+            />
+            <ChoiceCard
+              checked={serviceType === 'precious_metal' && scenario === 'sell'}
+              description="Customer pays business"
+              label="Sell precious metal to customer"
+              name="scenario"
+              onChange={() => handleScenarioChoice('precious_metal', 'sell')}
+              value="precious_metal_sell"
+            />
+            <ChoiceCard
+              checked={serviceType === 'precious_metal' && scenario === 'buy'}
+              description="Business pays customer"
+              label="Buy precious metal from customer"
+              name="scenario"
+              onChange={() => handleScenarioChoice('precious_metal', 'buy')}
+              value="precious_metal_buy"
             />
           </div>
           {errors.scenario ? <p className={styles.error}>{errors.scenario}</p> : null}

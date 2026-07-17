@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useParams, useSearchParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext.jsx'
 import { supabase } from '../../lib/supabase.js'
 import Button from '../../components/ui/Button.jsx'
@@ -12,11 +12,19 @@ const STATUS_LABEL = {
   rejected: 'Rejected',
 }
 
+const SCENARIO_LABEL = {
+  bullion_sell: 'Sell bullion',
+  bullion_buy: 'Buy bullion',
+  precious_metal_sell: 'Sell precious metal',
+  precious_metal_buy: 'Buy precious metal',
+}
+
 const ReviewBatchPage = () => {
   const { batchId } = useParams()
   const [searchParams] = useSearchParams()
   const token = searchParams.get('token') ?? ''
   const { session } = useAuth()
+  const navigate = useNavigate()
 
   const [batch, setBatch] = useState(null)
   const [transactions, setTransactions] = useState([])
@@ -83,6 +91,8 @@ const ReviewBatchPage = () => {
       const result = await resp.json()
       if (!resp.ok) {
         setError(result.error ?? 'Action failed')
+      } else if (action === 'regenerate') {
+        navigate(`/review-batch/${result.newBatch.id}?token=${result.newBatch.approvalToken}`)
       } else {
         setActionDone(action)
         setBatch((prev) => ({
@@ -115,6 +125,7 @@ const ReviewBatchPage = () => {
 
   const tokenValid = Boolean(token && token === batch.approval_token)
   const isPending = batch.status === 'pending_review'
+  const canRegenerate = batch.status !== 'submitted'
   const txCount = batch.transaction_count
 
   return (
@@ -132,9 +143,9 @@ const ReviewBatchPage = () => {
 
       {error && <p className={styles.error}>{error}</p>}
 
-      {!tokenValid && isPending && (
+      {!tokenValid && canRegenerate && (
         <p className={styles.warning}>
-          This page is view-only. Open the link from the approval email to enable approve/reject actions.
+          This page is view-only. Open the link from the approval email to enable approve/reject/regenerate actions.
         </p>
       )}
 
@@ -158,6 +169,15 @@ const ReviewBatchPage = () => {
               Reject
             </Button>
           </>
+        )}
+        {canRegenerate && (
+          <Button
+            disabled={!tokenValid || submitting}
+            variant="secondary"
+            onClick={() => handleAction('regenerate')}
+          >
+            {submitting ? 'Regenerating…' : 'Regenerate'}
+          </Button>
         )}
       </div>
 
@@ -186,7 +206,7 @@ const ReviewBatchPage = () => {
                   <td className={styles.amount}>
                     ${Number(tx.aud_value).toLocaleString('en-AU', { minimumFractionDigits: 2 })}
                   </td>
-                  <td>{tx.scenario === 'bullion_sell' ? 'Sell bullion' : 'Buy bullion'}</td>
+                  <td>{SCENARIO_LABEL[tx.scenario] || tx.scenario}</td>
                 </tr>
               ))}
             </tbody>

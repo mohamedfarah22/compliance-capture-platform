@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { CheckCircle2 } from 'lucide-react'
 import Button from '../../components/ui/Button.jsx'
@@ -8,6 +8,7 @@ import styles from './TransactionCompletePage.module.css'
 const TransactionCompletePage = () => {
   const navigate = useNavigate()
   const { state } = useLocation()
+  const [fallbackNow] = useState(() => Date.now())
 
   useEffect(() => {
     if (!state?.transactionRef) navigate('/', { replace: true })
@@ -16,7 +17,7 @@ const TransactionCompletePage = () => {
   if (!state?.transactionRef) return null
 
   const { transactionRef, completedAt } = state
-  const formattedDate = new Date(completedAt ?? Date.now()).toLocaleString('en-AU', {
+  const formattedDate = new Date(completedAt ?? fallbackNow).toLocaleString('en-AU', {
     day: 'numeric',
     month: 'long',
     year: 'numeric',

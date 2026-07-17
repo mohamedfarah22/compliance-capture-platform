@@ -11,7 +11,7 @@ export function AuthProvider({ children }) {
   async function fetchStaffMember(userId) {
     const { data } = await supabase
       .from('staff_members')
-      .select('id, full_name, email, reporting_entity_id, role, job_title, reporting_entities(legal_name, trading_name, abn, acn, address_street, address_suburb, address_state, address_postcode, address_country, austrac_re_number, idv_max_reliance_days, idv_block_on_expired)')
+      .select('id, full_name, email, reporting_entity_id, role, job_title, reporting_entities(legal_name, trading_name, abn, acn, address_street, address_suburb, address_state, address_postcode, address_country, austrac_account_number, idv_max_reliance_days, idv_block_on_expired)')
       .eq('id', userId)
       .single()
     setStaffMember(data ?? null)
@@ -20,7 +20,7 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
-      if (session) fetchStaffMember(session.user.id)
+      if (session) fetchStaffMember(session.user.id).finally(() => setLoading(false))
       else setLoading(false)
     })
 
@@ -37,11 +37,6 @@ export function AuthProvider({ children }) {
     return () => subscription.unsubscribe()
   }, [])
 
-  // Mark loading done once staffMember resolves after initial session
-  useEffect(() => {
-    if (session && staffMember !== undefined) setLoading(false)
-  }, [session, staffMember])
-
   async function signOut() {
     sessionStorage.removeItem('ttr.transactionId')
     await supabase.auth.signOut()
@@ -57,6 +52,7 @@ export function AuthProvider({ children }) {
   )
 }
 
+// eslint-disable-next-line react-refresh/only-export-components -- context + hook live together by convention
 export function useAuth() {
   return useContext(AuthContext)
 }

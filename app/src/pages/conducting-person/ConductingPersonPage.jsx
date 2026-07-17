@@ -6,7 +6,8 @@ import ConfirmModal from '../../components/ui/ConfirmModal.jsx'
 import DatePicker from '../../components/ui/DatePicker.jsx'
 import FormField from '../../components/ui/FormField.jsx'
 import WizardFrame from '../../components/layout/WizardFrame.jsx'
-import { deleteTransaction, loadConductingPerson, loadCustomers, saveConductingPerson } from '../../lib/wizardApi.js'
+import { deleteTransaction, loadConductingPerson, loadCustomers, loadTransaction, saveConductingPerson, saveConductorInfo } from '../../lib/wizardApi.js'
+import { MAX_NAME_LENGTH, MAX_SUBURB_LENGTH } from '../../lib/austrac.js'
 import styles from './ConductingPersonPage.module.css'
 
 const STATES = ['VIC', 'NSW', 'QLD', 'WA', 'SA', 'TAS', 'ACT', 'NT']
@@ -53,6 +54,10 @@ const initialData = () => ({
   entityAddress: emptyAddress(),
   entityRegType: '',
   entityRegNumber: '',
+  // Who conducted the transaction when hasConductingPerson === 'no'.
+  conductedByPartyId: '',
+  conductorIdentifiable: null, // null | 'yes' | 'no' — only asked when a company party exists
+  methodOfConductingTxn: '',
 })
 
 const hasFormData = (data) =>
@@ -67,9 +72,17 @@ const ConductingPersonPage = () => {
   const [showClearWarning, setShowClearWarning] = useState(false)
 
   useEffect(() => {
-    Promise.all([loadCustomers(), loadConductingPerson()]).then(([loaded, cp]) => {
+    Promise.all([loadCustomers(), loadConductingPerson(), loadTransaction()]).then(([loaded, cp, txn]) => {
       setParties(loaded)
       if (cp) setData((prev) => ({ ...prev, ...cp }))
+      if (txn) {
+        setData((prev) => ({
+          ...prev,
+          conductedByPartyId: txn.conductedByPartyId || prev.conductedByPartyId,
+          methodOfConductingTxn: txn.methodOfConductingTxn || prev.methodOfConductingTxn,
+          conductorIdentifiable: txn.methodOfConductingTxn ? 'no' : prev.conductorIdentifiable,
+        }))
+      }
     })
   }, [])
 
@@ -138,6 +151,20 @@ const ConductingPersonPage = () => {
       }
     }
 
+    if (data.hasConductingPerson === 'no') {
+      const companyParties = parties.filter((p) => p.type === 'company')
+      if (companyParties.length > 0 && data.conductorIdentifiable === 'no') {
+        if (!data.methodOfConductingTxn) {
+          e.methodOfConductingTxn = 'Select the method of conducting the transaction.'
+        }
+        if (companyParties.length > 1 && !data.conductedByPartyId) {
+          e.conductedByPartyId = 'Select the party this applies to.'
+        }
+      } else if (parties.length > 1 && !data.conductedByPartyId) {
+        e.conductedByPartyId = 'Select the party that conducted this transaction.'
+      }
+    }
+
     setErrors(e)
     return Object.keys(e).length === 0
   }
@@ -145,7 +172,23 @@ const ConductingPersonPage = () => {
   const handleContinue = async () => {
     if (!validate()) return
     await saveConductingPerson(data)
-    navigate('/id-verification')
+
+    if (data.hasConductingPerson === 'no') {
+      const companyParties = parties.filter((p) => p.type === 'company')
+      const isImpersonal = companyParties.length > 0 && data.conductorIdentifiable === 'no'
+      const conductedByPartyId = isImpersonal
+        ? (companyParties.length === 1 ? companyParties[0].id : data.conductedByPartyId)
+        : (parties.length === 1 ? parties[0].id : data.conductedByPartyId)
+      await saveConductorInfo({
+        conductedByPartyId,
+        methodOfConductingTxn: isImpersonal ? data.methodOfConductingTxn : null,
+      })
+    } else {
+      await saveConductorInfo({ conductedByPartyId: null, methodOfConductingTxn: null })
+    }
+
+    const hasIndividualToVerify = data.hasConductingPerson === 'yes' || parties.some((p) => p.type === 'individual')
+    navigate(hasIndividualToVerify ? '/id-verification' : '/recipient-delivery')
   }
 
   const getPartyLabel = (party) => {
@@ -189,21 +232,21 @@ const ConductingPersonPage = () => {
               <label className={styles.radioLabel}>
                 <input
                   type="radio"
+                  name="hasConductingPerson"
+                  checked={data.hasConductingPerson === 'yes'}
+                  onChange={() => handleHasConductingPersonChange('yes')}
+                />
+                Yes
+              </label>
+              <label className={styles.radioLabel}>
+                <input
+                  type="radio"
                   id="hasConductingPerson-no"
                   name="hasConductingPerson"
                   checked={data.hasConductingPerson === 'no'}
                   onChange={() => handleHasConductingPersonChange('no')}
                 />
                 No
-              </label>
-              <label className={styles.radioLabel}>
-                <input
-                  type="radio"
-                  name="hasConductingPerson"
-                  checked={data.hasConductingPerson === 'yes'}
-                  onChange={() => handleHasConductingPersonChange('yes')}
-                />
-                Yes
               </label>
             </div>
           </FormField>
@@ -213,6 +256,83 @@ const ConductingPersonPage = () => {
               <CheckCircle2 aria-hidden="true" size={18} />
               <p>The conducting person is the same as the customer / party.</p>
             </div>
+          )}
+
+          {data.hasConductingPerson === 'no' && parties.some((p) => p.type === 'company') && (
+            <FormField
+              label="Can the individual who conducted this transaction be identified?"
+              error={errors.conductorIdentifiable}
+            >
+              <div data-testid="conductorIdentifiable-group" className={styles.radioGroup}>
+                <label className={styles.radioLabel}>
+                  <input
+                    type="radio"
+                    name="conductorIdentifiable"
+                    checked={data.conductorIdentifiable === 'yes'}
+                    onChange={() => updateData({ conductorIdentifiable: 'yes', methodOfConductingTxn: '' })}
+                  />
+                  Yes
+                </label>
+                <label className={styles.radioLabel}>
+                  <input
+                    type="radio"
+                    name="conductorIdentifiable"
+                    checked={data.conductorIdentifiable === 'no'}
+                    onChange={() => updateData({ conductorIdentifiable: 'no' })}
+                  />
+                  No — impersonal channel (ATM, night safe, cash courier)
+                </label>
+              </div>
+            </FormField>
+          )}
+
+          {data.hasConductingPerson === 'no' && data.conductorIdentifiable === 'no' && (
+            <>
+              {parties.filter((p) => p.type === 'company').length > 1 && (
+                <FormField label="Which party does this apply to?" labelFor="conductedByPartyIdCompany" error={errors.conductedByPartyId}>
+                  <select
+                    id="conductedByPartyIdCompany"
+                    className={styles.select}
+                    value={data.conductedByPartyId}
+                    onChange={(e) => updateData({ conductedByPartyId: e.target.value })}
+                  >
+                    <option value="">Select a party…</option>
+                    {parties.filter((p) => p.type === 'company').map((p) => (
+                      <option key={p.id} value={p.id}>{getPartyLabel(p)}</option>
+                    ))}
+                  </select>
+                </FormField>
+              )}
+              <FormField label="Method of conducting the transaction" labelFor="methodOfConductingTxn" error={errors.methodOfConductingTxn}>
+                <select
+                  id="methodOfConductingTxn"
+                  className={styles.select}
+                  value={data.methodOfConductingTxn}
+                  onChange={(e) => updateData({ methodOfConductingTxn: e.target.value })}
+                >
+                  <option value="">Select method…</option>
+                  <option value="A">ATM deposit</option>
+                  <option value="N">Night safe or express deposit</option>
+                  <option value="C">Payroll or cash courier</option>
+                </select>
+              </FormField>
+            </>
+          )}
+
+          {data.hasConductingPerson === 'no' && data.conductorIdentifiable !== 'no' && parties.length > 1 && (
+            <FormField label="Which party conducted this transaction?" labelFor="conductedByPartyId" error={errors.conductedByPartyId}>
+              <select
+                id="conductedByPartyId"
+                className={styles.select}
+                value={data.conductedByPartyId}
+                onChange={(e) => updateData({ conductedByPartyId: e.target.value })}
+              >
+                <option value="">Select a party…</option>
+                {parties.map((p) => (
+                  <option key={p.id} value={p.id}>{getPartyLabel(p)}</option>
+                ))}
+              </select>
+            </FormField>
           )}
         </div>
 
@@ -253,6 +373,7 @@ const ConductingPersonPage = () => {
                   value={data.fullName}
                   onChange={(e) => updateData({ fullName: e.target.value })}
                   className={styles.input}
+                  maxLength={MAX_NAME_LENGTH}
                 />
               </FormField>
 
@@ -338,6 +459,7 @@ const ConductingPersonPage = () => {
                       onChange={(e) => updateAddress('residentialAddress', 'suburb', e.target.value)}
                       className={styles.input}
                       aria-label="Suburb"
+                      maxLength={MAX_SUBURB_LENGTH}
                     />
                     <select
                       value={data.residentialAddress.state}
@@ -404,6 +526,7 @@ const ConductingPersonPage = () => {
                         onChange={(e) => updateAddress('postalAddress', 'suburb', e.target.value)}
                         className={styles.input}
                         aria-label="Suburb"
+                        maxLength={MAX_SUBURB_LENGTH}
                       />
                       <select
                         value={data.postalAddress.state}
@@ -573,6 +696,15 @@ const ConductingPersonPage = () => {
                 label="Is the conducting person acting through another entity?"
               >
                 <div data-testid="actingViaEntity-group" className={styles.radioGroup}>
+                <label className={styles.radioLabel}>
+                    <input
+                      type="radio"
+                      name="actingViaEntity"
+                      checked={data.actingViaEntity === 'yes'}
+                      onChange={() => updateData({ actingViaEntity: 'yes' })}
+                    />
+                    Yes
+                  </label>
                   <label className={styles.radioLabel}>
                     <input
                       type="radio"
@@ -590,15 +722,6 @@ const ConductingPersonPage = () => {
                       }
                     />
                     No
-                  </label>
-                  <label className={styles.radioLabel}>
-                    <input
-                      type="radio"
-                      name="actingViaEntity"
-                      checked={data.actingViaEntity === 'yes'}
-                      onChange={() => updateData({ actingViaEntity: 'yes' })}
-                    />
-                    Yes
                   </label>
                 </div>
               </FormField>
@@ -642,6 +765,7 @@ const ConductingPersonPage = () => {
                           onChange={(e) => updateAddress('entityAddress', 'suburb', e.target.value)}
                           className={styles.input}
                           aria-label="Suburb"
+                          maxLength={MAX_SUBURB_LENGTH}
                         />
                         <select
                           value={data.entityAddress.state}

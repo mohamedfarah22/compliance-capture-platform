@@ -5,7 +5,7 @@ const TextInput = ({ icon, className = '', ...props }) => {
 
   return (
     <span className={styles.wrap}>
-      <input className={classes} {...props} />
+      <input className={classes} onWheel={(e) => e.currentTarget.blur()} {...props} />
       {icon ? <span className={styles.icon}>{icon}</span> : null}
     </span>
   )

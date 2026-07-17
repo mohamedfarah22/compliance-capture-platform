@@ -9,6 +9,7 @@ import TextInput from '../../../components/ui/TextInput.jsx'
 import WizardFrame from '../../../components/layout/WizardFrame.jsx'
 import { wizardStorageKeys, readWizardData, writeWizardData } from '../../../components/wizardStorage.js'
 import { deleteTransaction } from '../../../lib/wizardApi.js'
+import { MAX_NAME_LENGTH } from '../../../lib/austrac.js'
 import styles from './CreateCustomerPage.module.css'
 
 const formatDobDetail = (isoDate) => {
@@ -80,7 +81,7 @@ const CreateCustomerPage = () => {
         dateOfBirth,
         phone: phone.trim(),
         email: email.trim(),
-        displayName: [firstName.trim(), lastName.trim()].filter(Boolean).join(' '),
+        displayName: [firstName.trim(), middleName.trim(), lastName.trim()].filter(Boolean).join(' '),
         detail: dob ? `DOB: ${dob}` : '',
       }
     } else {
@@ -229,7 +230,7 @@ const CreateCustomerPage = () => {
                 type="text"
                 value={entityName}
                 onChange={(e) => setEntityName(e.target.value)}
-                maxLength={140}
+                maxLength={MAX_NAME_LENGTH}
               />
             </FormField>
             <FormField error={errors.abnAcn} label="ABN / ACN" labelFor="abnAcn">

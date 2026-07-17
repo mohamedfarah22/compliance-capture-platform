@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { CheckCircle2, Plus, X } from 'lucide-react'
+import { CheckCircle2, ChevronDown, ChevronUp, Plus, X } from 'lucide-react'
 import Button from '../../components/ui/Button.jsx'
 import FormField from '../../components/ui/FormField.jsx'
 import WizardFrame from '../../components/layout/WizardFrame.jsx'
@@ -37,6 +37,15 @@ const BullionDetailsPage = () => {
   const [partiesCount, setPartiesCount] = useState(0)
   const [items, setItems] = useState(() => [newItem()])
   const [errors, setErrors] = useState({})
+  const [collapsedIds, setCollapsedIds] = useState(() => new Set())
+
+  const isItemComplete = (item) =>
+    item.metalType &&
+    item.productType &&
+    item.purity &&
+    parseFloat(item.quantity) > 0 &&
+    parseFloat(item.weight) > 0 &&
+    parseFloat(item.unitPrice) > 0
 
   useEffect(() => {
     const init = async () => {
@@ -48,7 +57,9 @@ const BullionDetailsPage = () => {
       if (txnData) setTxn(txnData)
       setPartiesCount(customers.length)
       const dir = defaultDirection(txnData?.scenario)
-      setItems(savedItems.length > 0 ? savedItems : [newItem(dir)])
+      const initialItems = savedItems.length > 0 ? savedItems : [newItem(dir)]
+      setItems(initialItems)
+      setCollapsedIds(new Set(initialItems.filter(isItemComplete).map((i) => i.id)))
     }
     init()
   }, [])
@@ -66,11 +77,37 @@ const BullionDetailsPage = () => {
   }
 
   const addItem = () => {
-    setItems((prev) => [...prev, newItem(defaultDirection(txn.scenario))])
+    setItems((prev) => {
+      const completedIds = prev.filter(isItemComplete).map((i) => i.id)
+      if (completedIds.length > 0) {
+        setCollapsedIds((ids) => new Set([...ids, ...completedIds]))
+      }
+      return [...prev, newItem(defaultDirection(txn.scenario))]
+    })
   }
 
   const removeItem = (index) => {
-    setItems((prev) => prev.filter((_, i) => i !== index))
+    setItems((prev) => {
+      const removedId = prev[index]?.id
+      if (removedId) {
+        setCollapsedIds((ids) => {
+          if (!ids.has(removedId)) return ids
+          const next = new Set(ids)
+          next.delete(removedId)
+          return next
+        })
+      }
+      return prev.filter((_, i) => i !== index)
+    })
+  }
+
+  const toggleCollapsed = (id) => {
+    setCollapsedIds((ids) => {
+      const next = new Set(ids)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
   }
 
   const validate = () => {
@@ -87,6 +124,14 @@ const BullionDetailsPage = () => {
       if (!item.unitPrice || parseFloat(item.unitPrice) <= 0) e[`${i}_unitPrice`] = 'Unit price must be greater than 0.'
     })
     setErrors(e)
+    const errorIndices = new Set(Object.keys(e).map((key) => parseInt(key.split('_')[0], 10)))
+    if (errorIndices.size > 0) {
+      setCollapsedIds((ids) => {
+        const next = new Set(ids)
+        errorIndices.forEach((i) => next.delete(items[i].id))
+        return next
+      })
+    }
     return Object.keys(e).length === 0
   }
 
@@ -96,13 +141,16 @@ const BullionDetailsPage = () => {
     navigate('/review')
   }
 
-  const isItemComplete = (item) =>
-    item.metalType &&
-    item.productType &&
-    item.purity &&
-    parseFloat(item.quantity) > 0 &&
-    parseFloat(item.weight) > 0 &&
-    parseFloat(item.unitPrice) > 0
+  const itemSummary = (item) => {
+    const metal = item.metalType === 'Other' ? item.metalTypeOther || 'Other' : item.metalType
+    const product = item.productType === 'Other' ? item.productTypeOther || 'Other' : item.productType
+    const parts = [
+      [metal, product].filter(Boolean).join(' '),
+      item.quantity && `Qty ${item.quantity}`,
+      item.lineTotal > 0 && `$${item.lineTotal.toFixed(2)}`,
+    ].filter(Boolean)
+    return parts.join(' · ')
+  }
 
   const allComplete = items.length > 0 && items.every(isItemComplete)
   const totalQuantity = items.reduce((sum, item) => sum + (parseFloat(item.quantity) || 0), 0)
@@ -153,22 +201,49 @@ const BullionDetailsPage = () => {
             </Button>
           </div>
 
-          {items.map((item, index) => (
+          {items.map((item, index) => {
+            const isCollapsed = collapsedIds.has(item.id)
+            return (
             <div key={item.id} className={styles.itemCard}>
-              <div className={styles.itemHeader}>
-                <p className={styles.itemTitle}>Item {index + 1}</p>
-                {items.length > 1 && (
-                  <button
-                    className={styles.removeBtn}
-                    type="button"
-                    onClick={() => removeItem(index)}
-                    aria-label={`Remove item ${index + 1}`}
-                  >
-                    <X size={16} aria-hidden="true" />
-                  </button>
-                )}
+              <div
+                className={styles.itemHeader}
+                role="button"
+                tabIndex={0}
+                onClick={() => toggleCollapsed(item.id)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    toggleCollapsed(item.id)
+                  }
+                }}
+              >
+                <div>
+                  <p className={styles.itemTitle}>Item {index + 1}</p>
+                  {isCollapsed && <p className={styles.itemSummary}>{itemSummary(item)}</p>}
+                </div>
+                <div className={styles.itemHeaderActions}>
+                  {items.length > 1 && (
+                    <button
+                      className={styles.removeBtn}
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        removeItem(index)
+                      }}
+                      aria-label={`Remove item ${index + 1}`}
+                    >
+                      <X size={16} aria-hidden="true" />
+                    </button>
+                  )}
+                  {isCollapsed ? (
+                    <ChevronDown size={18} aria-hidden="true" />
+                  ) : (
+                    <ChevronUp size={18} aria-hidden="true" />
+                  )}
+                </div>
               </div>
 
+              {!isCollapsed && (
               <div className={styles.itemBody}>
                 <FormField label="Metal type" error={errors[`${index}_metalType`]}>
                   <select
@@ -235,6 +310,7 @@ const BullionDetailsPage = () => {
                     min="0"
                     step="1"
                     onChange={(e) => updateItem(index, { quantity: e.target.value })}
+                    onWheel={(e) => e.currentTarget.blur()}
                   />
                 </FormField>
 
@@ -248,6 +324,7 @@ const BullionDetailsPage = () => {
                       step="0.01"
                       placeholder="Value"
                       onChange={(e) => updateItem(index, { weight: e.target.value })}
+                      onWheel={(e) => e.currentTarget.blur()}
                     />
                     <select
                       className={styles.select}
@@ -282,6 +359,7 @@ const BullionDetailsPage = () => {
                     step="0.01"
                     placeholder="0.00"
                     onChange={(e) => updateItem(index, { unitPrice: e.target.value })}
+                    onWheel={(e) => e.currentTarget.blur()}
                   />
                 </FormField>
 
@@ -299,8 +377,10 @@ const BullionDetailsPage = () => {
                   />
                 </FormField>
               </div>
+              )}
             </div>
-          ))}
+            )
+          })}
         </div>
 
         {/* Totals */}

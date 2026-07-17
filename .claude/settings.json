@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx vitest *)",
+      "Bash(npm run *)",
+      "PowerShell(npx --yes supabase@2.109.1 db push --linked 2>&1)",
+      "PowerShell(npx --yes supabase@2.109.1 db query \"SELECT p.id, p.first_name, p.last_name, COALESCE\\(\\(SELECT array_agg\\(pa.alias ORDER BY pa.sort_order\\) FROM ttr.party_aliases pa WHERE pa.party_id = p.id\\), ARRAY[]::text[]\\) AS aliases FROM ttr.parties p WHERE p.last_name = 'Austen' AND p.party_type = 'individual' ORDER BY p.updated_at DESC LIMIT 5;\" --linked 2>&1)",
+      "PowerShell(npx --yes supabase@2.109.1 db query \"SELECT proname, pg_get_function_result\\(oid\\) AS return_type FROM pg_proc WHERE proname IN \\('search_individual_customers','search_company_customers'\\);\" --linked 2>&1)",
+      "Bash(deno test *)",
+      "Bash(node -e ' *)",
+      "Bash(git check-ignore *)",
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(git add *)"
+    ]
+  }
+}

@@ -60,3 +60,19 @@ For multi-step tasks, state a brief plan:
 
 Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
 
+## Search and token budget rules
+
+Do not broadly crawl the repository.
+
+Before searching, make a targeted search plan:
+1. List the exact symbols, filenames, routes, or components you need to inspect.
+2. Run no more than 3 search commands before reporting findings.
+3. Prefer `rg` with tight globs over reading directories recursively.
+4. Return search results as `path:line` summaries first.
+5. Do not open more than 5 files unless I approve.
+6. Do not spawn subagents for search unless I explicitly ask.
+7. If more exploration is needed, ask me before continuing.
+
+For searches, use commands like:
+
+rg -n "SearchTerm" app components lib --glob "*.js" --glob "*.jsx" --glob "!node_modules" --glob "!dist" --glob "!build" | head -80

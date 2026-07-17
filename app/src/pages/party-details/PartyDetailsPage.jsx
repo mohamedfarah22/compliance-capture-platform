@@ -7,6 +7,7 @@ import DatePicker from '../../components/ui/DatePicker.jsx'
 import FormField from '../../components/ui/FormField.jsx'
 import WizardFrame from '../../components/layout/WizardFrame.jsx'
 import { deleteTransaction, loadCustomers, saveCustomers } from '../../lib/wizardApi.js'
+import { MAX_SUBURB_LENGTH } from '../../lib/austrac.js'
 import styles from './PartyDetailsPage.module.css'
 
 const STATES = ['VIC', 'NSW', 'QLD', 'WA', 'SA', 'TAS', 'ACT', 'NT']
@@ -50,6 +51,9 @@ const PartyDetailsPage = () => {
   const [entityName, setEntityName] = useState('')
   const [companyTradingName, setCompanyTradingName] = useState('')
   const [legalForm, setLegalForm] = useState('')
+  const [isExpressTrust, setIsExpressTrust] = useState('')
+  const [trustTypeOther, setTrustTypeOther] = useState('')
+  const [trustName, setTrustName] = useState('')
   const [bizStreet, setBizStreet] = useState('')
   const [bizSuburb, setBizSuburb] = useState('')
   const [bizState, setBizState] = useState('')
@@ -69,7 +73,7 @@ const PartyDetailsPage = () => {
   // Must be declared before the useEffect that calls it
   const loadPartyData = (party) => {
     if (party.partyType === 'Individual') {
-      setFullName(party.fullName || party.displayName || `${party.firstName || ''} ${party.lastName || ''}`.trim())
+      setFullName(party.fullName || party.displayName || [party.firstName, party.middleName, party.lastName].filter(Boolean).join(' '))
       setAliases(party.aliases || [])
       setBusinessTradingName(party.businessTradingName || '')
       setDateOfBirth(party.dateOfBirth ? String(party.dateOfBirth).split('T')[0] : '')
@@ -94,6 +98,9 @@ const PartyDetailsPage = () => {
       setEntityName(party.entityName || '')
       setCompanyTradingName(party.companyTradingName || '')
       setLegalForm(party.legalForm || '')
+      setIsExpressTrust(party.isExpressTrust || '')
+      setTrustTypeOther(party.trustTypeOther || '')
+      setTrustName(party.trustName || '')
       setBizStreet(party.businessAddress?.street || '')
       setBizSuburb(party.businessAddress?.suburb || '')
       setBizState(party.businessAddress?.state || '')
@@ -150,6 +157,9 @@ const PartyDetailsPage = () => {
     if (!gender) newErrors.gender = 'Select the gender.'
     if (!citizenshipCountryCode.trim()) newErrors.citizenshipCountryCode = 'Enter the citizenship country code.'
     if (!taxResidencyCountryCode.trim()) newErrors.taxResidencyCountryCode = 'Enter the tax residency country code.'
+    if (abn.trim() && !/^[0-9]{11}$/.test(abn.replace(/\s/g, ''))) {
+      newErrors.abn = 'ABN must be exactly 11 digits.'
+    }
     if (hasPostalAddress) {
       if (!postStreet.trim()) newErrors.postStreet = 'Enter the postal street address.'
       if (!postSuburb.trim()) newErrors.postSuburb = 'Enter the postal suburb.'
@@ -165,13 +175,26 @@ const PartyDetailsPage = () => {
     const newErrors = {}
     if (!entityName.trim()) newErrors.entityName = 'Enter the legal entity name.'
     if (!legalForm.trim()) newErrors.legalForm = 'Select the legal form or structure.'
+    if (legalForm === 'Trust') {
+      if (!isExpressTrust) newErrors.isExpressTrust = 'Select whether this is an express trust.'
+      if (isExpressTrust === 'Yes' && !trustTypeOther.trim()) newErrors.trustTypeOther = 'Enter the trust type.'
+    }
     if (!bizStreet.trim()) newErrors.bizStreet = 'Enter the street address.'
     if (!bizSuburb.trim()) newErrors.bizSuburb = 'Enter the suburb.'
     if (!bizState.trim()) newErrors.bizState = 'Enter the state.'
     if (!bizPostcode.trim()) newErrors.bizPostcode = 'Enter the postcode.'
     if (!bizCountry.trim()) newErrors.bizCountry = 'Enter the country.'
     if (!companyPhone.trim()) newErrors.companyPhone = 'Enter the phone number.'
-    if (!registrationIdentifier.trim()) newErrors.registrationIdentifier = 'Enter the registration identifier.'
+    if (!registrationIdentifier.trim()) {
+      newErrors.registrationIdentifier = 'Enter the registration identifier.'
+    } else {
+      const digits = registrationIdentifier.replace(/\s/g, '')
+      if (registrationIdentifierType === 'ABN' && !/^[0-9]{11}$/.test(digits)) {
+        newErrors.registrationIdentifier = 'ABN must be exactly 11 digits.'
+      } else if (registrationIdentifierType === 'ACN' && !/^[0-9]{9}$/.test(digits)) {
+        newErrors.registrationIdentifier = 'ACN must be exactly 9 digits.'
+      }
+    }
     if (!principalActivity.trim()) newErrors.principalActivity = 'Enter the principal activity or business activity.'
     if (hasCompanyPostalAddress) {
       if (!compPostStreet.trim()) newErrors.compPostStreet = 'Enter the postal street address.'
@@ -212,6 +235,9 @@ const PartyDetailsPage = () => {
       updatedParty.entityName = entityName
       updatedParty.companyTradingName = companyTradingName
       updatedParty.legalForm = legalForm
+      updatedParty.isExpressTrust = legalForm === 'Trust' ? isExpressTrust : ''
+      updatedParty.trustTypeOther = legalForm === 'Trust' && isExpressTrust === 'Yes' ? trustTypeOther : ''
+      updatedParty.trustName = legalForm === 'Trust' && isExpressTrust === 'Yes' ? trustName : ''
       updatedParty.businessAddress = { street: bizStreet, suburb: bizSuburb, state: bizState, postcode: bizPostcode, country: bizCountry }
       updatedParty.hasCompanyPostalAddress = hasCompanyPostalAddress
       updatedParty.companyPostalAddress = hasCompanyPostalAddress
@@ -284,7 +310,7 @@ const PartyDetailsPage = () => {
 
   const getPartyDisplayName = (party) => {
     if (party.partyType === 'Individual') {
-      return party.fullName || party.displayName || `${party.firstName || ''} ${party.lastName || ''}`.trim() || 'Individual Party'
+      return party.fullName || party.displayName || [party.firstName, party.middleName, party.lastName].filter(Boolean).join(' ') || 'Individual Party'
     }
     return party.entityName || party.displayName || 'Company Party'
   }
@@ -474,8 +500,10 @@ const PartyDetailsPage = () => {
                       type="text"
                       value={resSuburb}
                       onChange={(e) => { setResSuburb(e.target.value); markChanged() }}
+                      onBlur={(e) => setResSuburb(e.target.value.trim())}
                       className={styles.input}
                       placeholder="Enter suburb"
+                      maxLength={MAX_SUBURB_LENGTH}
                     />
                   </FormField>
 
@@ -499,6 +527,7 @@ const PartyDetailsPage = () => {
                       type="text"
                       value={resPostcode}
                       onChange={(e) => { setResPostcode(e.target.value); markChanged() }}
+                      onBlur={(e) => setResPostcode(e.target.value.trim())}
                       className={styles.input}
                       placeholder="Enter postcode"
                     />
@@ -548,8 +577,10 @@ const PartyDetailsPage = () => {
                         type="text"
                         value={postSuburb}
                         onChange={(e) => { setPostSuburb(e.target.value); markChanged() }}
+                        onBlur={(e) => setPostSuburb(e.target.value.trim())}
                         className={styles.input}
                         placeholder="Enter suburb"
+                        maxLength={MAX_SUBURB_LENGTH}
                       />
                     </FormField>
 
@@ -573,6 +604,7 @@ const PartyDetailsPage = () => {
                         type="text"
                         value={postPostcode}
                         onChange={(e) => { setPostPostcode(e.target.value); markChanged() }}
+                        onBlur={(e) => setPostPostcode(e.target.value.trim())}
                         className={styles.input}
                         placeholder="Enter postcode"
                       />
@@ -615,7 +647,7 @@ const PartyDetailsPage = () => {
                 />
               </FormField>
 
-              <FormField label="ABN" labelFor="abn" helperText="Only if relevant or known.">
+              <FormField label="ABN" labelFor="abn" helperText="Only if relevant or known." error={errors.abn ?? ""}>
                 <input
                   id="abn"
                   type="text"
@@ -699,7 +731,11 @@ const PartyDetailsPage = () => {
                 <select
                   id="legalForm"
                   value={legalForm}
-                  onChange={(e) => { setLegalForm(e.target.value); markChanged() }}
+                  onChange={(e) => {
+                    setLegalForm(e.target.value)
+                    if (e.target.value !== 'Trust') { setIsExpressTrust(''); setTrustTypeOther(''); setTrustName('') }
+                    markChanged()
+                  }}
                   className={styles.select}
                 >
                   <option value="">Select legal form</option>
@@ -711,6 +747,53 @@ const PartyDetailsPage = () => {
                   <option value="Other">Other</option>
                 </select>
               </FormField>
+
+              {legalForm === 'Trust' && (
+                <>
+                  <FormField label="Is this an express trust?" labelFor="isExpressTrust" error={errors.isExpressTrust ?? ""}>
+                    <select
+                      id="isExpressTrust"
+                      value={isExpressTrust}
+                      onChange={(e) => {
+                        setIsExpressTrust(e.target.value)
+                        if (e.target.value !== 'Yes') { setTrustTypeOther(''); setTrustName('') }
+                        markChanged()
+                      }}
+                      className={styles.select}
+                    >
+                      <option value="">Select an option</option>
+                      <option value="Yes">Yes</option>
+                      <option value="No">No</option>
+                    </select>
+                  </FormField>
+
+                  {isExpressTrust === 'Yes' && (
+                    <>
+                      <FormField label="Trust type" labelFor="trustTypeOther" error={errors.trustTypeOther ?? ""}>
+                        <input
+                          id="trustTypeOther"
+                          type="text"
+                          value={trustTypeOther}
+                          onChange={(e) => { setTrustTypeOther(e.target.value); markChanged() }}
+                          className={styles.input}
+                          placeholder="e.g. Discretionary trust"
+                        />
+                      </FormField>
+
+                      <FormField label="Trust name" labelFor="trustName" helperText="Optional.">
+                        <input
+                          id="trustName"
+                          type="text"
+                          value={trustName}
+                          onChange={(e) => { setTrustName(e.target.value); markChanged() }}
+                          className={styles.input}
+                          placeholder="Enter trust name"
+                        />
+                      </FormField>
+                    </>
+                  )}
+                </>
+              )}
 
               <div className={styles.addressGroup}>
                 <h3>Principal business address</h3>
@@ -735,6 +818,7 @@ const PartyDetailsPage = () => {
                       onChange={(e) => { setBizSuburb(e.target.value); markChanged() }}
                       className={styles.input}
                       placeholder="Enter suburb"
+                      maxLength={MAX_SUBURB_LENGTH}
                     />
                   </FormField>
 
@@ -758,6 +842,7 @@ const PartyDetailsPage = () => {
                       type="text"
                       value={bizPostcode}
                       onChange={(e) => { setBizPostcode(e.target.value); markChanged() }}
+                      onBlur={(e) => setBizPostcode(e.target.value.trim())}
                       className={styles.input}
                       placeholder="Enter postcode"
                     />
@@ -807,8 +892,10 @@ const PartyDetailsPage = () => {
                         type="text"
                         value={compPostSuburb}
                         onChange={(e) => { setCompPostSuburb(e.target.value); markChanged() }}
+                        onBlur={(e) => setCompPostSuburb(e.target.value.trim())}
                         className={styles.input}
                         placeholder="Enter suburb"
+                        maxLength={MAX_SUBURB_LENGTH}
                       />
                     </FormField>
 
@@ -832,6 +919,7 @@ const PartyDetailsPage = () => {
                         type="text"
                         value={compPostPostcode}
                         onChange={(e) => { setCompPostPostcode(e.target.value); markChanged() }}
+                        onBlur={(e) => setCompPostPostcode(e.target.value.trim())}
                         className={styles.input}
                         placeholder="Enter postcode"
                       />

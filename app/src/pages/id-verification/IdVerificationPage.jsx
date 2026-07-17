@@ -33,6 +33,7 @@ const DOCUMENT_TYPES = [
   'Proof of age card',
   'National identity card',
   'Medicare card',
+  'Birth certificate',
   'Other government document',
   'Electronic verification source',
   'Other',
@@ -543,6 +544,10 @@ const IdVerificationPage = () => {
   }
 
   const handleContinue = async () => {
+    if (people.length === 0) {
+      navigate('/recipient-delivery')
+      return
+    }
     if (!saveCurrentPerson()) return
     let updated = {
       ...verificationData,
@@ -659,7 +664,18 @@ const IdVerificationPage = () => {
         </div>
 
         {/* Right: form panel */}
-        {currentPerson && (
+        {people.length === 0 ? (
+          <div className={styles.formPanel}>
+            <p>No individual identification is required for this transaction.</p>
+            <div className={styles.footerActions}>
+              <div>
+                <Button onClick={handleContinue} disabled={saving}>
+                  {saving ? 'Saving…' : 'Continue'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        ) : currentPerson && (
           <div className={styles.formPanel}>
             {/* Summary */}
             <div className={styles.summaryCard}>
@@ -761,6 +777,7 @@ const IdVerificationPage = () => {
                   type="text"
                   value={currentData.documentNumber}
                   onChange={(e) => updateCurrentData({ documentNumber: e.target.value })}
+                  onBlur={(e) => updateCurrentData({ documentNumber: e.target.value.trim() })}
                   className={styles.input}
                 />
               </FormField>

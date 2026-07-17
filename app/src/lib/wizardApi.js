@@ -1,5 +1,5 @@
 import { supabase } from './supabase.js'
-import { readWizardData, wizardStorageKeys, writeWizardData } from '../components/wizardStorage.js'
+import { wizardStorageKeys, writeWizardData } from '../components/wizardStorage.js'
 
 // ─── Transaction ID pointer (only thing kept in sessionStorage post-init) ─────
 const TX_KEY = 'ttr.transactionId'
@@ -20,12 +20,25 @@ async function getAuthHeader() {
 const EDGE_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1`
 
 // ─── Scenario mapping ─────────────────────────────────────────────────────────
-const SCENARIO_TO_DB = { sell: 'bullion_sell', buy: 'bullion_buy' }
-const SCENARIO_FROM_DB = { bullion_sell: 'sell', bullion_buy: 'buy' }
+// Keyed by serviceType (the AUSTRAC designated service being reported) then by
+// sell/buy direction. Bullion (BULSER) and precious metal (PRECIOUS) are modeled as
+// distinct designated services with distinct DB scenario codes.
+const SCENARIO_TO_DB = {
+  bullion: { sell: 'bullion_sell', buy: 'bullion_buy' },
+  precious_metal: { sell: 'precious_metal_sell', buy: 'precious_metal_buy' },
+}
+const SCENARIO_FROM_DB = {
+  bullion_sell: { scenario: 'sell', serviceType: 'bullion' },
+  bullion_buy: { scenario: 'buy', serviceType: 'bullion' },
+  precious_metal_sell: { scenario: 'sell', serviceType: 'precious_metal' },
+  precious_metal_buy: { scenario: 'buy', serviceType: 'precious_metal' },
+}
 
 const DESIGNATED_SERVICES = {
   bullion_sell: 'Sale of bullion for physical cash',
   bullion_buy: 'Purchase of bullion for physical cash',
+  precious_metal_sell: 'Sale of precious metal for physical cash',
+  precious_metal_buy: 'Purchase of precious metal for physical cash',
 }
 
 // ─── TRANSACTION ──────────────────────────────────────────────────────────────
@@ -34,7 +47,7 @@ const DESIGNATED_SERVICES = {
 // Called from TransactionDetailsPage once all required fields are available.
 // parties = current value of ttr.customers from sessionStorage
 export async function initTransaction({ startData, financialData, parties, staffMember }) {
-  const scenario = SCENARIO_TO_DB[startData.scenario] || startData.scenario
+  const scenario = SCENARIO_TO_DB[startData.serviceType || 'bullion']?.[startData.scenario] || startData.scenario
   const isFx = financialData.cashCurrency === 'Other'
   const cashAmount = parseFloat(financialData.cashAmount || 0)
   const fxAmount = parseFloat(financialData.foreignCurrencyAmount || 0)
@@ -66,18 +79,44 @@ export async function initTransaction({ startData, financialData, parties, staff
   const transactionId = tx.id
   setTransactionId(transactionId)
 
-  // Migrate parties from sessionStorage into DB
-  if (parties.length > 0) {
-    const partyRows = parties.map((p) => partyToDbRow(p, transactionId))
-    const { data: savedParties, error: partiesError } = await ttr().from('parties').insert(partyRows).select('id')
-    if (partiesError) throw partiesError
-
-    // Update sessionStorage party IDs to DB UUIDs so downstream pages reference DB IDs
-    const updatedParties = parties.map((p, i) => ({ ...p, id: savedParties[i].id }))
-    writeWizardData(wizardStorageKeys.customers, updatedParties)
-  }
+  await migrateNewParties(parties)
 
   return transactionId
+}
+
+// Inserts any sessionStorage parties not yet migrated into ttr.parties (marked _migrated),
+// leaving already-migrated parties untouched. Called on first transaction creation and again
+// whenever the user returns to Transaction Details after adding more parties.
+export async function migrateNewParties(parties) {
+  const transactionId = getTransactionId()
+  if (!transactionId) throw new Error('No active transaction')
+
+  const unmigrated = parties.filter((p) => !p._migrated)
+  if (unmigrated.length === 0) return parties
+
+  const partyRows = unmigrated.map((p) => partyToDbRow(p, transactionId))
+  const { data: insertedRows, error: partiesError } = await ttr().from('parties').insert(partyRows).select('id')
+  if (partiesError) throw partiesError
+
+  // Carry over aliases from an existing customer selected via search — partyToDbRow only
+  // covers columns that live directly on ttr.parties, but aliases are a child table
+  // (ttr.party_aliases) keyed by the new row's id, which Postgres only assigns on insert.
+  // Relies on a single INSERT ... RETURNING preserving row order relative to partyRows/unmigrated.
+  for (let i = 0; i < unmigrated.length; i++) {
+    const aliases = (unmigrated[i].aliases || []).filter(Boolean)
+    if (aliases.length === 0) continue
+    const { error: aliasError } = await ttr().from('party_aliases').insert(
+      aliases.map((alias) => ({ party_id: insertedRows[i].id, alias }))
+    )
+    if (aliasError) throw aliasError
+  }
+
+  // Keep each party's original id stable (it's what CustomerSearchPage's dedup check keys off) —
+  // only flag it as migrated so a re-run of this function won't insert it again.
+  const updatedParties = parties.map((p) => (p._migrated ? p : { ...p, _migrated: true }))
+
+  writeWizardData(wizardStorageKeys.customers, updatedParties)
+  return updatedParties
 }
 
 export async function loadTransaction() {
@@ -109,7 +148,7 @@ export async function saveTransaction(financialData, startData) {
   const transactionId = getTransactionId()
   if (!transactionId) throw new Error('No active transaction')
 
-  const scenario = SCENARIO_TO_DB[startData.scenario] || startData.scenario
+  const scenario = SCENARIO_TO_DB[startData.serviceType || 'bullion']?.[startData.scenario] || startData.scenario
   const isFx = financialData.cashCurrency === 'Other'
   const cashAmount = parseFloat(financialData.cashAmount || 0)
   const fxAmount = parseFloat(financialData.foreignCurrencyAmount || 0)
@@ -156,6 +195,14 @@ export async function saveCustomers(customers) {
       if (aliasError) throw aliasError
     }
   }
+}
+
+export async function deleteParty(partyId) {
+  const transactionId = getTransactionId()
+  if (!transactionId) throw new Error('No active transaction')
+
+  const { error } = await ttr().from('parties').delete().eq('id', partyId).eq('transaction_id', transactionId)
+  if (error) throw error
 }
 
 export async function loadCustomers() {
@@ -210,6 +257,22 @@ export async function saveConductingPerson(data) {
       if (aliasError) throw aliasError
     }
   }
+}
+
+// Records who conducted the transaction when there's no separate conducting person:
+// either which party conducted it (self-conducted, disambiguates multiple parties) or,
+// for a company party whose conducting individual can't be identified, a
+// methodOfConductingTxn code. Called alongside saveConductingPerson.
+export async function saveConductorInfo({ conductedByPartyId, methodOfConductingTxn }) {
+  const transactionId = getTransactionId()
+  if (!transactionId) throw new Error('No active transaction')
+
+  const { error } = await ttr().from('transactions').update({
+    conducted_by_party_id: conductedByPartyId || null,
+    method_of_conducting_txn: methodOfConductingTxn || null,
+  }).eq('id', transactionId)
+
+  if (error) throw error
 }
 
 export async function loadConductingPerson() {
@@ -323,7 +386,7 @@ export async function saveRecipientDelivery(data) {
     recip_state: !recipientIsParty ? data.recipientAddress?.state || null : null,
     recip_postcode: !recipientIsParty ? data.recipientAddress?.postcode || null : null,
     recip_country: !recipientIsParty ? (data.recipientAddress?.country || 'Australia') : null,
-    purpose_of_transfer: data.purposeOfTransfer || '',
+    purpose_of_transfer: data.purposeOfTransfer || 'Collecting bullion',
     delivery_method: data.deliveryMethod || 'Collected',
     delivery_method_other: data.deliveryMethod === 'Other' ? data.deliveryMethodOther || null : null,
     delivery_address_different: deliveryAddressDifferent,
@@ -413,6 +476,57 @@ export async function loadBullionItems() {
   }))
 }
 
+// ─── PRECIOUS METAL ITEMS ─────────────────────────────────────────────────────
+
+export async function savePreciousMetalItems(items) {
+  const transactionId = getTransactionId()
+  if (!transactionId) throw new Error('No active transaction')
+
+  await ttr().from('precious_metal_items').delete().eq('transaction_id', transactionId)
+
+  if (items.length > 0) {
+    const rows = items.map((item, i) => ({
+      transaction_id: transactionId,
+      sort_order: i,
+      direction: item.direction || 'Provided to customer',
+      metal_type: item.metalType || 'Gold',
+      quantity: parseFloat(item.quantity || 0),
+      weight: parseFloat(item.weight || 0),
+      weight_unit: item.weightUnit || 'grams',
+      weight_unit_other: item.weightUnit === 'other' ? item.weightUnitOther || null : null,
+      unit_price_aud: parseFloat(item.unitPrice || 0),
+      line_total_aud: item.lineTotal || 0,
+      description: item.description || null,
+      serial_number: item.serialNumber || null,
+    }))
+
+    const { error } = await ttr().from('precious_metal_items').insert(rows)
+    if (error) throw error
+  }
+}
+
+export async function loadPreciousMetalItems() {
+  const transactionId = getTransactionId()
+  if (!transactionId) return []
+
+  const { data, error } = await ttr().from('precious_metal_items').select('*').eq('transaction_id', transactionId).order('sort_order')
+  if (error) throw error
+
+  return (data || []).map((row) => ({
+    id: row.id,
+    direction: row.direction,
+    metalType: row.metal_type,
+    quantity: String(row.quantity),
+    weight: String(row.weight),
+    weightUnit: row.weight_unit,
+    weightUnitOther: row.weight_unit_other || '',
+    unitPrice: String(row.unit_price_aud),
+    lineTotal: parseFloat(row.line_total_aud),
+    description: row.description || '',
+    serialNumber: row.serial_number || '',
+  }))
+}
+
 // ─── PRIOR VERIFICATIONS ──────────────────────────────────────────────────────
 
 export async function fetchPriorVerifications(person) {
@@ -443,12 +557,13 @@ export async function searchIndividualCustomers({ firstName, lastName, dob }) {
     middleName:          r.middle_name   || '',
     lastName:            r.last_name     || '',
     dateOfBirth:         r.date_of_birth || '',
+    gender:              r.gender        || '',
     phone:               r.phone         || '',
     email:               r.email         || '',
     occupation:          r.occupation    || '',
     abn:                 '',
     businessTradingName: '',
-    aliases:             [],
+    aliases:             r.aliases || [],
     residentialAddress: {
       street:   r.res_street   || '',
       suburb:   r.res_suburb   || '',
@@ -458,7 +573,7 @@ export async function searchIndividualCustomers({ firstName, lastName, dob }) {
     },
     hasPostalAddress: false,
     postalAddress: { street: '', suburb: '', state: '', postcode: '', country: 'Australia' },
-    displayName: `${r.first_name} ${r.last_name}`.trim(),
+    displayName: [r.first_name, r.middle_name, r.last_name].filter(Boolean).join(' '),
     detail: r.date_of_birth
       ? `DOB: ${new Date(r.date_of_birth).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })}`
       : '',
@@ -483,8 +598,11 @@ export async function searchCompanyCustomers({ entityName, regIdentifier, suburb
     abnAcn:                     r.reg_identifier       || '',
     companyPhone:               r.company_phone        || '',
     phone:                      r.company_phone        || '',
-    principalActivity:          '',
-    aliases:                    [],
+    principalActivity:          r.principal_activity   || '',
+    isExpressTrust:             r.is_express_trust === true ? 'Yes' : r.is_express_trust === false ? 'No' : '',
+    trustTypeOther:             r.trust_type_other     || '',
+    trustName:                  r.trust_name           || '',
+    aliases:                    r.aliases || [],
     businessAddress: {
       street:   r.biz_street   || '',
       suburb:   r.biz_suburb   || '',
@@ -626,6 +744,9 @@ function partyToDbRow(p, transactionId) {
     entity_name: p.entityName || null,
     company_trading_name: p.companyTradingName || null,
     legal_form: p.legalForm || null,
+    is_express_trust: p.isExpressTrust === 'Yes' ? true : p.isExpressTrust === 'No' ? false : null,
+    trust_type_other: p.isExpressTrust === 'Yes' ? p.trustTypeOther || null : null,
+    trust_name: p.isExpressTrust === 'Yes' ? p.trustName || null : null,
     company_phone: p.companyPhone || p.phone || null,
     reg_id_type: p.registrationIdentifierType || null,
     reg_identifier: (p.registrationIdentifier || p.abnAcn || '').replace(/\s/g, '') || null,
@@ -647,8 +768,10 @@ function partyToDbRow(p, transactionId) {
 // ─── DATA MAPPING: DB → session ───────────────────────────────────────────────
 
 function dbRowToTransaction(row) {
+  const mapped = SCENARIO_FROM_DB[row.scenario] || { scenario: row.scenario, serviceType: 'bullion' }
   return {
-    scenario: SCENARIO_FROM_DB[row.scenario] || row.scenario,
+    scenario: mapped.scenario,
+    serviceType: mapped.serviceType,
     transactionRef: row.transaction_ref,
     dateTime: row.transaction_datetime ? row.transaction_datetime.slice(0, 16) : '',
     staffMember: row.staff_member_name,
@@ -656,7 +779,7 @@ function dbRowToTransaction(row) {
     location: row.location_snapshot,
     designatedService: row.designated_service,
     cashCurrency: row.cash_currency === 'AUD' ? 'AUD' : 'Other',
-    cashAmount: row.cash_currency === 'AUD' ? String(row.cash_amount) : '',
+    cashAmount: String(row.cash_amount),
     audValue: String(row.aud_value),
     foreignCurrency: row.cash_currency === 'other' ? {
       type: row.fx_currency_code,
@@ -666,6 +789,8 @@ function dbRowToTransaction(row) {
     } : null,
     lppFlag: row.lpp_flag || false,
     isOtherDsProviderInvolved: row.is_other_ds_provider_involved || false,
+    conductedByPartyId: row.conducted_by_party_id || '',
+    methodOfConductingTxn: row.method_of_conducting_txn || '',
   }
 }
 
@@ -673,7 +798,7 @@ function dbRowToParty(row) {
   const aliases = (row.party_aliases || []).map((a) => a.alias)
 
   if (row.party_type === 'individual') {
-    const displayName = row.full_name || [row.first_name, row.last_name].filter(Boolean).join(' ')
+    const displayName = row.full_name || [row.first_name, row.middle_name, row.last_name].filter(Boolean).join(' ')
     return {
       id: row.id,
       type: 'individual',
@@ -721,6 +846,9 @@ function dbRowToParty(row) {
     displayName: row.entity_name || '',
     companyTradingName: row.company_trading_name || '',
     legalForm: row.legal_form || '',
+    isExpressTrust: row.is_express_trust === true ? 'Yes' : row.is_express_trust === false ? 'No' : '',
+    trustTypeOther: row.trust_type_other || '',
+    trustName: row.trust_name || '',
     phone: row.company_phone || '',
     registrationIdentifierType: row.reg_id_type || '',
     registrationIdentifier: row.reg_identifier || '',
@@ -753,8 +881,8 @@ function cpToDbRow(data, transactionId) {
     represented_party_id: data.representedPartyId || null,
     is_primary: true,
     full_name: data.fullName || '',
-    dob_known: data.dobKnown === true,
-    date_of_birth: data.dobKnown ? data.dateOfBirth || null : null,
+    dob_known: data.dobKnown === 'yes',
+    date_of_birth: data.dobKnown === 'yes' ? (data.dateOfBirth || null) : null,
     phone: data.phone || null,
     occupation: data.occupation || null,
     res_street: data.residentialAddress?.street || '',
@@ -771,7 +899,7 @@ function cpToDbRow(data, transactionId) {
     relationship: data.relationship || 'Other',
     relationship_other: data.relationship === 'Other' ? data.relationshipOther || null : null,
     authority_to_act: data.authorityToAct || '',
-    is_employee: data.isEmployee === true ? 'yes' : data.isEmployee === false ? 'no' : null,
+    is_employee: data.isEmployee || null,
     employee_role: data.employeeRole || null,
     acting_via_entity: data.actingViaEntity === true,
     entity_name: data.actingViaEntity ? data.entityName || null : null,
@@ -815,7 +943,7 @@ function dbRowToCp(row) {
     relationship: row.relationship || '',
     relationshipOther: row.relationship_other || '',
     authorityToAct: row.authority_to_act || '',
-    isEmployee: row.is_employee === 'yes' ? true : row.is_employee === 'no' ? false : null,
+    isEmployee: row.is_employee || null,
     employeeRole: row.employee_role || '',
     actingViaEntity: row.acting_via_entity || false,
     entityName: row.entity_name || '',

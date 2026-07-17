@@ -7,14 +7,25 @@ import TextInput from '../../components/ui/TextInput.jsx'
 import WizardFrame from '../../components/layout/WizardFrame.jsx'
 import { wizardStorageKeys, readWizardData } from '../../components/wizardStorage.js'
 import { useAuth } from '../../context/AuthContext.jsx'
-import { deleteTransaction, getTransactionId, initTransaction, saveTransaction } from '../../lib/wizardApi.js'
+import { deleteTransaction, getTransactionId, initTransaction, migrateNewParties, saveTransaction } from '../../lib/wizardApi.js'
 import styles from './TransactionDetailsPage.module.css'
 
 const LOCATION = 'Coburg, VIC'
 
 const DESIGNATED_SERVICES = {
-  sell: 'Sale of bullion for physical cash',
-  buy: 'Purchase of bullion for physical cash',
+  bullion: {
+    sell: 'Sale of bullion for physical cash',
+    buy: 'Purchase of bullion for physical cash',
+  },
+  precious_metal: {
+    sell: 'Sale of precious metal for physical cash',
+    buy: 'Purchase of precious metal for physical cash',
+  },
+}
+
+const SCENARIO_LABELS = {
+  bullion: { sell: 'Sell bullion to customer', buy: 'Buy bullion from customer' },
+  precious_metal: { sell: 'Sell precious metal to customer', buy: 'Buy precious metal from customer' },
 }
 
 const CURRENCY_OPTIONS = [
@@ -41,6 +52,7 @@ const TransactionDetailsPage = () => {
   const [selectedParties] = useState(() => readWizardData(wizardStorageKeys.customers, []))
 
   const [scenario, setScenario] = useState(transactionData.scenario || 'sell')
+  const [serviceType] = useState(transactionData.serviceType || 'bullion')
   const [dateTime, setDateTime] = useState(transactionData.dateTime || '')
   const [transactionRef, setTransactionRef] = useState(transactionData.transactionRef || '')
 
@@ -56,7 +68,8 @@ const TransactionDetailsPage = () => {
   const [showExitModal, setShowExitModal] = useState(false)
   const [saving, setSaving] = useState(false)
 
-  const designatedService = DESIGNATED_SERVICES[scenario] || ''
+  const designatedService = DESIGNATED_SERVICES[serviceType]?.[scenario] || ''
+  const serviceLabel = serviceType === 'precious_metal' ? 'precious metal' : 'bullion'
 
   const audValue =
     cashCurrency === 'AUD'
@@ -69,7 +82,7 @@ const TransactionDetailsPage = () => {
     const newErrors = {}
     if (!transactionRef.trim()) newErrors.transactionRef = 'Enter the transaction reference.'
     if (!dateTime) newErrors.dateTime = 'Enter the transaction date and time.'
-    if (!cashAmount || parseFloat(cashAmount) <= 0) newErrors.cashAmount = 'Enter the physical cash amount.'
+    if (cashCurrency === 'AUD' && (!cashAmount || parseFloat(cashAmount) <= 0)) newErrors.cashAmount = 'Enter the physical cash amount.'
     if (!audValue || parseFloat(audValue) <= 0) newErrors.audValue = 'Enter the Australian dollar value.'
     if (cashCurrency === 'Other') {
       if (!foreignCurrencyType) newErrors.foreignCurrencyType = 'Select the foreign currency type.'
@@ -96,11 +109,12 @@ const TransactionDetailsPage = () => {
     if (!validateForm()) return
     setSaving(true)
     try {
-      const startData = { scenario, transactionRef: transactionRef.trim(), dateTime }
+      const startData = { scenario, serviceType, transactionRef: transactionRef.trim(), dateTime }
       const financialData = buildFinancialData()
       if (getTransactionId()) {
-        // Transaction already exists (e.g. user went back) — update it
+        // Transaction already exists (e.g. user went back) — update it and migrate any parties added since
         await saveTransaction(financialData, startData)
+        await migrateNewParties(selectedParties)
       } else {
         // First time through — create the DB row and migrate parties
         await initTransaction({ startData, financialData, parties: selectedParties, staffMember })
@@ -155,7 +169,7 @@ const TransactionDetailsPage = () => {
           <div>
             <span className={styles.summaryLabel}>Scenario</span>
             <p className={styles.summaryValue}>
-              {scenario === 'sell' ? 'Sell bullion to customer' : 'Buy bullion from customer'}
+              {SCENARIO_LABELS[serviceType]?.[scenario] || SCENARIO_LABELS.bullion[scenario]}
             </p>
           </div>
           <div>
@@ -182,7 +196,7 @@ const TransactionDetailsPage = () => {
               type="button"
               onClick={() => setScenario('sell')}
             >
-              Sell bullion to customer
+              {SCENARIO_LABELS[serviceType]?.sell || SCENARIO_LABELS.bullion.sell}
             </button>
             <button
               aria-pressed={scenario === 'buy'}
@@ -190,7 +204,7 @@ const TransactionDetailsPage = () => {
               type="button"
               onClick={() => setScenario('buy')}
             >
-              Buy bullion from customer
+              {SCENARIO_LABELS[serviceType]?.buy || SCENARIO_LABELS.bullion.buy}
             </button>
           </div>
           <p className={styles.fieldHint}>
@@ -255,21 +269,24 @@ const TransactionDetailsPage = () => {
           </div>
         </div>
 
-        <FormField label="Cash amount" labelFor="cashAmount" error={errors.cashAmount}>
-          <div className={styles.amountField}>
-            {cashCurrency === 'AUD' ? <span aria-hidden="true" className={styles.amountPrefix}>$</span> : null}
-            <input
-              id="cashAmount"
-              type="number"
-              step="0.01"
-              min="0"
-              value={cashAmount}
-              onChange={(e) => setCashAmount(e.target.value)}
-              className={[styles.amountInput, cashCurrency === 'AUD' ? styles.amountInputPrefixed : ''].filter(Boolean).join(' ')}
-              placeholder="0.00"
-            />
-          </div>
-        </FormField>
+        {cashCurrency === 'AUD' ? (
+          <FormField label="Cash amount" labelFor="cashAmount" error={errors.cashAmount}>
+            <div className={styles.amountField}>
+              <span aria-hidden="true" className={styles.amountPrefix}>$</span>
+              <input
+                id="cashAmount"
+                type="number"
+                step="0.01"
+                min="0"
+                value={cashAmount}
+                onChange={(e) => setCashAmount(e.target.value)}
+                onWheel={(e) => e.currentTarget.blur()}
+                className={`${styles.amountInput} ${styles.amountInputPrefixed}`}
+                placeholder="0.00"
+              />
+            </div>
+          </FormField>
+        ) : null}
 
         <FormField
           label="Australian dollar value"
@@ -333,7 +350,7 @@ const TransactionDetailsPage = () => {
             <span className={styles.summaryLabel}>Cash amount entered</span>
             <p className={styles.summaryValue}>
               {cashCurrency === 'AUD' ? '$' : ''}
-              {formatAmount(cashAmount)}
+              {formatAmount(cashCurrency === 'AUD' ? cashAmount : foreignCurrencyAmount)}
               {cashCurrency === 'Other' && foreignCurrencyType ? ` ${foreignCurrencyType}` : ''}
             </p>
           </div>
@@ -350,7 +367,9 @@ const TransactionDetailsPage = () => {
           <div>
             <span className={styles.summaryLabel}>Scenario</span>
             <p className={styles.summaryValue}>
-              {scenario === 'sell' ? 'Business received physical cash' : 'Business paid physical cash'}
+              {scenario === 'sell'
+                ? `Business received physical cash (${serviceLabel})`
+                : `Business paid physical cash (${serviceLabel})`}
             </p>
           </div>
         </div>

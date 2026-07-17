@@ -1,0 +1,11 @@
+{
+  "tasks": {
+    "test": "deno test --allow-env"
+  },
+  "test": {
+    "include": ["**/*.test.ts"]
+  },
+  "imports": {
+    "std/assert": "https://deno.land/std@0.224.0/assert/mod.ts"
+  }
+}

@@ -7,7 +7,7 @@ import FormField from '../../components/ui/FormField.jsx'
 import TextInput from '../../components/ui/TextInput.jsx'
 import WizardFrame from '../../components/layout/WizardFrame.jsx'
 import { wizardStorageKeys, writeWizardData, readWizardData } from '../../components/wizardStorage.js'
-import { deleteTransaction, searchIndividualCustomers, searchCompanyCustomers } from '../../lib/wizardApi.js'
+import { deleteParty, deleteTransaction, searchIndividualCustomers, searchCompanyCustomers } from '../../lib/wizardApi.js'
 import styles from './CustomerSearchPage.module.css'
 
 const CustomerSearchPage = () => {
@@ -34,6 +34,7 @@ const CustomerSearchPage = () => {
   const [searchError, setSearchError] = useState('')
   const [duplicateError, setDuplicateError] = useState('')
   const [continueError, setContinueError] = useState('')
+  const [removeError, setRemoveError] = useState('')
   const [showExitModal, setShowExitModal] = useState(false)
 
   const switchMode = (mode) => {
@@ -99,6 +100,7 @@ const CustomerSearchPage = () => {
 
   const handleAddParty = (party) => {
     setDuplicateError('')
+    setRemoveError('')
 
     if (selectedParties.some((p) => p.id === party.id)) {
       setDuplicateError('This party has already been added.')
@@ -111,8 +113,19 @@ const CustomerSearchPage = () => {
     setContinueError('')
   }
 
-  const handleRemoveParty = (partyId) => {
-    const updated = selectedParties.filter((p) => p.id !== partyId)
+  const handleRemoveParty = async (party) => {
+    setRemoveError('')
+
+    if (party._migrated) {
+      try {
+        await deleteParty(party.id)
+      } catch {
+        setRemoveError('Could not remove this party — it may already be referenced later in the transaction (e.g. as the recipient or conducting person). Update those steps first.')
+        return
+      }
+    }
+
+    const updated = selectedParties.filter((p) => p.id !== party.id)
     setSelectedParties(updated)
     writeWizardData(wizardStorageKeys.customers, updated)
   }
@@ -286,6 +299,7 @@ const CustomerSearchPage = () => {
 
         <div className={styles.selectedPanel}>
           <h2 className={styles.selectedTitle}>Selected for this transaction</h2>
+          {removeError ? <p className={styles.searchError}>{removeError}</p> : null}
           {selectedParties.length === 0 ? (
             <p className={styles.selectedEmpty}>
               No parties selected yet. Search and add parties to continue.
@@ -301,7 +315,7 @@ const CustomerSearchPage = () => {
                   <button
                     className={styles.removeButton}
                     type="button"
-                    onClick={() => handleRemoveParty(party.id)}
+                    onClick={() => handleRemoveParty(party)}
                   >
                     Remove
                   </button>
