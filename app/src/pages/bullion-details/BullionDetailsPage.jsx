@@ -57,9 +57,11 @@ const BullionDetailsPage = () => {
       if (txnData) setTxn(txnData)
       setPartiesCount(customers.length)
       const dir = defaultDirection(txnData?.scenario)
-      const initialItems = savedItems.length > 0 ? savedItems : [newItem(dir)]
-      setItems(initialItems)
-      setCollapsedIds(new Set(initialItems.filter(isItemComplete).map((i) => i.id)))
+      setItems((prev) => {
+        const initialItems = savedItems.length > 0 ? savedItems : prev.map((item) => ({ ...item, direction: dir }))
+        setCollapsedIds(new Set(initialItems.filter(isItemComplete).map((i) => i.id)))
+        return initialItems
+      })
     }
     init()
   }, [])
