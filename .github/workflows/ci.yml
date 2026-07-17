@@ -22,8 +22,14 @@ jobs:
         working-directory: app
       - run: npm run test
         working-directory: app
+        env:
+          VITE_SUPABASE_URL: https://placeholder.supabase.co
+          VITE_SUPABASE_ANON_KEY: placeholder-anon-key
       - run: npm run build
         working-directory: app
+        env:
+          VITE_SUPABASE_URL: https://placeholder.supabase.co
+          VITE_SUPABASE_ANON_KEY: placeholder-anon-key
 
   functions:
     runs-on: ubuntu-latest
