@@ -1,0 +1,106 @@
+{
+  "info": {
+    "name": "generate-austrac-report",
+    "description": "Manually trigger the generate-austrac-report edge function for a given AEST report date. The pg_cron schedule that would normally call this is currently commented out, so this must be invoked directly. Fill in the service_role_key and reportDate collection variables before sending.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "service_role_key",
+      "value": "",
+      "type": "string",
+      "description": "For the hosted rygjssczdoyvmumxmymc project, use the NEW-style sb_secret_... key (Project Settings → API → API Keys → Secret keys) — NOT the legacy JWT-format service_role key under the Legacy API Keys tab. Confirmed by hashing the runtime value of Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'); the legacy JWT has correct role/ref claims but does not match and will 401."
+    },
+    {
+      "key": "reportDate",
+      "value": "",
+      "type": "string",
+      "description": "AEST calendar date the transactions were completed on, YYYY-MM-DD. One call only picks up transactions completed on this single day."
+    }
+  ],
+  "item": [
+    {
+      "name": "Local",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{service_role_key}}",
+            "type": "text"
+          },
+          {
+            "key": "apikey",
+            "value": "{{service_role_key}}",
+            "type": "text",
+            "description": "Supabase's API gateway (Kong) checks this independently of the Authorization header the function itself validates. Missing it causes a 401 before the function code ever runs."
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"reportDate\": \"{{reportDate}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "http://localhost:54321/functions/v1/generate-austrac-report",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "54321",
+          "path": ["functions", "v1", "generate-austrac-report"]
+        },
+        "description": "Requires `supabase start` + `supabase functions serve` running locally. Use the service_role key from `supabase status`."
+      },
+      "response": []
+    },
+    {
+      "name": "Hosted (rygjssczdoyvmumxmymc)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{service_role_key}}",
+            "type": "text"
+          },
+          {
+            "key": "apikey",
+            "value": "{{service_role_key}}",
+            "type": "text",
+            "description": "Supabase's API gateway (Kong) checks this independently of the Authorization header the function itself validates. Missing it causes a 401 before the function code ever runs."
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"reportDate\": \"{{reportDate}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "https://rygjssczdoyvmumxmymc.supabase.co/functions/v1/generate-austrac-report",
+          "protocol": "https",
+          "host": ["rygjssczdoyvmumxmymc", "supabase", "co"],
+          "path": ["functions", "v1", "generate-austrac-report"]
+        },
+        "description": "Use the service_role key from Project Settings → API in the Supabase dashboard for this project."
+      },
+      "response": []
+    }
+  ]
+}

@@ -1,4 +1,4 @@
-﻿﻿import { useState, useEffect } from 'react'
+﻿import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AlertCircle, Building2, CheckCircle2, Circle, User } from 'lucide-react'
 import Button from '../../components/ui/Button.jsx'
@@ -6,7 +6,8 @@ import ConfirmModal from '../../components/ui/ConfirmModal.jsx'
 import DatePicker from '../../components/ui/DatePicker.jsx'
 import FormField from '../../components/ui/FormField.jsx'
 import WizardFrame from '../../components/layout/WizardFrame.jsx'
-import { wizardStorageKeys, readWizardData, writeWizardData } from '../../components/wizardStorage.js'
+import { deleteTransaction, loadCustomers, saveCustomers } from '../../lib/wizardApi.js'
+import { MAX_SUBURB_LENGTH } from '../../lib/austrac.js'
 import styles from './PartyDetailsPage.module.css'
 
 const STATES = ['VIC', 'NSW', 'QLD', 'WA', 'SA', 'TAS', 'ACT', 'NT']
@@ -14,14 +15,8 @@ const STATES = ['VIC', 'NSW', 'QLD', 'WA', 'SA', 'TAS', 'ACT', 'NT']
 const PartyDetailsPage = () => {
   const navigate = useNavigate()
 
-  const [parties, setParties] = useState(() =>
-    readWizardData(wizardStorageKeys.customers, []).map(party => ({
-      ...party,
-      partyType: party.type === 'individual' ? 'Individual' : 'Company',
-      isComplete: party.isComplete || false,
-    }))
-  )
-
+  const [parties, setParties] = useState([])
+  const [loading, setLoading] = useState(true)
   const [currentPartyIndex, setCurrentPartyIndex] = useState(0)
   const [errors, setErrors] = useState({})
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
@@ -48,11 +43,17 @@ const PartyDetailsPage = () => {
   const [phone, setPhone] = useState('')
   const [occupation, setOccupation] = useState('')
   const [abn, setAbn] = useState('')
+  const [gender, setGender] = useState('')
+  const [citizenshipCountryCode, setCitizenshipCountryCode] = useState('AU')
+  const [taxResidencyCountryCode, setTaxResidencyCountryCode] = useState('AU')
 
   // Company fields
   const [entityName, setEntityName] = useState('')
   const [companyTradingName, setCompanyTradingName] = useState('')
   const [legalForm, setLegalForm] = useState('')
+  const [isExpressTrust, setIsExpressTrust] = useState('')
+  const [trustTypeOther, setTrustTypeOther] = useState('')
+  const [trustName, setTrustName] = useState('')
   const [bizStreet, setBizStreet] = useState('')
   const [bizSuburb, setBizSuburb] = useState('')
   const [bizState, setBizState] = useState('')
@@ -69,15 +70,10 @@ const PartyDetailsPage = () => {
   const [registrationIdentifier, setRegistrationIdentifier] = useState('')
   const [principalActivity, setPrincipalActivity] = useState('')
 
-  const currentParty = parties[currentPartyIndex]
-
-  useEffect(() => {
-    if (currentParty) loadPartyData(currentParty)
-  }, [currentPartyIndex])
-
+  // Must be declared before the useEffect that calls it
   const loadPartyData = (party) => {
     if (party.partyType === 'Individual') {
-      setFullName(party.fullName || party.displayName || `${party.firstName || ''} ${party.lastName || ''}`.trim())
+      setFullName(party.fullName || party.displayName || [party.firstName, party.middleName, party.lastName].filter(Boolean).join(' '))
       setAliases(party.aliases || [])
       setBusinessTradingName(party.businessTradingName || '')
       setDateOfBirth(party.dateOfBirth ? String(party.dateOfBirth).split('T')[0] : '')
@@ -95,10 +91,16 @@ const PartyDetailsPage = () => {
       setPhone(party.phone || '')
       setOccupation(party.occupation || '')
       setAbn(party.abn || '')
+      setGender(party.gender || '')
+      setCitizenshipCountryCode(party.citizenshipCountryCode || 'AU')
+      setTaxResidencyCountryCode(party.taxResidencyCountryCode || 'AU')
     } else {
       setEntityName(party.entityName || '')
       setCompanyTradingName(party.companyTradingName || '')
       setLegalForm(party.legalForm || '')
+      setIsExpressTrust(party.isExpressTrust || '')
+      setTrustTypeOther(party.trustTypeOther || '')
+      setTrustName(party.trustName || '')
       setBizStreet(party.businessAddress?.street || '')
       setBizSuburb(party.businessAddress?.suburb || '')
       setBizState(party.businessAddress?.state || '')
@@ -120,6 +122,27 @@ const PartyDetailsPage = () => {
     setContinueError('')
   }
 
+  // Load parties from Supabase on mount — loadPartyData is stable (no deps), safe to call here
+  useEffect(() => {
+    loadCustomers()
+      .then((loaded) => {
+        const mapped = loaded.map((p) => ({
+          ...p,
+          partyType: p.type === 'individual' ? 'Individual' : 'Company',
+        }))
+        setParties(mapped)
+        if (mapped.length > 0) loadPartyData(mapped[0])
+      })
+      .finally(() => setLoading(false))
+  }, [])
+
+  const currentParty = parties[currentPartyIndex]
+
+  const switchToParty = (index, loadedParties = parties) => {
+    setCurrentPartyIndex(index)
+    loadPartyData(loadedParties[index])
+  }
+
   const validateIndividual = () => {
     const newErrors = {}
     if (!fullName.trim()) newErrors.fullName = 'Enter the full legal name.'
@@ -131,6 +154,12 @@ const PartyDetailsPage = () => {
     if (!resCountry.trim()) newErrors.resCountry = 'Enter the country.'
     if (!phone.trim()) newErrors.phone = 'Enter the phone number.'
     if (!occupation.trim()) newErrors.occupation = 'Enter the occupation or principal activity.'
+    if (!gender) newErrors.gender = 'Select the gender.'
+    if (!citizenshipCountryCode.trim()) newErrors.citizenshipCountryCode = 'Enter the citizenship country code.'
+    if (!taxResidencyCountryCode.trim()) newErrors.taxResidencyCountryCode = 'Enter the tax residency country code.'
+    if (abn.trim() && !/^[0-9]{11}$/.test(abn.replace(/\s/g, ''))) {
+      newErrors.abn = 'ABN must be exactly 11 digits.'
+    }
     if (hasPostalAddress) {
       if (!postStreet.trim()) newErrors.postStreet = 'Enter the postal street address.'
       if (!postSuburb.trim()) newErrors.postSuburb = 'Enter the postal suburb.'
@@ -146,13 +175,26 @@ const PartyDetailsPage = () => {
     const newErrors = {}
     if (!entityName.trim()) newErrors.entityName = 'Enter the legal entity name.'
     if (!legalForm.trim()) newErrors.legalForm = 'Select the legal form or structure.'
+    if (legalForm === 'Trust') {
+      if (!isExpressTrust) newErrors.isExpressTrust = 'Select whether this is an express trust.'
+      if (isExpressTrust === 'Yes' && !trustTypeOther.trim()) newErrors.trustTypeOther = 'Enter the trust type.'
+    }
     if (!bizStreet.trim()) newErrors.bizStreet = 'Enter the street address.'
     if (!bizSuburb.trim()) newErrors.bizSuburb = 'Enter the suburb.'
     if (!bizState.trim()) newErrors.bizState = 'Enter the state.'
     if (!bizPostcode.trim()) newErrors.bizPostcode = 'Enter the postcode.'
     if (!bizCountry.trim()) newErrors.bizCountry = 'Enter the country.'
     if (!companyPhone.trim()) newErrors.companyPhone = 'Enter the phone number.'
-    if (!registrationIdentifier.trim()) newErrors.registrationIdentifier = 'Enter the registration identifier.'
+    if (!registrationIdentifier.trim()) {
+      newErrors.registrationIdentifier = 'Enter the registration identifier.'
+    } else {
+      const digits = registrationIdentifier.replace(/\s/g, '')
+      if (registrationIdentifierType === 'ABN' && !/^[0-9]{11}$/.test(digits)) {
+        newErrors.registrationIdentifier = 'ABN must be exactly 11 digits.'
+      } else if (registrationIdentifierType === 'ACN' && !/^[0-9]{9}$/.test(digits)) {
+        newErrors.registrationIdentifier = 'ACN must be exactly 9 digits.'
+      }
+    }
     if (!principalActivity.trim()) newErrors.principalActivity = 'Enter the principal activity or business activity.'
     if (hasCompanyPostalAddress) {
       if (!compPostStreet.trim()) newErrors.compPostStreet = 'Enter the postal street address.'
@@ -186,10 +228,16 @@ const PartyDetailsPage = () => {
       updatedParty.phone = phone
       updatedParty.occupation = occupation
       updatedParty.abn = abn
+      updatedParty.gender = gender
+      updatedParty.citizenshipCountryCode = citizenshipCountryCode
+      updatedParty.taxResidencyCountryCode = taxResidencyCountryCode
     } else {
       updatedParty.entityName = entityName
       updatedParty.companyTradingName = companyTradingName
       updatedParty.legalForm = legalForm
+      updatedParty.isExpressTrust = legalForm === 'Trust' ? isExpressTrust : ''
+      updatedParty.trustTypeOther = legalForm === 'Trust' && isExpressTrust === 'Yes' ? trustTypeOther : ''
+      updatedParty.trustName = legalForm === 'Trust' && isExpressTrust === 'Yes' ? trustName : ''
       updatedParty.businessAddress = { street: bizStreet, suburb: bizSuburb, state: bizState, postcode: bizPostcode, country: bizCountry }
       updatedParty.hasCompanyPostalAddress = hasCompanyPostalAddress
       updatedParty.companyPostalAddress = hasCompanyPostalAddress
@@ -204,32 +252,32 @@ const PartyDetailsPage = () => {
     return updatedParty
   }
 
-  const commitSave = (updatedParty) => {
+  const commitSave = async (updatedParty) => {
     const updatedParties = [...parties]
     updatedParties[currentPartyIndex] = updatedParty
     setParties(updatedParties)
-    writeWizardData(wizardStorageKeys.customers, updatedParties)
+    await saveCustomers([updatedParty])
     setHasUnsavedChanges(false)
     return updatedParties
   }
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const updatedParty = buildSavedParty()
-    if (updatedParty) commitSave(updatedParty)
+    if (updatedParty) await commitSave(updatedParty)
   }
 
-  const handleSaveAndNext = () => {
+  const handleSaveAndNext = async () => {
     const updatedParty = buildSavedParty()
     if (!updatedParty) return
-    const updatedParties = commitSave(updatedParty)
+    const updatedParties = await commitSave(updatedParty)
     const nextIndex = updatedParties.findIndex((p, idx) => idx > currentPartyIndex && !p.isComplete)
-    if (nextIndex !== -1) setCurrentPartyIndex(nextIndex)
+    if (nextIndex !== -1) switchToParty(nextIndex, updatedParties)
   }
 
-  const handleContinue = () => {
+  const handleContinue = async () => {
     const updatedParty = buildSavedParty()
     if (!updatedParty) return
-    const updatedParties = commitSave(updatedParty)
+    const updatedParties = await commitSave(updatedParty)
     if (updatedParties.every(p => p.isComplete)) {
       navigate('/conducting-person')
     } else {
@@ -262,12 +310,12 @@ const PartyDetailsPage = () => {
 
   const getPartyDisplayName = (party) => {
     if (party.partyType === 'Individual') {
-      return party.fullName || party.displayName || `${party.firstName || ''} ${party.lastName || ''}`.trim() || 'Individual Party'
+      return party.fullName || party.displayName || [party.firstName, party.middleName, party.lastName].filter(Boolean).join(' ') || 'Individual Party'
     }
     return party.entityName || party.displayName || 'Company Party'
   }
 
-  if (!currentParty) return null
+  if (loading || !currentParty) return null
 
   return (
     <WizardFrame
@@ -301,7 +349,7 @@ const PartyDetailsPage = () => {
                 <button
                   key={party.id}
                   type="button"
-                  onClick={() => setCurrentPartyIndex(index)}
+                  onClick={() => switchToParty(index)}
                   className={[styles.partyCard, isActive ? styles.partyCardActive : ''].filter(Boolean).join(' ')}
                 >
                   <div className={styles.partyCardInner}>
@@ -369,6 +417,7 @@ const PartyDetailsPage = () => {
                   onChange={(e) => { setFullName(e.target.value); markChanged() }}
                   className={styles.input}
                   placeholder="Enter full legal name"
+                  maxLength={140}
                 />
               </FormField>
 
@@ -451,8 +500,10 @@ const PartyDetailsPage = () => {
                       type="text"
                       value={resSuburb}
                       onChange={(e) => { setResSuburb(e.target.value); markChanged() }}
+                      onBlur={(e) => setResSuburb(e.target.value.trim())}
                       className={styles.input}
                       placeholder="Enter suburb"
+                      maxLength={MAX_SUBURB_LENGTH}
                     />
                   </FormField>
 
@@ -476,6 +527,7 @@ const PartyDetailsPage = () => {
                       type="text"
                       value={resPostcode}
                       onChange={(e) => { setResPostcode(e.target.value); markChanged() }}
+                      onBlur={(e) => setResPostcode(e.target.value.trim())}
                       className={styles.input}
                       placeholder="Enter postcode"
                     />
@@ -525,8 +577,10 @@ const PartyDetailsPage = () => {
                         type="text"
                         value={postSuburb}
                         onChange={(e) => { setPostSuburb(e.target.value); markChanged() }}
+                        onBlur={(e) => setPostSuburb(e.target.value.trim())}
                         className={styles.input}
                         placeholder="Enter suburb"
+                        maxLength={MAX_SUBURB_LENGTH}
                       />
                     </FormField>
 
@@ -550,6 +604,7 @@ const PartyDetailsPage = () => {
                         type="text"
                         value={postPostcode}
                         onChange={(e) => { setPostPostcode(e.target.value); markChanged() }}
+                        onBlur={(e) => setPostPostcode(e.target.value.trim())}
                         className={styles.input}
                         placeholder="Enter postcode"
                       />
@@ -575,6 +630,7 @@ const PartyDetailsPage = () => {
                   type="tel"
                   value={phone}
                   onChange={(e) => { setPhone(e.target.value); markChanged() }}
+                  maxLength={20}
                   className={styles.input}
                   placeholder="Enter phone number"
                 />
@@ -591,7 +647,7 @@ const PartyDetailsPage = () => {
                 />
               </FormField>
 
-              <FormField label="ABN" labelFor="abn" helperText="Only if relevant or known.">
+              <FormField label="ABN" labelFor="abn" helperText="Only if relevant or known." error={errors.abn ?? ""}>
                 <input
                   id="abn"
                   type="text"
@@ -601,6 +657,46 @@ const PartyDetailsPage = () => {
                   placeholder="Enter ABN if relevant"
                 />
               </FormField>
+
+              <FormField label="Gender" labelFor="gender" error={errors.gender ?? ""}>
+                <select
+                  id="gender"
+                  value={gender}
+                  onChange={(e) => { setGender(e.target.value); markChanged() }}
+                  className={styles.select}
+                >
+                  <option value="">Select gender</option>
+                  <option value="M">Male</option>
+                  <option value="F">Female</option>
+                  <option value="U">Unknown / not stated</option>
+                </select>
+              </FormField>
+
+              <div className={styles.grid2}>
+                <FormField label="Citizenship country" labelFor="citizenshipCountryCode" helperText="ISO 2-letter code, e.g. AU" error={errors.citizenshipCountryCode ?? ""}>
+                  <input
+                    id="citizenshipCountryCode"
+                    type="text"
+                    value={citizenshipCountryCode}
+                    onChange={(e) => { setCitizenshipCountryCode(e.target.value.toUpperCase().slice(0, 2)); markChanged() }}
+                    className={styles.input}
+                    placeholder="AU"
+                    maxLength={2}
+                  />
+                </FormField>
+
+                <FormField label="Tax residency country" labelFor="taxResidencyCountryCode" helperText="ISO 2-letter code, e.g. AU" error={errors.taxResidencyCountryCode ?? ""}>
+                  <input
+                    id="taxResidencyCountryCode"
+                    type="text"
+                    value={taxResidencyCountryCode}
+                    onChange={(e) => { setTaxResidencyCountryCode(e.target.value.toUpperCase().slice(0, 2)); markChanged() }}
+                    className={styles.input}
+                    placeholder="AU"
+                    maxLength={2}
+                  />
+                </FormField>
+              </div>
             </div>
           )}
 
@@ -635,7 +731,11 @@ const PartyDetailsPage = () => {
                 <select
                   id="legalForm"
                   value={legalForm}
-                  onChange={(e) => { setLegalForm(e.target.value); markChanged() }}
+                  onChange={(e) => {
+                    setLegalForm(e.target.value)
+                    if (e.target.value !== 'Trust') { setIsExpressTrust(''); setTrustTypeOther(''); setTrustName('') }
+                    markChanged()
+                  }}
                   className={styles.select}
                 >
                   <option value="">Select legal form</option>
@@ -647,6 +747,53 @@ const PartyDetailsPage = () => {
                   <option value="Other">Other</option>
                 </select>
               </FormField>
+
+              {legalForm === 'Trust' && (
+                <>
+                  <FormField label="Is this an express trust?" labelFor="isExpressTrust" error={errors.isExpressTrust ?? ""}>
+                    <select
+                      id="isExpressTrust"
+                      value={isExpressTrust}
+                      onChange={(e) => {
+                        setIsExpressTrust(e.target.value)
+                        if (e.target.value !== 'Yes') { setTrustTypeOther(''); setTrustName('') }
+                        markChanged()
+                      }}
+                      className={styles.select}
+                    >
+                      <option value="">Select an option</option>
+                      <option value="Yes">Yes</option>
+                      <option value="No">No</option>
+                    </select>
+                  </FormField>
+
+                  {isExpressTrust === 'Yes' && (
+                    <>
+                      <FormField label="Trust type" labelFor="trustTypeOther" error={errors.trustTypeOther ?? ""}>
+                        <input
+                          id="trustTypeOther"
+                          type="text"
+                          value={trustTypeOther}
+                          onChange={(e) => { setTrustTypeOther(e.target.value); markChanged() }}
+                          className={styles.input}
+                          placeholder="e.g. Discretionary trust"
+                        />
+                      </FormField>
+
+                      <FormField label="Trust name" labelFor="trustName" helperText="Optional.">
+                        <input
+                          id="trustName"
+                          type="text"
+                          value={trustName}
+                          onChange={(e) => { setTrustName(e.target.value); markChanged() }}
+                          className={styles.input}
+                          placeholder="Enter trust name"
+                        />
+                      </FormField>
+                    </>
+                  )}
+                </>
+              )}
 
               <div className={styles.addressGroup}>
                 <h3>Principal business address</h3>
@@ -671,6 +818,7 @@ const PartyDetailsPage = () => {
                       onChange={(e) => { setBizSuburb(e.target.value); markChanged() }}
                       className={styles.input}
                       placeholder="Enter suburb"
+                      maxLength={MAX_SUBURB_LENGTH}
                     />
                   </FormField>
 
@@ -694,6 +842,7 @@ const PartyDetailsPage = () => {
                       type="text"
                       value={bizPostcode}
                       onChange={(e) => { setBizPostcode(e.target.value); markChanged() }}
+                      onBlur={(e) => setBizPostcode(e.target.value.trim())}
                       className={styles.input}
                       placeholder="Enter postcode"
                     />
@@ -743,8 +892,10 @@ const PartyDetailsPage = () => {
                         type="text"
                         value={compPostSuburb}
                         onChange={(e) => { setCompPostSuburb(e.target.value); markChanged() }}
+                        onBlur={(e) => setCompPostSuburb(e.target.value.trim())}
                         className={styles.input}
                         placeholder="Enter suburb"
+                        maxLength={MAX_SUBURB_LENGTH}
                       />
                     </FormField>
 
@@ -768,6 +919,7 @@ const PartyDetailsPage = () => {
                         type="text"
                         value={compPostPostcode}
                         onChange={(e) => { setCompPostPostcode(e.target.value); markChanged() }}
+                        onBlur={(e) => setCompPostPostcode(e.target.value.trim())}
                         className={styles.input}
                         placeholder="Enter postcode"
                       />
@@ -793,6 +945,7 @@ const PartyDetailsPage = () => {
                   type="tel"
                   value={companyPhone}
                   onChange={(e) => { setCompanyPhone(e.target.value); markChanged() }}
+                  maxLength={20}
                   className={styles.input}
                   placeholder="Enter phone number"
                 />
@@ -840,7 +993,7 @@ const PartyDetailsPage = () => {
       <ConfirmModal
         isOpen={showExitModal}
         onCancel={() => setShowExitModal(false)}
-        onConfirm={() => navigate('/')}
+        onConfirm={async () => { await deleteTransaction(); navigate('/start') }}
       />
     </WizardFrame>
   )

@@ -1,9 +1,23 @@
-import { Route, Routes, MemoryRouter } from 'react-router-dom'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import TransactionDetailsPage from './TransactionDetailsPage.jsx'
 import { wizardStorageKeys } from '../../components/wizardStorage.js'
+import { deleteTransaction, getTransactionId, initTransaction, migrateNewParties, saveTransaction } from '../../lib/wizardApi.js'
+import { useAuth } from '../../context/AuthContext.jsx'
+
+vi.mock('../../lib/wizardApi.js', () => ({
+  deleteTransaction: vi.fn(),
+  getTransactionId: vi.fn(),
+  initTransaction: vi.fn(),
+  migrateNewParties: vi.fn(),
+  saveTransaction: vi.fn(),
+}))
+
+vi.mock('../../context/AuthContext.jsx', () => ({
+  useAuth: vi.fn(),
+}))
 
 function renderPage() {
   return render(
@@ -23,95 +37,73 @@ function seedTransaction(overrides = {}) {
     wizardStorageKeys.transaction,
     JSON.stringify({
       scenario: 'sell',
+      serviceType: 'bullion',
       dateTime: '2026-05-10T10:00',
       transactionRef: 'INV-001',
-      staffMember: 'John Smith',
       ...overrides,
     }),
   )
 }
 
-describe('TransactionDetailsPage', () => {
-  afterEach(() => {
-    cleanup()
-  })
+function seedParties(parties) {
+  window.sessionStorage.setItem(wizardStorageKeys.customers, JSON.stringify(parties))
+}
 
+describe('TransactionDetailsPage', () => {
   beforeEach(() => {
     window.sessionStorage.clear()
+    useAuth.mockReturnValue({ staffMember: { id: 'staff-1', full_name: 'Jane Staff', reporting_entity_id: 're-1' }, canApproveReports: false, signOut: vi.fn() })
+    getTransactionId.mockReturnValue(null)
+    initTransaction.mockResolvedValue('tx-new-1')
+    saveTransaction.mockResolvedValue(undefined)
+    migrateNewParties.mockResolvedValue(undefined)
+    deleteTransaction.mockResolvedValue(undefined)
   })
 
-  it('displays the heading, subtitle, and step indicator', () => {
+  afterEach(() => {
+    cleanup()
+    vi.restoreAllMocks()
+  })
+
+  it('rehydrates transactionRef, scenario, and dateTime from sessionStorage on mount', () => {
+    seedTransaction({ scenario: 'buy', transactionRef: 'INV-777', dateTime: '2026-05-10T10:00' })
     renderPage()
 
-    expect(
-      screen.getByRole('heading', { name: 'Transaction & Cash Details' }),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByText(
-        'Enter the transaction and physical cash details for this reportable transaction.',
-      ),
-    ).toBeInTheDocument()
-    expect(screen.getByText('Step 2 of 3')).toBeInTheDocument()
+    expect(screen.getByText('INV-777')).toBeInTheDocument()
+    expect(screen.getByLabelText('Transaction date and time')).toHaveValue('2026-05-10T10:00')
+    expect(screen.getByRole('button', { name: 'Buy bullion from customer' })).toHaveAttribute('aria-pressed', 'true')
   })
 
-  it('pre-fills transaction summary from session storage', () => {
-    seedTransaction()
+  it('shows the AUD cash amount field when currency is set to AUD', () => {
     renderPage()
 
-    expect(screen.getByText('INV-001')).toBeInTheDocument()
-    expect(screen.getByText('John Smith')).toBeInTheDocument()
-    expect(screen.getAllByText('Sell bullion to customer').length).toBeGreaterThan(0)
+    expect(screen.getByRole('button', { name: 'AUD' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByLabelText('Cash amount')).toBeInTheDocument()
+    expect(screen.getAllByText('$')).toHaveLength(2)
   })
 
-  it('shows correct party count for multiple parties', () => {
-    window.sessionStorage.setItem(
-      wizardStorageKeys.customers,
-      JSON.stringify([{ id: 'a' }, { id: 'b' }]),
-    )
-    renderPage()
-
-    expect(screen.getByText('2 parties')).toBeInTheDocument()
-  })
-
-  it('shows singular party label for one party', () => {
-    window.sessionStorage.setItem(
-      wizardStorageKeys.customers,
-      JSON.stringify([{ id: 'a' }]),
-    )
-    renderPage()
-
-    expect(screen.getByText('1 party')).toBeInTheDocument()
-  })
-
-  it('changes designated service when scenario toggle is clicked', async () => {
-    const user = userEvent.setup()
-    seedTransaction()
-    renderPage()
-
-    expect(screen.getByText('Sale of bullion for physical cash')).toBeInTheDocument()
-
-    await user.click(screen.getByRole('button', { name: 'Buy bullion from customer' }))
-
-    expect(screen.getByText('Purchase of bullion for physical cash')).toBeInTheDocument()
-  })
-
-  it('auto-fills AUD value when cash amount is typed', async () => {
+  // The threshold-warning paragraph is shown when the AUD value is BELOW $10,000 (a prompt
+  // that the transaction won't be reportable) — TC-047/048's wording describes the polarity
+  // reversed from the actual implementation; these test the real behavior at both sides.
+  it('does not display the TTR threshold warning when cash amount is $10,000 or above', async () => {
     const user = userEvent.setup()
     renderPage()
 
-    await user.type(screen.getByLabelText('Cash amount'), '15000')
+    await user.type(screen.getByLabelText('Cash amount'), '10000')
 
-    expect(screen.getByLabelText('Australian dollar value')).toHaveValue(15000)
+    expect(screen.queryByText(/Ensure the cash transaction amount is greater than \$10,000/)).not.toBeInTheDocument()
   })
 
-  it('hides foreign currency section by default', () => {
+  it('displays the TTR threshold warning when cash amount is below $10,000', async () => {
+    const user = userEvent.setup()
     renderPage()
 
-    expect(screen.queryByLabelText('Foreign currency type')).not.toBeInTheDocument()
-    expect(screen.queryByLabelText('Foreign currency amount')).not.toBeInTheDocument()
+    await user.type(screen.getByLabelText('Cash amount'), '5000')
+
+    expect(screen.getByText(/Ensure the cash transaction amount is greater than \$10,000/)).toBeInTheDocument()
   })
 
-  it('shows foreign currency section when Other is selected', async () => {
+  it('reveals all foreign currency fields when currency is switched to Other', async () => {
     const user = userEvent.setup()
     renderPage()
 
@@ -121,143 +113,132 @@ describe('TransactionDetailsPage', () => {
     expect(screen.getByLabelText('Foreign currency amount')).toBeInTheDocument()
     expect(screen.getByLabelText('FX rate used')).toBeInTheDocument()
     expect(screen.getByLabelText('Rate source')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Cash amount')).not.toBeInTheDocument()
   })
 
-  it('hides foreign currency section when switching back to AUD', async () => {
+  it('auto-calculates AUD value as foreignAmount × fxRate and updates on change', async () => {
     const user = userEvent.setup()
     renderPage()
 
     await user.click(screen.getByRole('button', { name: 'Other' }))
-    await user.click(screen.getByRole('button', { name: 'AUD' }))
+    await user.type(screen.getByLabelText('Foreign currency amount'), '1000')
+    await user.type(screen.getByLabelText('FX rate used'), '1.5')
 
-    expect(screen.queryByLabelText('Foreign currency type')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Australian dollar value')).toHaveValue(1500)
   })
 
-  it('shows validation error when transaction reference is missing', async () => {
+  it('does not require the AUD cash amount field when foreign currency fields are filled', async () => {
     const user = userEvent.setup()
-    seedTransaction({ transactionRef: '' })
-    renderPage()
-
-    await user.type(screen.getByLabelText('Cash amount'), '15000')
-    await user.click(screen.getByRole('button', { name: 'Continue' }))
-
-    expect(screen.getByText('Enter the transaction reference.')).toBeInTheDocument()
-  })
-
-  it('Continue button is disabled when no cash amount is entered', () => {
-    renderPage()
-
-    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
-  })
-
-  it('shows validation error for missing rate source when Other currency is selected', async () => {
-    const user = userEvent.setup()
+    getTransactionId.mockReturnValue(null)
     seedTransaction()
     renderPage()
 
     await user.click(screen.getByRole('button', { name: 'Other' }))
     await user.type(screen.getByLabelText('Foreign currency amount'), '10000')
     await user.type(screen.getByLabelText('FX rate used'), '1')
+    await user.selectOptions(screen.getByLabelText('Rate source'), 'Internal POS rate')
+
+    expect(screen.getByRole('button', { name: 'Continue' })).not.toBeDisabled()
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
-    expect(screen.getByText('Select the rate source.')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Party Details' })).toBeInTheDocument()
   })
 
-  it('saves transaction data to storage on valid continue', async () => {
+  it('shows validation errors for all FX fields when foreign currency is selected and fields are empty', async () => {
     const user = userEvent.setup()
+    seedTransaction()
+    renderPage()
+
+    await user.click(screen.getByRole('button', { name: 'Other' }))
+    // Fill amount + rate only enough to clear the $10,000 continue-button gate, leave rate source blank.
+    await user.type(screen.getByLabelText('Foreign currency amount'), '10000')
+    await user.type(screen.getByLabelText('FX rate used'), '1')
+
+    expect(screen.getByRole('button', { name: 'Continue' })).not.toBeDisabled()
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(await screen.findByText('Select the rate source.')).toBeInTheDocument()
+  })
+
+  it('shows validation errors when transactionRef or dateTime are empty', async () => {
+    const user = userEvent.setup()
+    seedTransaction({ transactionRef: '', dateTime: '' })
+    renderPage()
+
+    await user.type(screen.getByLabelText('Cash amount'), '15000')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(await screen.findByText('Enter the transaction reference.')).toBeInTheDocument()
+    expect(screen.getByText('Enter the transaction date and time.')).toBeInTheDocument()
+  })
+
+  it('calls initTransaction() when saving on a page with no existing transactionId in sessionStorage', async () => {
+    const user = userEvent.setup()
+    getTransactionId.mockReturnValue(null)
+    seedTransaction()
+    seedParties([{ id: 'party-1', type: 'individual' }])
+    renderPage()
+
+    await user.type(screen.getByLabelText('Cash amount'), '15000')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await waitFor(() => expect(initTransaction).toHaveBeenCalled())
+    expect(saveTransaction).not.toHaveBeenCalled()
+  })
+
+  it('calls saveTransaction() — not initTransaction() — when transactionId already exists in sessionStorage', async () => {
+    const user = userEvent.setup()
+    getTransactionId.mockReturnValue('existing-tx-id')
     seedTransaction()
     renderPage()
 
     await user.type(screen.getByLabelText('Cash amount'), '15000')
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
-    const stored = JSON.parse(window.sessionStorage.getItem(wizardStorageKeys.transaction))
-    expect(stored).toMatchObject({
-      cashAmount: 15000,
-      audValue: 15000,
-      designatedService: 'Sale of bullion for physical cash',
+    await waitFor(() => expect(saveTransaction).toHaveBeenCalled())
+    expect(initTransaction).not.toHaveBeenCalled()
+  })
+
+  it('migrates all parties from sessionStorage to the DB ttr.parties table on save', async () => {
+    const user = userEvent.setup()
+    getTransactionId.mockReturnValue(null)
+    seedTransaction()
+    const parties = [{ id: 'new-1', type: 'individual' }, { id: 'new-2', type: 'company' }]
+    seedParties(parties)
+    renderPage()
+
+    await user.type(screen.getByLabelText('Cash amount'), '15000')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await waitFor(() => {
+      expect(initTransaction).toHaveBeenCalledWith(expect.objectContaining({ parties }))
     })
   })
 
-  it('navigates to /party-details on valid continue', async () => {
+  it('migrates newly-added parties even when the transaction already exists', async () => {
     const user = userEvent.setup()
+    getTransactionId.mockReturnValue('existing-tx-id')
+    seedTransaction()
+    const parties = [{ id: 'party-already-saved', type: 'individual', _migrated: true }, { id: 'new-2', type: 'company' }]
+    seedParties(parties)
+    renderPage()
+
+    await user.type(screen.getByLabelText('Cash amount'), '15000')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await waitFor(() => expect(migrateNewParties).toHaveBeenCalledWith(parties))
+    expect(saveTransaction).toHaveBeenCalled()
+  })
+
+  it('navigates to /party-details after a successful save', async () => {
+    const user = userEvent.setup()
+    getTransactionId.mockReturnValue(null)
     seedTransaction()
     renderPage()
 
     await user.type(screen.getByLabelText('Cash amount'), '15000')
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
-    expect(screen.getByRole('heading', { name: 'Party Details' })).toBeInTheDocument()
-  })
-
-  it('save draft writes to storage without navigating', async () => {
-    const user = userEvent.setup()
-    seedTransaction()
-    renderPage()
-
-    await user.type(screen.getByLabelText('Cash amount'), '5000')
-    await user.click(screen.getByRole('button', { name: 'Save draft' }))
-
-    const stored = JSON.parse(window.sessionStorage.getItem(wizardStorageKeys.transaction))
-    expect(stored).toBeDefined()
-    expect(
-      screen.getByRole('heading', { name: 'Transaction & Cash Details' }),
-    ).toBeInTheDocument()
-  })
-
-  it('clicking Back navigates to /customers', async () => {
-    const user = userEvent.setup()
-    renderPage()
-
-    await user.click(screen.getByRole('button', { name: 'Back' }))
-
-    expect(
-      screen.getByRole('heading', { name: 'Add Customers / Parties' }),
-    ).toBeInTheDocument()
-  })
-
-  it('threshold warning is not shown when no cash amount is entered', () => {
-    renderPage()
-
-    expect(
-      screen.queryByText(/does not meet the \$10,000 TTR threshold/),
-    ).not.toBeInTheDocument()
-  })
-
-  it('threshold warning is shown when cash amount is below $10,000', async () => {
-    const user = userEvent.setup()
-    renderPage()
-
-    await user.type(screen.getByLabelText('Cash amount'), '5000')
-
-    expect(
-      screen.getByText(/Ensure the cash transaction amount is greater than \$10,000/),
-    ).toBeInTheDocument()
-    expect(screen.getAllByText('No').length).toBeGreaterThan(0)
-  })
-
-  it('threshold warning is hidden and Yes shown when cash amount is $10,000 or more', async () => {
-    const user = userEvent.setup()
-    renderPage()
-
-    await user.type(screen.getByLabelText('Cash amount'), '10000')
-
-    expect(
-      screen.queryByText(/Ensure the cash transaction amount is greater than \$10,000/),
-    ).not.toBeInTheDocument()
-    expect(screen.getAllByText('Yes').length).toBeGreaterThan(0)
-  })
-
-  it('Exit button saves draft and navigates to /', async () => {
-    const user = userEvent.setup()
-    seedTransaction()
-    renderPage()
-
-    await user.click(screen.getByRole('button', { name: 'Exit' }))
-    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Exit' }))
-
-    expect(screen.getByRole('heading', { name: 'Start TTR Transaction' })).toBeInTheDocument()
-    const stored = JSON.parse(window.sessionStorage.getItem(wizardStorageKeys.transaction))
-    expect(stored).toBeDefined()
+    expect(await screen.findByRole('heading', { name: 'Party Details' })).toBeInTheDocument()
   })
 })

@@ -5,16 +5,18 @@ import { Calendar } from 'lucide-react'
 import 'react-day-picker/dist/style.css'
 import styles from './DatePicker.module.css'
 
+const formatValue = (value) => (value ? format(new Date(value + 'T00:00:00'), 'dd/MM/yyyy') : '')
+
 const DatePicker = ({ id, onChange, placeholder = 'DD/MM/YYYY', value }) => {
-  const [inputText, setInputText] = useState(
-    value ? format(new Date(value + 'T00:00:00'), 'dd/MM/yyyy') : '',
-  )
+  const [inputText, setInputText] = useState(() => formatValue(value))
+  const [prevValue, setPrevValue] = useState(value)
   const [open, setOpen] = useState(false)
   const containerRef = useRef(null)
 
-  useEffect(() => {
-    setInputText(value ? format(new Date(value + 'T00:00:00'), 'dd/MM/yyyy') : '')
-  }, [value])
+  if (value !== prevValue) {
+    setPrevValue(value)
+    setInputText(formatValue(value))
+  }
 
   useEffect(() => {
     const handleClickOutside = (e) => {
