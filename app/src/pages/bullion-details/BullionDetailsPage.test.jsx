@@ -148,7 +148,7 @@ describe('BullionDetailsPage', () => {
     await screen.findByText('Metal type')
     await user.click(screen.getByRole('button', { name: /add item/i }))
 
-    expect(screen.getAllByText('Metal type')).toHaveLength(2)
+    expect(await screen.findAllByText('Metal type')).toHaveLength(2)
     expect(screen.getByText('Item 2', { exact: false })).toBeInTheDocument()
   })
 
@@ -165,10 +165,10 @@ describe('BullionDetailsPage', () => {
 
     await screen.findByText('Metal type')
     await user.click(screen.getByRole('button', { name: /add item/i }))
-    await user.selectOptions(screen.getAllByText('Metal type').map((l) => l.nextElementSibling)[1], 'Silver')
+    await user.selectOptions((await screen.findAllByText('Metal type')).map((l) => l.nextElementSibling)[1], 'Silver')
     await user.click(screen.getByRole('button', { name: 'Remove item 1' }))
 
-    expect(screen.getAllByText('Metal type')).toHaveLength(1)
+    expect(await screen.findAllByText('Metal type')).toHaveLength(1)
     expect(fieldControl('Metal type')).toHaveValue('Silver')
   })
 
@@ -181,7 +181,7 @@ describe('BullionDetailsPage', () => {
 
     await user.selectOptions(fieldControl('Metal type'), 'Other')
 
-    expect(screen.getByText('Specify metal type')).toBeInTheDocument()
+    expect(await screen.findByText('Specify metal type')).toBeInTheDocument()
   })
 
   it('selecting Other for product type reveals a free-text input for specifying the product', async () => {
@@ -193,7 +193,7 @@ describe('BullionDetailsPage', () => {
 
     await user.selectOptions(fieldControl('Product type'), 'Other')
 
-    expect(screen.getByText('Specify product type')).toBeInTheDocument()
+    expect(await screen.findByText('Specify product type')).toBeInTheDocument()
   })
 
   it('selecting Other for weight unit reveals a free-text input for specifying the unit', async () => {
@@ -205,7 +205,7 @@ describe('BullionDetailsPage', () => {
 
     await user.selectOptions(fieldControl('Weight').querySelector('select'), 'other')
 
-    expect(screen.getByText('Specify unit')).toBeInTheDocument()
+    expect(await screen.findByText('Specify unit')).toBeInTheDocument()
   })
 
   it('summary section shows correct total item count and total AUD value across all items', async () => {
@@ -239,12 +239,12 @@ describe('BullionDetailsPage', () => {
     await fillValidItem(user)
     await user.click(screen.getByRole('button', { name: /add item/i }))
 
-    expect(screen.getAllByText('Metal type')).toHaveLength(1)
+    expect(await screen.findAllByText('Metal type')).toHaveLength(1)
     expect(screen.getByText(/Gold Bar/)).toBeInTheDocument()
 
     await user.click(screen.getByText('Item 1', { exact: false }))
 
-    expect(screen.getAllByText('Metal type')).toHaveLength(2)
+    expect(await screen.findAllByText('Metal type')).toHaveLength(2)
     expect(screen.queryByText(/Gold Bar/)).not.toBeInTheDocument()
   })
 
@@ -256,6 +256,6 @@ describe('BullionDetailsPage', () => {
     await user.selectOptions(fieldControl('Metal type'), 'Gold')
     await user.click(screen.getByRole('button', { name: /add item/i }))
 
-    expect(screen.getAllByText('Metal type')).toHaveLength(2)
+    expect(await screen.findAllByText('Metal type')).toHaveLength(2)
   })
 })
