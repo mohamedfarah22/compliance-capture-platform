@@ -644,21 +644,22 @@ export async function uploadIdImage({ transactionId, personType, personId, side,
 
 // ─── IMAGE URL FETCHING ───────────────────────────────────────────────────────
 
+// Routed through an Edge Function rather than signing client-side: viewing an ID
+// image must write a ttr.access_log row, and a client that mints its own signed
+// URL could skip that. Returns { [imageId]: signedUrl }, unchanged for callers.
 export async function getIdImageSignedUrls(imageIds) {
   const ids = imageIds.filter(Boolean)
   if (!ids.length) return {}
-  const { data, error } = await ttr().from('stored_images').select('id, object_path').in('id', ids)
-  if (error || !data) return {}
-  const urls = {}
-  await Promise.all(
-    data.map(async (row) => {
-      const { data: signed } = await supabase.storage
-        .from('compliance-media')
-        .createSignedUrl(row.object_path, 3600)
-      if (signed?.signedUrl) urls[row.id] = signed.signedUrl
-    })
-  )
-  return urls
+
+  const headers = await getAuthHeader()
+  const res = await fetch(`${EDGE_URL}/get-id-image-urls`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ imageIds: ids }),
+  })
+  if (!res.ok) return {}
+  const { urls } = await res.json()
+  return urls ?? {}
 }
 
 // ─── LIFECYCLE ────────────────────────────────────────────────────────────────

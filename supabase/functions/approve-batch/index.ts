@@ -40,7 +40,10 @@ Deno.serve(async (req: Request) => {
     return json({ error: "Admin role required" }, 403);
   }
 
-  // Parse body
+  // Parse body. 'download' is exempt from the approval-token requirement — it is
+  // a read of a batch the caller can already read directly under the
+  // batches_admin RLS policy, so requiring the token would tighten existing
+  // access rather than just adding the audit trail this action exists for.
   let batchId: string;
   let token: string;
   let action: string;
@@ -49,13 +52,14 @@ Deno.serve(async (req: Request) => {
     batchId = body.batchId;
     token = body.token;
     action = body.action;
-    if (!batchId || !token || !action) throw new Error("missing fields");
+    if (!batchId || !action) throw new Error("missing fields");
+    if (action !== "download" && !token) throw new Error("missing fields");
   } catch {
     return json({ error: "Request body must contain batchId, token, and action" }, 400);
   }
 
-  if (!["submit", "reject", "regenerate"].includes(action)) {
-    return json({ error: "action must be 'submit', 'reject', or 'regenerate'" }, 400);
+  if (!["submit", "reject", "regenerate", "download"].includes(action)) {
+    return json({ error: "action must be 'submit', 'reject', 'regenerate', or 'download'" }, 400);
   }
 
   // deno-lint-ignore no-explicit-any
@@ -64,7 +68,7 @@ Deno.serve(async (req: Request) => {
   // Load and verify batch
   const { data: batch, error: batchErr } = await ttr
     .from("report_batches")
-    .select("id, status, approval_token, reporting_entity_id, report_date")
+    .select("id, status, approval_token, reporting_entity_id, report_date, xml_content")
     .eq("id", batchId)
     .single();
 
@@ -75,6 +79,31 @@ Deno.serve(async (req: Request) => {
   if (b.reporting_entity_id !== (staff as Row).reporting_entity_id) {
     return json({ error: "Not authorized for this batch" }, 403);
   }
+
+  // Download returns the XML and records the export. Deliberately placed before
+  // the status and token checks: a submitted or rejected batch is still
+  // downloadable, which is the behaviour this replaces.
+  if (action === "download") {
+    const fileName = `ttr-fbs-${b.report_date}.xml`;
+    const { error: logErr } = await ttr.from("access_log").insert({
+      reporting_entity_id: b.reporting_entity_id,
+      staff_member_id: user.id,
+      action: "export",
+      resource_type: "report_batches",
+      resource_id: b.id,
+      detail: fileName,
+    });
+
+    // Fail closed — an unlogged export would contradict the privacy policy's
+    // commitment that every export is recorded.
+    if (logErr) {
+      console.error("access_log insert failed:", logErr);
+      return json({ error: "Failed to record export" }, 500);
+    }
+
+    return json({ ok: true, xmlContent: b.xml_content, fileName }, 200);
+  }
+
   // regenerate is allowed on pending_review or already-rejected batches — only a
   // submitted batch (a real AUSTRAC filing) must stay permanently untouchable.
   if (action === "regenerate") {

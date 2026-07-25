@@ -18,6 +18,7 @@ import {
   saveTransaction,
   searchCompanyCustomers,
   searchIndividualCustomers,
+  getIdImageSignedUrls,
   uploadIdImage,
 } from './wizardApi.js'
 import { supabase } from './supabase.js'
@@ -601,6 +602,38 @@ describe('wizardApi', () => {
     expect(options.body).toBeInstanceOf(FormData)
     expect(options.headers['Content-Type']).toBeUndefined()
     expect(result).toEqual({ imageId: 'img-1', path: 'x', sha256: 'y' })
+  })
+
+  it('getIdImageSignedUrls() mints URLs via the get-id-image-urls Edge Function, so the view is logged server-side rather than signed directly by the client', async () => {
+    supabase.auth.getSession.mockResolvedValue({ data: { session: { access_token: 'tok' } } })
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ urls: { 'img-1': 'https://signed/one', 'img-2': 'https://signed/two' } }),
+    })
+
+    const result = await getIdImageSignedUrls(['img-1', 'img-2'])
+
+    const [url, options] = globalThis.fetch.mock.calls[0]
+    expect(url).toContain('/get-id-image-urls')
+    expect(JSON.parse(options.body)).toEqual({ imageIds: ['img-1', 'img-2'] })
+    expect(result).toEqual({ 'img-1': 'https://signed/one', 'img-2': 'https://signed/two' })
+  })
+
+  it('getIdImageSignedUrls() makes no request and returns an empty map when given no usable ids — nothing is logged for a no-op', async () => {
+    globalThis.fetch = vi.fn()
+
+    expect(await getIdImageSignedUrls([null, undefined, ''])).toEqual({})
+    expect(globalThis.fetch).not.toHaveBeenCalled()
+  })
+
+  it('getIdImageSignedUrls() returns an empty map when the function fails, so a failed access log never yields a viewable URL', async () => {
+    supabase.auth.getSession.mockResolvedValue({ data: { session: { access_token: 'tok' } } })
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      json: async () => ({ error: 'Failed to record image access' }),
+    })
+
+    expect(await getIdImageSignedUrls(['img-1'])).toEqual({})
   })
 
   it('surfaces the Supabase error object when a query fails (e.g. loadCustomers)', async () => {

@@ -47,6 +47,9 @@ verify_jwt = true
 [functions.upload-id-image]
 verify_jwt = true
 
+[functions.get-id-image-urls]
+verify_jwt = true
+
 [functions.cleanup-stale-drafts]
 verify_jwt = false
 
