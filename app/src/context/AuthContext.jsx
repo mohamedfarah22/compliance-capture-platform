@@ -6,6 +6,7 @@ const AuthContext = createContext(null)
 export function AuthProvider({ children }) {
   const [session, setSession] = useState(null)
   const [staffMember, setStaffMember] = useState(null)
+  const [aal, setAal] = useState({ currentLevel: null, nextLevel: null })
   const [loading, setLoading] = useState(true)
 
   async function fetchStaffMember(userId) {
@@ -17,19 +18,25 @@ export function AuthProvider({ children }) {
     setStaffMember(data ?? null)
   }
 
+  async function refreshAal() {
+    const { data } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+    setAal({ currentLevel: data?.currentLevel ?? null, nextLevel: data?.nextLevel ?? null })
+  }
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
-      if (session) fetchStaffMember(session.user.id).finally(() => setLoading(false))
+      if (session) Promise.all([fetchStaffMember(session.user.id), refreshAal()]).finally(() => setLoading(false))
       else setLoading(false)
     })
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session)
       if (session) {
-        fetchStaffMember(session.user.id).finally(() => setLoading(false))
+        Promise.all([fetchStaffMember(session.user.id), refreshAal()]).finally(() => setLoading(false))
       } else {
         setStaffMember(null)
+        setAal({ currentLevel: null, nextLevel: null })
         setLoading(false)
       }
     })
@@ -46,7 +53,7 @@ export function AuthProvider({ children }) {
   const canApproveReports = staffMember?.role === 'admin'
 
   return (
-    <AuthContext.Provider value={{ session, staffMember, reportingEntity, canApproveReports, loading, signOut }}>
+    <AuthContext.Provider value={{ session, staffMember, aal, refreshAal, reportingEntity, canApproveReports, loading, signOut }}>
       {children}
     </AuthContext.Provider>
   )

@@ -129,6 +129,8 @@ describe('wizard integration flow', () => {
       session: { user: { id: 'user-1' } },
       staffMember: { id: 'staff-1', full_name: 'Jane Staff', reporting_entity_id: 're-1', role: 'staff' },
       reportingEntity: { legal_name: 'Test Bullion', abn: '12345678901', austrac_account_number: '123456789' },
+      aal: { currentLevel: 'aal2', nextLevel: 'aal2' },
+      refreshAal: vi.fn(),
       canApproveReports: false,
       loading: false,
       signOut: vi.fn(),

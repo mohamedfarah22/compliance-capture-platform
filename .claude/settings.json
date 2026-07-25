@@ -10,7 +10,9 @@
       "Bash(node -e ' *)",
       "Bash(git check-ignore *)",
       "Bash(echo \"EXIT:$?\")",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(gh run *)",
+      "Bash(mv .env.local .env.local.bak)"
     ]
   }
 }
