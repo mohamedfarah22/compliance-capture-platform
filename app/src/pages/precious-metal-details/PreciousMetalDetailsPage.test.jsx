@@ -3,10 +3,11 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import PreciousMetalDetailsPage from './PreciousMetalDetailsPage.jsx'
-import { loadCustomers, loadPreciousMetalItems, loadTransaction, savePreciousMetalItems } from '../../lib/wizardApi.js'
+import { deleteTransaction, loadCustomers, loadPreciousMetalItems, loadTransaction, savePreciousMetalItems } from '../../lib/wizardApi.js'
 import { useAuth } from '../../context/AuthContext.jsx'
 
 vi.mock('../../lib/wizardApi.js', () => ({
+  deleteTransaction: vi.fn(),
   loadCustomers: vi.fn(),
   loadPreciousMetalItems: vi.fn(),
   loadTransaction: vi.fn(),
@@ -236,5 +237,25 @@ describe('PreciousMetalDetailsPage', () => {
     await user.click(screen.getByRole('button', { name: 'Back' }))
 
     expect(await screen.findByRole('heading', { name: 'Recipient / Delivery' })).toBeInTheDocument()
+  })
+
+  // This page, Recipient / Delivery and Bullion Details all rendered WizardFrame without
+  // an onExit prop, so no Exit button was drawn — leaving staff who needed to abandon a
+  // transaction with no way out but going backwards or completing one they should not.
+  // An absent prop draws nothing and fails silently.
+  it('offers an Exit that discards the transaction, so a staff member can always abandon', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    await screen.findByText('Metal type')
+    await user.click(screen.getByRole('button', { name: 'Exit' }))
+
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+    expect(deleteTransaction).not.toHaveBeenCalled()
+
+    const dialog = screen.getByRole('dialog')
+    await user.click(dialog.querySelector('button:last-of-type'))
+
+    await waitFor(() => expect(deleteTransaction).toHaveBeenCalled())
   })
 })

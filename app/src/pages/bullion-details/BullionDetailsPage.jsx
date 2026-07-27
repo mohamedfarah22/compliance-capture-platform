@@ -2,9 +2,10 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { CheckCircle2, ChevronDown, ChevronUp, Plus, X } from 'lucide-react'
 import Button from '../../components/ui/Button.jsx'
+import ConfirmModal from '../../components/ui/ConfirmModal.jsx'
 import FormField from '../../components/ui/FormField.jsx'
 import WizardFrame from '../../components/layout/WizardFrame.jsx'
-import { loadBullionItems, loadCustomers, loadTransaction, saveBullionItems } from '../../lib/wizardApi.js'
+import { deleteTransaction, loadBullionItems, loadCustomers, loadTransaction, saveBullionItems } from '../../lib/wizardApi.js'
 import styles from './BullionDetailsPage.module.css'
 
 const METAL_TYPES = ['Gold', 'Silver', 'Platinum', 'Palladium', 'Other']
@@ -38,6 +39,7 @@ const BullionDetailsPage = () => {
   const [items, setItems] = useState(() => [newItem()])
   const [errors, setErrors] = useState({})
   const [collapsedIds, setCollapsedIds] = useState(() => new Set())
+  const [showExitModal, setShowExitModal] = useState(false)
 
   const isItemComplete = (item) =>
     item.metalType &&
@@ -165,6 +167,7 @@ const BullionDetailsPage = () => {
       title="Bullion Details"
       subtitle="Record the bullion items involved in this transaction."
       onBack={() => navigate('/recipient-delivery')}
+      onExit={() => setShowExitModal(true)}
       actions={<Button onClick={handleContinue}>Continue</Button>}
     >
       <div className={styles.card}>
@@ -420,6 +423,12 @@ const BullionDetailsPage = () => {
           </div>
         )}
       </div>
+
+      <ConfirmModal
+        isOpen={showExitModal}
+        onCancel={() => setShowExitModal(false)}
+        onConfirm={async () => { await deleteTransaction(); navigate('/start') }}
+      />
     </WizardFrame>
   )
 }

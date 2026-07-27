@@ -6,6 +6,8 @@
 // and will be retried on the next scheduled run.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { deleteRestrictingChildren } from "../_shared/tx-children.ts";
+import type { SupabaseSchema } from "../_shared/tx-children.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -21,8 +23,14 @@ interface StaleTransaction {
 Deno.serve(async (_req: Request) => {
   const serviceClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-  // 1. Fetch stale draft IDs from the read-only DB helper
-  const { data: stale, error: rpcError } = await serviceClient.rpc(
+  // 1. Fetch stale draft IDs from the read-only DB helper.
+  //
+  // .schema("ttr") is required: the helper is ttr.get_stale_draft_ids
+  // (20260621000019), and a bare serviceClient.rpc() resolves against `public`, where no
+  // such function exists. Without it this returned 500 on its very first statement — so
+  // the nightly cleanup had never once run, silently, into logs nobody reads. Found when
+  // the function was invoked by hand during the dev validation pass.
+  const { data: stale, error: rpcError } = await serviceClient.schema("ttr").rpc(
     "get_stale_draft_ids",
     { older_than_days: STALE_AFTER_DAYS },
   );
@@ -58,8 +66,29 @@ Deno.serve(async (_req: Request) => {
       }
     }
 
-    // 2c. Storage clean — safe to delete the DB row
+    // 2c. Delete the children that do not cascade, in FK order.
+    //
+    // Without this, every stale draft that had ID photos captured was silently skipped
+    // FOREVER: ttr.stored_images.transaction_id is ON DELETE RESTRICT, so 2d was rejected,
+    // skipped++ recorded it, and the next run repeated the same failure. Those images
+    // accumulated with nothing accounting for them, which quietly falsified privacy policy
+    // §3 ("one copy of your identification on file"). Same bug as UAT finding #13, in a
+    // second place — and the larger of the two, because it ran unattended nightly.
+    const childError = await deleteRestrictingChildren(
+      serviceClient.schema("ttr") as unknown as SupabaseSchema,
+      transaction_id,
+    );
+    if (childError) {
+      console.error(`Child delete failed for ${transaction_id}:`, childError);
+      skipped++;
+      continue;
+    }
+
+    // 2d. Storage clean and children gone — safe to delete the DB row.
+    // .schema("ttr") required — a bare .from() resolves to public.transactions, which
+    // does not exist. Same mistake as the RPC call above; it made every draft "skipped".
     const { error: deleteError } = await serviceClient
+      .schema("ttr")
       .from("transactions")
       .delete()
       .eq("id", transaction_id)
@@ -79,8 +108,23 @@ Deno.serve(async (_req: Request) => {
   return json(summary, 200);
 });
 
+// Typed structurally rather than as ReturnType<typeof createClient>. That alias resolves
+// to the client's DEFAULT generic parameters, which do not match the configured client this
+// is actually called with. Same fix as delete-draft-transaction; latent here because with
+// no test file in this directory, `deno test` never type-checked it.
+interface StorageLister {
+  storage: {
+    from: (bucket: string) => {
+      list: (
+        prefix: string,
+        options: { limit: number; offset: number },
+      ) => PromiseLike<{ data: { name: string }[] | null; error: { message: string } | null }>;
+    };
+  };
+}
+
 async function listStoragePaths(
-  client: ReturnType<typeof createClient>,
+  client: StorageLister,
   transactionId: string,
 ): Promise<{ paths: string[]; error: Error | null }> {
   const prefix = `${transactionId}/`;

@@ -10,6 +10,7 @@ import { useAuth } from '../../context/AuthContext.jsx'
 import {
   deleteTransaction,
   fetchPriorVerifications,
+  fetchVerificationForDocument,
   getIdImageSignedUrls,
   getTransactionId,
   loadCustomers,
@@ -45,9 +46,104 @@ const RELIANCE_REASONS = [
   { value: 'customer_known_to_business',         label: 'Customer known to business' },
   { value: 'prior_id_reviewed_still_valid',      label: 'Prior ID reviewed and still valid' },
   { value: 'customer_confirmed_details_unchanged', label: 'Customer confirmed details unchanged' },
+  { value: 'original_document_resighted',        label: 'Original document re-sighted today' },
   { value: 'manager_approved',                   label: 'Manager approved reliance' },
   { value: 'other',                              label: 'Other' },
 ]
+
+// Past the re-verification window the answer is to re-sight the document, not to
+// re-photograph it — that keeps one copy on file and stays inside what policy §3
+// tells customers. Manager approval remains available for when the original
+// isn't in front of staff; the two record different facts.
+const BLOCKED_RELIANCE_REASONS = ['original_document_resighted', 'manager_approved']
+
+// Required when an ID already on file could have been reused but a fresh copy is
+// being taken instead.
+//
+// Privacy policy §3 tells customers: "We will only take a new copy if your ID has
+// changed (for example, a renewed licence) or if our stored copy is unclear." Those
+// two grounds are 'id_changed' and 'stored_copy_unclear', and no third ground for
+// re-copying an ID already held may be offered — an 'other' value used to be, which
+// §3 does not permit. The DB CHECK enforces this too, so it cannot drift back.
+//
+// The remaining two are not re-copies of an ID on file, so §3 does not govern them:
+//   'different_person'   — somebody else's document that shares a number. Their first
+//                          copy, not a second copy of anyone's.
+//   'different_document' — a first copy of a DIFFERENT document (§2 anticipates more
+//                          than one). "A new copy" in §3 means a new copy of the ID
+//                          already held, and a passport is not a copy of a licence.
+//
+// Which subset is offered depends on the collision state — see reasonsForCapture().
+const NEW_CAPTURE_REASONS = [
+  { value: 'id_changed',          label: 'ID has changed (e.g. renewed licence)' },
+  { value: 'stored_copy_unclear', label: 'Stored copy is unclear' },
+  { value: 'different_person',    label: 'Different person who shares this document number' },
+  { value: 'different_document',  label: 'Customer presented a different document' },
+]
+
+const reasonFor = (value) => NEW_CAPTURE_REASONS.find((r) => r.value === value)
+
+// Reasons that attach the new row to the copy already on file. Shared by the dropdown
+// handler and the collision lookup so the two cannot drift: whichever of them runs last
+// has to leave the row linked, or the insert is rejected by uq_idv_doc_new_capture.
+const LINKING_REASONS = ['stored_copy_unclear', 'id_changed']
+
+// "Regina Mae Testworth (DOB 12/05/1983)" — whichever parts the record actually has.
+// Older rows predating get_verification_for_document's owner columns return neither,
+// in which case the helper text simply omits the clause.
+function describeOwner(record) {
+  const name = record?.owner_name?.trim()
+  const dob = record?.owner_dob
+    ? new Date(`${record.owner_dob}T00:00:00`).toLocaleDateString('en-AU')
+    : null
+  if (name && dob) return `${name} (DOB ${dob})`
+  return name || (dob ? `someone with DOB ${dob}` : '')
+}
+
+// The collision lookup runs on blur, so clicking Continue fast enough can still
+// reach the database first. Translate the constraint violation rather than
+// showing staff "duplicate key value violates unique constraint".
+function describeSaveError(err) {
+  const text = `${err?.code ?? ''} ${err?.message ?? ''}`
+  if (text.includes('23505') || text.includes('uq_idv_doc_new_capture')) {
+    return 'That document number is already on file. Re-open the document number field to see the existing record, then either rely on it or give a reason for taking a new copy.'
+  }
+  if (text.includes('re-capture must reference')) {
+    return 'The record being linked is for a different document. Clear the reason and re-select it so the correct record is linked.'
+  }
+  if (text.includes('different person')) {
+    return 'The document on file belongs to a different person. Select "Different person who shares this document number" — the other reasons would record this as the same person’s document.'
+  }
+  return err?.message || 'Failed to save. Please try again.'
+}
+
+// Two identities are different people when both dates of birth are known and differ.
+// Deliberately not name-based: DOB is exact, whereas middle names, married names and
+// typos would produce false "different person" rejections, and each one blocks a
+// legitimate re-capture. When either DOB is unknown the test cannot fire and the reasons
+// are offered as before — this narrows the common case, it does not prove identity.
+//
+// ttr.check_idv_recapture_link() applies the identical rule, so the dropdown can never
+// offer a reason the database will reject.
+const isDifferentPerson = (ownerDob, currentDob) =>
+  Boolean(ownerDob) && Boolean(currentDob) && ownerDob !== currentDob
+
+// With a collision, the copy on file can be linked to (or explicitly disowned).
+// Without one there is nothing to link, so the link-requiring value is withheld —
+// and the likeliest reason becomes "they handed over a different document",
+// which is capturing something new rather than re-copying anything.
+//
+// When the collision belongs to someone else, only 'different_person' is honest: the
+// other two assert continuity of one person's document ('the ID changed', 'the stored
+// copy of it is unclear'), which is false across two people who merely share a number.
+// Offering them was UAT finding #8 — it linked one customer's capture to another's record.
+const reasonsForCapture = (hasCollision, collisionIsOtherPerson = false) => {
+  if (!hasCollision) {
+    return [reasonFor('different_document'), reasonFor('id_changed')]
+  }
+  if (collisionIsOtherPerson) return [reasonFor('different_person')]
+  return [reasonFor('id_changed'), reasonFor('stored_copy_unclear'), reasonFor('different_person')]
+}
 
 function evaluateReliance(prior, policy) {
   const daysSince = Math.floor((Date.now() - new Date(prior.created_at)) / 86400000)
@@ -93,9 +189,11 @@ const emptyVerification = () => ({
   backImageId: null,
   backImageBlob: null,
   isComplete: false,
+  id: null,
   priorVerificationId: null,
   priorVerificationSummary: null,
   relianceReason: null,
+  newCaptureReason: null,
   imageApproved: false,
   idCountryCode: 'AU',
 })
@@ -214,6 +312,9 @@ const IdVerificationPage = () => {
   const [showExitModal, setShowExitModal] = useState(false)
   const [saving, setSaving] = useState(false)
   const [priorVerificationsMap, setPriorVerificationsMap] = useState({})
+  // Existing capture of the same document number, keyed by person id. Populated
+  // on document-number blur; this is the record the DB index would reject against.
+  const [collisionMap, setCollisionMap] = useState({})
 
   const [imageUrlMap, setImageUrlMap] = useState({})
   const [lightboxUrl, setLightboxUrl] = useState(null)
@@ -246,6 +347,9 @@ const IdVerificationPage = () => {
             role: 'conducting-person',
             linkedParty: cp.representedPartyId,
             cpDbId: cp.id,
+            // Only meaningful when the DOB is actually known — an unset date must not
+            // read as "differs from the record on file" in the identity test below.
+            dateOfBirth: cp.dobKnown === 'yes' ? cp.dateOfBirth : null,
           })
         }
         setPeople(loaded)
@@ -345,14 +449,70 @@ const IdVerificationPage = () => {
     [enrichedPriorsMap],
   )
 
-  const currentPriors = currentPerson ? (enrichedPriorsMap[currentPerson.id] ?? []) : []
+  const collidingRecord = currentPerson ? (collisionMap[currentPerson.id] ?? null) : null
+
+  // The colliding record joins the prior list so reliance becomes selectable for
+  // it (the method dropdown is gated on this list being non-empty) and the picker
+  // shows its stored images, which brings the "images match this person"
+  // confirmation along for free. Matters most for conducting persons, who have no
+  // name-based prior lookup at all — this is their only route to reuse.
+  const basePriors = currentPerson ? (enrichedPriorsMap[currentPerson.id] ?? []) : []
+  const currentPriors = collidingRecord && !basePriors.some((r) => r.id === collidingRecord.id)
+    ? [...basePriors, { ...collidingRecord, eligibility: evaluateReliance(collidingRecord, policy) }]
+    : basePriors
+
   const selectedPrior = currentData.priorVerificationId
     ? currentPriors.find((r) => r.id === currentData.priorVerificationId) ?? null
     : null
   const selectedEligibility = selectedPrior?.eligibility ?? null
   const availableReasons = selectedEligibility === 'blocked'
-    ? RELIANCE_REASONS.filter((r) => r.value === 'manager_approved')
+    ? RELIANCE_REASONS.filter((r) => BLOCKED_RELIANCE_REASONS.includes(r.value))
     : RELIANCE_REASONS
+
+  // An ID on file that could have been reused. Capturing a fresh copy anyway is
+  // allowed, but has to be justified — that is the "one copy on file" promise.
+  // Two independent triggers: a name-matched prior (parties only, found at load)
+  // or a document-number collision (any role, found on blur). The collision is
+  // the one that matters for correctness — it is exactly what the DB will reject.
+  const eligiblePrior = basePriors.find((r) => r.eligibility === 'eligible') ?? null
+  const requiresCaptureReason =
+    Boolean(eligiblePrior || collidingRecord) && !isRelianceMode && Boolean(currentData.verificationMethod)
+  const collisionIsOtherPerson = isDifferentPerson(
+    collidingRecord?.owner_dob,
+    currentPerson?.dateOfBirth,
+  )
+  const captureReasonOptions = reasonsForCapture(Boolean(collidingRecord), collisionIsOtherPerson)
+
+  const captureReasonHelperText = (() => {
+    const reason = currentData.newCaptureReason
+    if (reason === 'stored_copy_unclear') {
+      return 'Linked to the copy already on file, so this replaces it rather than adding a second one.'
+    }
+    if (reason === 'id_changed' && collidingRecord) {
+      return 'Linked to the record on file, since this document keeps the same number after renewal.'
+    }
+    if (reason === 'different_person') {
+      return 'Recorded as a separate person. Only use this after sighting both records — document numbers are not unique across states.'
+    }
+    if (reason === 'different_document') {
+      return 'Captured as an additional document for this customer. The ID already on file is left untouched.'
+    }
+    const onFile = collidingRecord ?? eligiblePrior
+    if (!onFile) return undefined
+    const verified = new Date(onFile.created_at).toLocaleDateString('en-AU')
+    if (collidingRecord) {
+      // Naming the owner is what makes 'different_person' an assertion staff can actually
+      // make — they are recording "I sighted both, they are different people", which is
+      // not a judgement anyone can reach without knowing who the other one is. This is
+      // not new exposure: Customer Search already reaches every customer on file.
+      const who = describeOwner(collidingRecord)
+      const owner = who ? ` for ${who}` : ''
+      return collisionIsOtherPerson
+        ? `${onFile.document_type} ${onFile.document_number} is already on file${owner}, captured ${verified} — a different person. Only "Different person who shares this document number" can be recorded here; document numbers are not unique across states.`
+        : `${onFile.document_type} ${onFile.document_number} is already on file${owner} (captured ${verified}). Select "Relied on prior identification" above to reuse it instead.`
+    }
+    return `This customer already has ID on file (${onFile.document_type} ${onFile.document_number}, verified ${verified}). Select "Relied on prior identification" above to reuse it.`
+  })()
 
   const updateCurrentData = (updates) => {
     if (!currentPerson) return
@@ -378,6 +538,8 @@ const IdVerificationPage = () => {
         frontImageBlob: null,
         backImageId: null,
         backImageBlob: null,
+        newCaptureReason: null,
+        priorVerificationId: null,
       })
     } else if (!nowReliance && wasReliance) {
       updateCurrentData({
@@ -385,9 +547,117 @@ const IdVerificationPage = () => {
         priorVerificationId: null,
         priorVerificationSummary: null,
         relianceReason: null,
+        // The document fields were adopted from the record being relied on, so
+        // they describe that document — not whatever is now in front of staff.
+        // Leaving them would let a passport be captured against the licence
+        // number already on file. Re-selecting "stored copy is unclear" puts
+        // them back if it really is the same document.
+        documentType: '',
+        documentNumber: '',
+        issuer: '',
       })
     } else {
       updateCurrentData({ verificationMethod: method })
+    }
+  }
+
+  // Whether the new row links to the copy already on file. The DB requires a link
+  // for 'stored_copy_unclear' (same document re-photographed) and permits one for
+  // 'id_changed' — needed because Australian licence numbers survive renewal, so a
+  // renewed licence collides and can only save by linking. 'different_person' and
+  // 'different_document' never link: neither is a re-copy of an ID already held.
+  const handleCaptureReasonChange = (reason) => {
+    const linkTarget = collidingRecord ?? (reason === 'stored_copy_unclear' ? eligiblePrior : null)
+    const shouldLink = Boolean(linkTarget) && LINKING_REASONS.includes(reason)
+
+    if (shouldLink) {
+      // Expiry is reason-aware, and that asymmetry is the whole point:
+      //   'stored_copy_unclear' — same physical card, so the expiry on file is a known
+      //     fact. Re-keying it only invites a typo, and leaving it blank (the behaviour
+      //     before this fix) let the two rows disagree about one document.
+      //   'id_changed' — a renewal. The expiry HAS moved, and pre-filling the old date is
+      //     the value most likely to be accepted unchanged by a busy operator. Clearing
+      //     it signals that a fresh answer is required.
+      const sameDocument = reason === 'stored_copy_unclear'
+      // Converted, not passed through: has_expiry is a boolean and the radios compare
+      // against 'yes'/'no', so a raw boolean reads as unselected and silently resets.
+      // Same conversion dbRowToCp does — the bug class behind fixes #4 and #5.
+      const expiry = sameDocument
+        ? {
+            hasExpiry: linkTarget.has_expiry === true ? 'yes'
+              : linkTarget.has_expiry === false ? 'no' : null,
+            expiryDate: linkTarget.expiry_date || '',
+          }
+        : { hasExpiry: null, expiryDate: '' }
+
+      updateCurrentData({
+        newCaptureReason: reason,
+        priorVerificationId: linkTarget.id,
+        // Identifiers already match on the collision path; this only matters when
+        // linking to a name-matched prior, where the number has yet to be typed.
+        documentType: linkTarget.document_type,
+        documentNumber: linkTarget.document_number,
+        issuer: linkTarget.issuer ?? '',
+        ...expiry,
+      })
+    } else {
+      updateCurrentData({ newCaptureReason: reason || null, priorVerificationId: null })
+    }
+  }
+
+  // Looks up an existing capture of this document number. Keyed identically to the
+  // uniqueness index, so if this finds nothing the insert cannot collide, and if
+  // it finds something staff are told before they photograph anything — the
+  // document-number field sits above the camera section.
+  // documentType is passed explicitly rather than read from the closure so this can run
+  // from the type dropdown's own onChange, where the new value has not reached
+  // currentData yet. Without that the check only ever fired on the number field's blur —
+  // so entering the number before the type silently found nothing, and nothing re-ran it
+  // afterwards. That ordering trap is what produced the unsaveable row in UAT Phase 4.
+  const checkDocumentCollision = async (documentNumber, documentType = currentData.documentType) => {
+    if (!currentPerson) return
+    const personId = currentPerson.id
+    if (!documentType || !documentNumber.trim()) {
+      setCollisionMap((prev) => ({ ...prev, [personId]: null }))
+      return
+    }
+    try {
+      const match = await fetchVerificationForDocument({
+        documentType,
+        documentNumber,
+        excludeId: currentData.id ?? null,
+      })
+      setCollisionMap((prev) => ({ ...prev, [personId]: match }))
+
+      // The reason field is on screen from the moment a verification method is chosen, so
+      // staff can pick a reason BEFORE the document number is typed — meaning the choice
+      // and the collision can arrive in either order, and both orders have to end in a
+      // saveable row. Reconcile in both directions:
+      const chosen = currentData.newCaptureReason
+      const otherPerson = isDifferentPerson(match?.owner_dob, currentPerson.dateOfBirth)
+
+      if (chosen && !reasonsForCapture(Boolean(match), otherPerson).some((r) => r.value === chosen)) {
+        // No longer offerable — e.g. 'different_document' against a number that turns out
+        // to be on file, or a linking reason against another person's record. Clear it
+        // rather than leave a value selected that the database would reject.
+        updateCurrentData({ newCaptureReason: null, priorVerificationId: null })
+      } else if (match && chosen && LINKING_REASONS.includes(chosen) && !currentData.priorVerificationId) {
+        // Still offerable, but chosen while there was nothing to link to, so
+        // handleCaptureReasonChange set no prior_verification_id. Establish it now the
+        // collision is known — otherwise the row saves unlinked, collides with
+        // uq_idv_doc_new_capture, and the operator sees "already on file" with no way
+        // forward but re-picking the same reason.
+        //
+        // Only the link is set. Re-running the full reason handler would also reset the
+        // expiry, discarding a date the operator may have typed in the meantime. The
+        // identifiers need no update — the collision was found using them.
+        updateCurrentData({ priorVerificationId: match.id })
+      }
+    } catch {
+      // Non-fatal: the DB constraint still enforces the rule, and handleContinue
+      // translates the resulting error. Blocking capture on a failed lookup would
+      // be worse than proceeding without the early warning.
+      setCollisionMap((prev) => ({ ...prev, [personId]: null }))
     }
   }
 
@@ -488,6 +758,8 @@ const IdVerificationPage = () => {
       if (prior?.front_image_id && !currentData.imageApproved)
         e.imageApproval = 'Confirm the ID images match the person present'
     } else {
+      if (requiresCaptureReason && !currentData.newCaptureReason)
+        e.newCaptureReason = 'This customer already has ID on file — give a reason for taking a new copy'
       if (!currentData.frontImageId && !currentData.frontImageBlob) e.frontImage = 'Capture and accept the front of the ID'
       if (BACK_REQUIRED_TYPES.has(currentData.documentType) && !currentData.backImageId && !currentData.backImageBlob)
         e.backImage = 'Capture and accept the back of the ID'
@@ -543,6 +815,19 @@ const IdVerificationPage = () => {
     }
   }
 
+  // An upload is an irreversible side effect, so the id has to survive a later failure in
+  // the same Continue. Without this the ids live only in handleContinue's local `updated`,
+  // which is discarded when saveIdVerifications throws — the app then forgets images it
+  // has already stored, the retry re-uploads to the same deterministic object path, and
+  // upload-id-image rejects it. That combination left the operator unable to continue AND
+  // unable to cancel, with no way out short of SQL.
+  const rememberUploadedImage = (personId, field, imageId) => {
+    setVerificationData((prev) => ({
+      ...prev,
+      [personId]: { ...(prev[personId] ?? emptyVerification()), [field]: imageId },
+    }))
+  }
+
   const handleContinue = async () => {
     if (people.length === 0) {
       navigate('/recipient-delivery')
@@ -574,16 +859,18 @@ const IdVerificationPage = () => {
         if (data.frontImageBlob && !data.frontImageId) {
           const result = await uploadIdImage({ transactionId, personType, personId, side: 'front', blob: base64ToBlob(data.frontImageBlob) })
           updated = { ...updated, [person.id]: { ...updated[person.id], frontImageId: result.id } }
+          rememberUploadedImage(person.id, 'frontImageId', result.id)
         }
         if (data.backImageBlob && !data.backImageId) {
           const result = await uploadIdImage({ transactionId, personType, personId, side: 'back', blob: base64ToBlob(data.backImageBlob) })
           updated = { ...updated, [person.id]: { ...updated[person.id], backImageId: result.id } }
+          rememberUploadedImage(person.id, 'backImageId', result.id)
         }
       }
       await saveIdVerifications(updated)
       navigate('/recipient-delivery')
     } catch (err) {
-      setContinueError(err.message || 'Failed to save. Please try again.')
+      setContinueError(describeSaveError(err))
     } finally {
       setSaving(false)
     }
@@ -728,6 +1015,28 @@ const IdVerificationPage = () => {
                 </FormField>
               )}
 
+              {requiresCaptureReason && (
+                <FormField
+                  label="Reason for taking a new copy"
+                  labelFor="newCaptureReason"
+                  error={errors.newCaptureReason}
+                  helperText={captureReasonHelperText}
+                  required
+                >
+                  <select
+                    id="newCaptureReason"
+                    value={currentData.newCaptureReason ?? ''}
+                    onChange={(e) => handleCaptureReasonChange(e.target.value)}
+                    className={styles.select}
+                  >
+                    <option value="">Select reason…</option>
+                    {captureReasonOptions.map((r) => (
+                      <option key={r.value} value={r.value}>{r.label}</option>
+                    ))}
+                  </select>
+                </FormField>
+              )}
+
               {!isRelianceMode && (
                 <>
                   <FormField
@@ -739,7 +1048,15 @@ const IdVerificationPage = () => {
                     <select
                       id="documentType"
                       value={currentData.documentType}
-                      onChange={(e) => updateCurrentData({ documentType: e.target.value })}
+                      onChange={(e) => {
+                        const documentType = e.target.value
+                        updateCurrentData({ documentType })
+                        // Re-check with the new type so entry order stops mattering: the
+                        // collision is keyed on (type, number) and the number may already
+                        // be filled in.
+                        const number = currentData.documentNumber.trim()
+                        if (number) checkDocumentCollision(number, documentType)
+                      }}
                       className={styles.select}
                     >
                       <option value="">Select type…</option>
@@ -777,7 +1094,11 @@ const IdVerificationPage = () => {
                   type="text"
                   value={currentData.documentNumber}
                   onChange={(e) => updateCurrentData({ documentNumber: e.target.value })}
-                  onBlur={(e) => updateCurrentData({ documentNumber: e.target.value.trim() })}
+                  onBlur={(e) => {
+                    const trimmed = e.target.value.trim()
+                    updateCurrentData({ documentNumber: trimmed })
+                    checkDocumentCollision(trimmed)
+                  }}
                   className={styles.input}
                 />
               </FormField>
@@ -889,10 +1210,12 @@ const IdVerificationPage = () => {
                   <div className={styles.relianceInfo}>
                     <AlertCircle size={16} aria-hidden="true" style={{ flexShrink: 0, marginTop: 1 }} />
                     <span>
-                      Manager approval is required —{' '}
                       {selectedPrior?.has_expiry && selectedPrior.expiry_date && new Date(selectedPrior.expiry_date) < new Date()
-                        ? 'this document has expired.'
-                        : `this record was verified more than ${policy.maxRelianceDays} days ago.`}
+                        ? 'This document has expired. '
+                        : `This record is past the ${policy.maxRelianceDays}-day re-verification window. `}
+                      Re-sight the original and confirm it matches the copy on file, or get manager
+                      approval to keep relying on it. Either way the copy already held is reused —
+                      no second copy is taken.
                     </span>
                   </div>
                 )}

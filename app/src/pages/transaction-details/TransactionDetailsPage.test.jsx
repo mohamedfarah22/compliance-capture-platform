@@ -186,6 +186,41 @@ describe('TransactionDetailsPage', () => {
     expect(saveTransaction).not.toHaveBeenCalled()
   })
 
+  // The Start page blocks refs already used by a completed transaction, but another staff member
+  // can claim the same ref in between. uq_tx_ref_per_entity then rejects the insert here, and
+  // staff must not be shown the raw Postgres string (see docs/uat-test-matrix.md).
+  it('translates a duplicate transaction_ref constraint violation into a plain-English message', async () => {
+    const user = userEvent.setup()
+    getTransactionId.mockReturnValue(null)
+    initTransaction.mockRejectedValue({
+      code: '23505',
+      message: 'duplicate key value violates unique constraint "uq_tx_ref_per_entity"',
+    })
+    seedTransaction()
+    seedParties([{ id: 'party-1', type: 'individual' }])
+    renderPage()
+
+    await user.type(screen.getByLabelText('Cash amount'), '15000')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(await screen.findByText(/transaction reference is already in use/i)).toBeInTheDocument()
+    expect(screen.queryByText(/duplicate key value/i)).not.toBeInTheDocument()
+  })
+
+  it('shows the underlying message for save failures unrelated to the ref constraint', async () => {
+    const user = userEvent.setup()
+    getTransactionId.mockReturnValue(null)
+    initTransaction.mockRejectedValue(new Error('Network request failed'))
+    seedTransaction()
+    seedParties([{ id: 'party-1', type: 'individual' }])
+    renderPage()
+
+    await user.type(screen.getByLabelText('Cash amount'), '15000')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(await screen.findByText('Network request failed')).toBeInTheDocument()
+  })
+
   it('calls saveTransaction() — not initTransaction() — when transactionId already exists in sessionStorage', async () => {
     const user = userEvent.setup()
     getTransactionId.mockReturnValue('existing-tx-id')

@@ -16,7 +16,8 @@ vi.mock('../lib/wizardApi.js', () => ({
   completeTransaction: vi.fn(),
   deleteTransaction: vi.fn(),
   fetchPriorVerifications: vi.fn(),
-  findDraftByRef: vi.fn(),
+  fetchVerificationForDocument: vi.fn(),
+  findTransactionByRef: vi.fn(),
   getIdImageSignedUrls: vi.fn(),
   getTransactionId: vi.fn(),
   initTransaction: vi.fn(),
@@ -59,7 +60,7 @@ function wireWizardApiToFakeDb(db) {
     db.transactionId = null
     Object.values(wizardStorageKeys).forEach((k) => window.sessionStorage.removeItem(k))
   })
-  wizardApi.findDraftByRef.mockResolvedValue(null)
+  wizardApi.findTransactionByRef.mockResolvedValue(null)
   wizardApi.getTransactionId.mockImplementation(() => db.transactionId)
   wizardApi.clearTransactionId.mockImplementation(() => { db.transactionId = null })
   wizardApi.initTransaction.mockImplementation(async ({ parties }) => {
@@ -101,6 +102,7 @@ function wireWizardApiToFakeDb(db) {
   wizardApi.saveConductingPerson.mockImplementation(async (data) => { db.conductingPerson = data })
   wizardApi.saveConductorInfo.mockResolvedValue(undefined)
   wizardApi.fetchPriorVerifications.mockResolvedValue([])
+  wizardApi.fetchVerificationForDocument.mockResolvedValue(null)
   wizardApi.getIdImageSignedUrls.mockResolvedValue({})
   wizardApi.loadIdVerifications.mockImplementation(async () => db.idVerifications)
   wizardApi.saveIdVerifications.mockImplementation(async (v) => { db.idVerifications = { ...db.idVerifications, ...v } })
@@ -242,9 +244,9 @@ describe('wizard integration flow', () => {
   it('resuming a draft with an existing party does not duplicate it when continuing through Transaction Details', async () => {
     const user = userEvent.setup()
     db.parties = [{ id: 'party-1', type: 'individual', displayName: 'Jane Doe', firstName: 'Jane', lastName: 'Doe' }]
-    wizardApi.findDraftByRef.mockImplementation(async () => {
+    wizardApi.findTransactionByRef.mockImplementation(async () => {
       db.transactionId = 'tx-1'
-      return { scenario: 'sell', serviceType: 'bullion', transactionRef: 'INV-1', dateTime: '2026-07-04T10:00', status: 'Draft' }
+      return { scenario: 'sell', serviceType: 'bullion', transactionRef: 'INV-1', dateTime: '2026-07-04T10:00', status: 'draft' }
     })
 
     render(<App />)

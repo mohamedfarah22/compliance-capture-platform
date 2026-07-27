@@ -71,11 +71,18 @@ Deno.serve(async (req: Request) => {
 
   // RLS (img_select) scopes this to images owned by the caller's entity. Ids the
   // caller may not see simply do not come back, and so are never signed or logged.
+  //
+  // Superseded rows are excluded: their storage object was deleted when a re-capture
+  // replaced it (see 20260727000001), so signing one would mint a URL for a file that no
+  // longer exists and log a "view" of something nobody can view. Older verification rows
+  // still reference these ids, so callers must get back nothing for them and render
+  // accordingly rather than a broken image.
   const { data: images, error: imagesError } = await anonClient
     .schema("ttr")
     .from("stored_images")
     .select("id, object_path, transaction_id")
-    .in("id", imageIds);
+    .in("id", imageIds)
+    .is("superseded_at", null);
 
   if (imagesError) {
     console.error("stored_images lookup failed:", imagesError);

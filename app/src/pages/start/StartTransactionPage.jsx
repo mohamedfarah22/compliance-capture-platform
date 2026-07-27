@@ -7,8 +7,13 @@ import TextInput from '../../components/ui/TextInput.jsx'
 import WizardFrame from '../../components/layout/WizardFrame.jsx'
 import { wizardStorageKeys, writeWizardData } from '../../components/wizardStorage.js'
 import { MAX_TRN_LENGTH } from '../../lib/austrac.js'
-import { deleteTransaction, findDraftByRef, loadCustomers } from '../../lib/wizardApi.js'
+import { deleteTransaction, findTransactionByRef, loadCustomers } from '../../lib/wizardApi.js'
 import styles from './StartTransactionPage.module.css'
+
+// A completed transaction can't be reopened and has no read-only viewer, so re-using its ref
+// has nowhere to go — better to say so here than let uq_tx_ref_per_entity fail the insert
+// two screens later, after the whole party set has been re-keyed.
+const COMPLETED_REF_ERROR = 'This reference belongs to a completed transaction and cannot be reused. Enter a different reference.'
 
 const currentLocalDateTime = () => {
   const now = new Date()
@@ -41,11 +46,14 @@ const StartTransactionPage = () => {
     const ref = transactionRef.trim()
     if (!ref) return
     try {
-      const draft = await findDraftByRef(ref)
-      if (draft) {
-        setScenario(draft.scenario)
-        setServiceType(draft.serviceType || 'bullion')
-        setDateTime(draft.dateTime)
+      const existing = await findTransactionByRef(ref)
+      if (existing?.status === 'complete') {
+        setDraftNotice('')
+        setErrors((prev) => ({ ...prev, transactionRef: COMPLETED_REF_ERROR }))
+      } else if (existing) {
+        setScenario(existing.scenario)
+        setServiceType(existing.serviceType || 'bullion')
+        setDateTime(existing.dateTime)
         setDraftNotice('Existing draft found — fields pre-filled.')
       } else {
         setDraftNotice('')
@@ -64,18 +72,22 @@ const StartTransactionPage = () => {
 
     setSaving(true)
     try {
-      const draft = await findDraftByRef(transactionRef.trim())
-      if (draft) {
+      const existing = await findTransactionByRef(transactionRef.trim())
+      if (existing?.status === 'complete') {
+        setErrors((prev) => ({ ...prev, transactionRef: COMPLETED_REF_ERROR }))
+        return
+      }
+      if (existing) {
         const customers = await loadCustomers()
         // Every party loadCustomers() returns already has a row in ttr.parties for this
         // transaction — flag as migrated so re-entering Transaction Details doesn't re-insert them.
         writeWizardData(wizardStorageKeys.customers, customers.map((c) => ({ ...c, _migrated: true })))
         writeWizardData(wizardStorageKeys.transaction, {
-          scenario: draft.scenario,
-          serviceType: draft.serviceType || 'bullion',
-          transactionRef: draft.transactionRef,
-          dateTime: draft.dateTime,
-          status: draft.status,
+          scenario: existing.scenario,
+          serviceType: existing.serviceType || 'bullion',
+          transactionRef: existing.transactionRef,
+          dateTime: existing.dateTime,
+          status: existing.status,
           createdAt: new Date().toISOString(),
         })
       } else {
@@ -172,7 +184,11 @@ const StartTransactionPage = () => {
           <TextInput
             id="transactionRef"
             onBlur={handleRefBlur}
-            onChange={(event) => { setTransactionRef(event.target.value); setDraftNotice('') }}
+            onChange={(event) => {
+              setTransactionRef(event.target.value)
+              setDraftNotice('')
+              setErrors((prev) => ({ ...prev, transactionRef: undefined }))
+            }}
             placeholder="Enter invoice or transaction reference"
             type="text"
             value={transactionRef}

@@ -2,10 +2,11 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { CheckCircle2 } from 'lucide-react'
 import Button from '../../components/ui/Button.jsx'
+import ConfirmModal from '../../components/ui/ConfirmModal.jsx'
 import DatePicker from '../../components/ui/DatePicker.jsx'
 import FormField from '../../components/ui/FormField.jsx'
 import WizardFrame from '../../components/layout/WizardFrame.jsx'
-import { loadConductingPerson, loadCustomers, loadRecipientDelivery, loadTransaction, saveRecipientDelivery } from '../../lib/wizardApi.js'
+import { deleteTransaction, loadConductingPerson, loadCustomers, loadRecipientDelivery, loadTransaction, saveRecipientDelivery } from '../../lib/wizardApi.js'
 import { MAX_SUBURB_LENGTH } from '../../lib/austrac.js'
 import styles from './RecipientDeliveryPage.module.css'
 
@@ -59,6 +60,7 @@ const RecipientDeliveryPage = () => {
   const [conductingPerson, setConductingPerson] = useState(null)
   const [data, setData] = useState(initialData)
   const [errors, setErrors] = useState({})
+  const [showExitModal, setShowExitModal] = useState(false)
 
   useEffect(() => {
     const init = async () => {
@@ -143,6 +145,7 @@ const RecipientDeliveryPage = () => {
       title="Recipient / Delivery"
       subtitle="Record the recipient and any delivery or handover details for this transaction."
       onBack={() => navigate(hasIndividualToVerify ? '/id-verification' : '/conducting-person')}
+      onExit={() => setShowExitModal(true)}
       actions={<Button onClick={handleContinue}>Continue</Button>}
     >
       <div className={styles.card}>
@@ -456,6 +459,12 @@ const RecipientDeliveryPage = () => {
           </div>
         )}
       </div>
+
+      <ConfirmModal
+        isOpen={showExitModal}
+        onCancel={() => setShowExitModal(false)}
+        onConfirm={async () => { await deleteTransaction(); navigate('/start') }}
+      />
     </WizardFrame>
   )
 }

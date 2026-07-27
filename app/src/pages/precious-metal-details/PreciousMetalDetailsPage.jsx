@@ -2,9 +2,10 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { CheckCircle2, ChevronDown, ChevronUp, Plus, X } from 'lucide-react'
 import Button from '../../components/ui/Button.jsx'
+import ConfirmModal from '../../components/ui/ConfirmModal.jsx'
 import FormField from '../../components/ui/FormField.jsx'
 import WizardFrame from '../../components/layout/WizardFrame.jsx'
-import { loadPreciousMetalItems, loadCustomers, loadTransaction, savePreciousMetalItems } from '../../lib/wizardApi.js'
+import { deleteTransaction, loadPreciousMetalItems, loadCustomers, loadTransaction, savePreciousMetalItems } from '../../lib/wizardApi.js'
 import styles from './PreciousMetalDetailsPage.module.css'
 
 const METAL_TYPES = ['Gold', 'Iridium', 'Osmium', 'Palladium', 'Platinum', 'Rhodium', 'Ruthenium', 'Silver', 'Alloy', 'Other']
@@ -37,6 +38,7 @@ const PreciousMetalDetailsPage = () => {
   const [items, setItems] = useState(() => [newItem()])
   const [errors, setErrors] = useState({})
   const [collapsedIds, setCollapsedIds] = useState(() => new Set())
+  const [showExitModal, setShowExitModal] = useState(false)
 
   const isItemComplete = (item) =>
     item.metalType &&
@@ -168,6 +170,7 @@ const PreciousMetalDetailsPage = () => {
       title="Precious Metal Details"
       subtitle="Record the precious metal items involved in this transaction."
       onBack={() => navigate('/recipient-delivery')}
+      onExit={() => setShowExitModal(true)}
       actions={<Button onClick={handleContinue}>Continue</Button>}
     >
       <div className={styles.card}>
@@ -392,6 +395,12 @@ const PreciousMetalDetailsPage = () => {
           </div>
         )}
       </div>
+
+      <ConfirmModal
+        isOpen={showExitModal}
+        onCancel={() => setShowExitModal(false)}
+        onConfirm={async () => { await deleteTransaction(); navigate('/start') }}
+      />
     </WizardFrame>
   )
 }

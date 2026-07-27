@@ -4,12 +4,12 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import StartTransactionPage from './StartTransactionPage.jsx'
 import { wizardStorageKeys } from '../../components/wizardStorage.js'
-import { deleteTransaction, findDraftByRef, loadCustomers } from '../../lib/wizardApi.js'
+import { deleteTransaction, findTransactionByRef, loadCustomers } from '../../lib/wizardApi.js'
 import { useAuth } from '../../context/AuthContext.jsx'
 
 vi.mock('../../lib/wizardApi.js', () => ({
   deleteTransaction: vi.fn(),
-  findDraftByRef: vi.fn(),
+  findTransactionByRef: vi.fn(),
   loadCustomers: vi.fn(),
 }))
 
@@ -41,7 +41,7 @@ describe('StartTransactionPage', () => {
   beforeEach(() => {
     window.sessionStorage.clear()
     useAuth.mockReturnValue({ staffMember: { full_name: 'Jane Staff' }, canApproveReports: false, signOut: vi.fn() })
-    findDraftByRef.mockResolvedValue(null)
+    findTransactionByRef.mockResolvedValue(null)
     deleteTransaction.mockResolvedValue(undefined)
     loadCustomers.mockResolvedValue([])
   })
@@ -142,7 +142,7 @@ describe('StartTransactionPage', () => {
   // duplicate ttr.parties row — and the duplicate set doubled again each time the draft reopened.
   it('flags a resumed draft\'s existing parties as _migrated so they are not re-inserted', async () => {
     const user = userEvent.setup()
-    findDraftByRef.mockResolvedValue({ scenario: 'sell', serviceType: 'bullion', transactionRef: 'INV-001', dateTime: '2026-07-04T10:00', status: 'Draft' })
+    findTransactionByRef.mockResolvedValue({ scenario: 'sell', serviceType: 'bullion', transactionRef: 'INV-001', dateTime: '2026-07-04T10:00', status: 'draft' })
     loadCustomers.mockResolvedValue([{ id: 'party-1', type: 'individual', displayName: 'Jane Doe' }])
     renderPage()
 
@@ -153,6 +153,55 @@ describe('StartTransactionPage', () => {
     await waitFor(() => {
       const stored = JSON.parse(window.sessionStorage.getItem(wizardStorageKeys.customers))
       expect(stored).toEqual([expect.objectContaining({ id: 'party-1', _migrated: true })])
+    })
+  })
+
+  // A completed ref used to look identical to an unused one (the lookup filtered on
+  // status = 'draft'), so the wizard opened and only failed at Transaction Details with a raw
+  // uq_tx_ref_per_entity violation — after the whole party set had been re-keyed.
+  describe('completed transaction reference', () => {
+    const completedTx = { scenario: 'sell', serviceType: 'bullion', transactionRef: 'INV-001', dateTime: '2026-07-04T10:00', status: 'complete' }
+    const blockedMessage = /belongs to a completed transaction/i
+
+    it('blocks on blur with an error and no draft notice', async () => {
+      const user = userEvent.setup()
+      findTransactionByRef.mockResolvedValue(completedTx)
+      renderPage()
+
+      await user.type(screen.getByLabelText(/transaction reference/i), 'INV-001')
+      await user.tab()
+
+      expect(await screen.findByText(blockedMessage)).toBeInTheDocument()
+      expect(screen.queryByText(/existing draft found/i)).not.toBeInTheDocument()
+    })
+
+    it('does not start the wizard on submit', async () => {
+      const user = userEvent.setup()
+      findTransactionByRef.mockResolvedValue(completedTx)
+      renderPage()
+
+      await user.click(screen.getByRole('radio', { name: /sell bullion to customer/i }))
+      await user.type(screen.getByLabelText(/transaction reference/i), 'INV-001')
+      await user.click(screen.getByRole('button', { name: /start transaction/i }))
+
+      expect(await screen.findByText(blockedMessage)).toBeInTheDocument()
+      expect(screen.queryByRole('heading', { name: 'Add Customers' })).not.toBeInTheDocument()
+      expect(deleteTransaction).not.toHaveBeenCalled()
+      expect(window.sessionStorage.getItem(wizardStorageKeys.transaction)).toBeNull()
+    })
+
+    it('clears the error once the reference is edited', async () => {
+      const user = userEvent.setup()
+      findTransactionByRef.mockResolvedValue(completedTx)
+      renderPage()
+
+      await user.type(screen.getByLabelText(/transaction reference/i), 'INV-001')
+      await user.tab()
+      expect(await screen.findByText(blockedMessage)).toBeInTheDocument()
+
+      await user.type(screen.getByLabelText(/transaction reference/i), '2')
+
+      await waitFor(() => expect(screen.queryByText(blockedMessage)).not.toBeInTheDocument())
     })
   })
 
