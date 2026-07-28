@@ -128,18 +128,21 @@ export async function loadTransaction() {
   return dbRowToTransaction(data)
 }
 
-export async function findDraftByRef(transactionRef) {
+// Returns the transaction for a ref whatever its status — callers need to tell a completed
+// transaction apart from an unused ref, since uq_tx_ref_per_entity blocks re-using either.
+export async function findTransactionByRef(transactionRef) {
   const { data, error } = await ttr()
     .from('transactions')
     .select('*')
     .eq('transaction_ref', transactionRef)
-    .eq('status', 'draft')
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle()
   if (error) throw error
   if (!data) return null
-  setTransactionId(data.id)
+  // A completed transaction must never become the session's active transaction — it can't be
+  // updated or deleted (trg_lock_completed), so adopting its id would wedge the wizard.
+  if (data.status === 'draft') setTransactionId(data.id)
   return dbRowToTransaction(data)
 }
 
@@ -310,6 +313,11 @@ export async function saveIdVerifications(verifications) {
 
     if (!partyId && !conductingPersonId) continue
 
+    // Basis follows the chosen method, not the presence of prior_verification_id:
+    // a re-capture of an unclear stored copy is a new capture that still links to
+    // the record it refreshes.
+    const isReliance = v.verificationMethod === 'Relied on prior identification'
+
     const row = {
       transaction_id: transactionId,
       party_id: partyId || null,
@@ -324,9 +332,10 @@ export async function saveIdVerifications(verifications) {
       expiry_date: v.hasExpiry === 'yes' ? v.expiryDate || null : null,
       verification_description: v.verificationDescription || '',
       is_complete: v.isComplete || false,
-      verification_basis: v.priorVerificationId ? 'relied_on_prior_identification' : 'new_capture',
+      verification_basis: isReliance ? 'relied_on_prior_identification' : 'new_capture',
       prior_verification_id: v.priorVerificationId || null,
-      reliance_reason: v.relianceReason || null,
+      reliance_reason: isReliance ? v.relianceReason || null : null,
+      new_capture_reason: isReliance ? null : v.newCaptureReason || null,
       elec_data_src: v.elecDataSrc || null,
       front_image_id: v.frontImageId || null,
       back_image_id: v.backImageId || null,
@@ -529,6 +538,21 @@ export async function loadPreciousMetalItems() {
 
 // ─── PRIOR VERIFICATIONS ──────────────────────────────────────────────────────
 
+// Finds an existing capture of the same document, keyed exactly as the
+// uq_idv_doc_new_capture index is. Role-agnostic on purpose: the collision it
+// reports is the collision the database will reject, whether the record on file
+// belongs to a customer or a conducting person. Returns null when there is none.
+export async function fetchVerificationForDocument({ documentType, documentNumber, excludeId = null }) {
+  if (!documentType || !documentNumber?.trim()) return null
+  const { data, error } = await supabase.rpc('get_verification_for_document', {
+    p_document_type: documentType,
+    p_document_number: documentNumber,
+    p_exclude_id: excludeId,
+  })
+  if (error) throw error
+  return data?.[0] ?? null
+}
+
 export async function fetchPriorVerifications(person) {
   if (person.role !== 'party') return []
   const isIndividual = person.type === 'individual'
@@ -644,21 +668,22 @@ export async function uploadIdImage({ transactionId, personType, personId, side,
 
 // ─── IMAGE URL FETCHING ───────────────────────────────────────────────────────
 
+// Routed through an Edge Function rather than signing client-side: viewing an ID
+// image must write a ttr.access_log row, and a client that mints its own signed
+// URL could skip that. Returns { [imageId]: signedUrl }, unchanged for callers.
 export async function getIdImageSignedUrls(imageIds) {
   const ids = imageIds.filter(Boolean)
   if (!ids.length) return {}
-  const { data, error } = await ttr().from('stored_images').select('id, object_path').in('id', ids)
-  if (error || !data) return {}
-  const urls = {}
-  await Promise.all(
-    data.map(async (row) => {
-      const { data: signed } = await supabase.storage
-        .from('compliance-media')
-        .createSignedUrl(row.object_path, 3600)
-      if (signed?.signedUrl) urls[row.id] = signed.signedUrl
-    })
-  )
-  return urls
+
+  const headers = await getAuthHeader()
+  const res = await fetch(`${EDGE_URL}/get-id-image-urls`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ imageIds: ids }),
+  })
+  if (!res.ok) return {}
+  const { urls } = await res.json()
+  return urls ?? {}
 }
 
 // ─── LIFECYCLE ────────────────────────────────────────────────────────────────
@@ -921,7 +946,10 @@ function dbRowToCp(row) {
     representedPartyId: row.represented_party_id || '',
     fullName: row.full_name || '',
     aliases,
-    dobKnown: row.dob_known,
+    // Converted, not passed through: the page's radios compare against 'yes'/'no',
+    // so a raw boolean reads as unselected and silently resets on draft reload.
+    // Same conversion dbRowToRecipientDelivery already does for its dob_known.
+    dobKnown: row.dob_known === true ? 'yes' : row.dob_known === false ? 'no' : null,
     dateOfBirth: row.date_of_birth || '',
     phone: row.phone || '',
     occupation: row.occupation || '',
@@ -961,6 +989,7 @@ function dbRowToCp(row) {
 
 function dbRowToIdVerification(row) {
   return {
+    id: row.id, // needed as p_exclude_id so a saved row doesn't collide with itself
     verificationMethod: row.verification_method || '',
     verificationMethodOther: row.verification_method_other || '',
     documentType: row.document_type || '',
@@ -976,6 +1005,7 @@ function dbRowToIdVerification(row) {
     verificationBasis: row.verification_basis || 'new_capture',
     priorVerificationId: row.prior_verification_id || null,
     relianceReason: row.reliance_reason || null,
+    newCaptureReason: row.new_capture_reason || null,
     elecDataSrc: row.elec_data_src || '',
     idCountryCode: row.id_country_code || '',
   }

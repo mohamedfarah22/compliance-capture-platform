@@ -89,41 +89,58 @@ Deno.serve(async (req: Request) => {
   const ext = file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : "jpg";
   const objectPath = `${transactionId}/${personType}-${personId}-${side}.${ext}`;
 
+  // Re-capturing the same person/side within a draft REPLACES the previous attempt.
+  //
+  // Object paths are deterministic, so a retry always targets the path the first attempt
+  // wrote. Refusing that (the previous `upsert: false`) meant any failure downstream of a
+  // successful upload — a rejected save, a dropped connection — left the operator unable
+  // to continue and, because delete-draft-transaction was also broken, unable to cancel.
+  //
+  // The non-overwrite guarantee still holds where it matters. This is unreachable unless
+  // status = 'draft' (checked above), so nothing that has been filed with AUSTRAC can be
+  // altered: the boundary is "drafts are mutable, completed transactions are not", not
+  // "images are never replaced".
   const { error: uploadError } = await serviceClient.storage
     .from(STORAGE_BUCKET)
     .upload(objectPath, imageBytes, {
       contentType: file.type,
-      upsert: false, // never silently overwrite; caller must explicitly delete first
+      upsert: true,
     });
 
   if (uploadError) {
-    if (uploadError.message?.includes("already exists") || uploadError.message?.includes("duplicate")) {
-      return json({ error: "An image for this person/side already exists" }, 409);
-    }
     console.error("Storage upload failed:", uploadError);
     return json({ error: "Storage upload failed" }, 500);
   }
 
-  // Record metadata in ttr.stored_images
+  // Mirror the upsert in the metadata. Keying on (storage_bucket, object_path) — the
+  // table's own unique constraint — means a replaced image keeps its existing row id, so
+  // anything already referencing it stays valid rather than being orphaned.
+  const metadata = {
+    transaction_id:       transactionId,
+    storage_bucket:       STORAGE_BUCKET,
+    object_path:          objectPath,
+    content_hash_sha256:  sha256Hex,
+    content_type:         file.type,
+    byte_size:            file.size,
+    captured_by_staff_id: user.id,
+    // Set explicitly: the DEFAULT only applies on insert, so a replaced image would
+    // otherwise keep the superseded attempt's timestamp while describing a new photo.
+    // The row must describe the object that actually exists.
+    captured_at:          new Date().toISOString(),
+  };
+
   const { data: img, error: insertError } = await serviceClient
     .schema("ttr")
     .from("stored_images")
-    .insert({
-      transaction_id:       transactionId,
-      storage_bucket:       STORAGE_BUCKET,
-      object_path:          objectPath,
-      content_hash_sha256:  sha256Hex,
-      content_type:         file.type,
-      byte_size:            file.size,
-      captured_by_staff_id: user.id,
-    })
+    .upsert(metadata, { onConflict: "storage_bucket,object_path" })
     .select("id, object_path, content_hash_sha256")
     .single();
 
   if (insertError) {
-    // Attempt to roll back the Storage upload — best-effort
-    await serviceClient.storage.from(STORAGE_BUCKET).remove([objectPath]);
-    console.error("stored_images insert failed:", insertError);
+    // No rollback here, deliberately. The upload may have replaced an existing object
+    // that other rows still reference, so removing it could destroy a live capture — a
+    // worse outcome than an orphaned object, which the next retry simply overwrites.
+    console.error("stored_images upsert failed:", insertError);
     return json({ error: "Failed to record image metadata" }, 500);
   }
 

@@ -63,6 +63,24 @@ const initialData = () => ({
 const hasFormData = (data) =>
   !!(data.fullName || data.phone || data.occupation || data.authorityToAct)
 
+// Client validation should catch all of these before a save is attempted, so reaching
+// one means validate() has a gap. Translating them anyway is what keeps that gap
+// visible instead of silent — before this, a rejected save threw an uncaught promise
+// and the page simply refused to advance with nothing on screen.
+function describeSaveError(err) {
+  const text = `${err?.code ?? ''} ${err?.message ?? ''}`
+  if (text.includes('chk_cp_dob')) {
+    return 'Enter the date of birth, or set "Is date of birth known?" to No.'
+  }
+  if (text.includes('chk_cp_relationship_other')) {
+    return 'Describe the relationship — selecting "Other" requires a description.'
+  }
+  if (text.includes('chk_cp_entity')) {
+    return 'Entity name and street address are required when acting via an entity.'
+  }
+  return err?.message || 'Failed to save. Please try again.'
+}
+
 const ConductingPersonPage = () => {
   const navigate = useNavigate()
   const [parties, setParties] = useState([])
@@ -70,6 +88,8 @@ const ConductingPersonPage = () => {
   const [errors, setErrors] = useState({})
   const [showExitModal, setShowExitModal] = useState(false)
   const [showClearWarning, setShowClearWarning] = useState(false)
+  const [saveError, setSaveError] = useState('')
+  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     Promise.all([loadCustomers(), loadConductingPerson(), loadTransaction()]).then(([loaded, cp, txn]) => {
@@ -126,6 +146,11 @@ const ConductingPersonPage = () => {
       if (!data.fullName.trim()) {
         e.fullName = 'Enter the full legal name.'
       }
+      // chk_cp_dob requires a date whenever dob_known is true. Without this the
+      // constraint is the only thing enforcing it, and it rejects at save time.
+      if (data.dobKnown === 'yes' && !data.dateOfBirth) {
+        e.dateOfBirth = 'Enter the date of birth, or set "Is date of birth known?" to No.'
+      }
       const ra = data.residentialAddress
       if (!ra.street.trim() || !ra.suburb.trim() || !ra.state.trim() || !ra.postcode.trim()) {
         e.residentialAddress = 'Enter the residential address.'
@@ -171,20 +196,29 @@ const ConductingPersonPage = () => {
 
   const handleContinue = async () => {
     if (!validate()) return
-    await saveConductingPerson(data)
+    setSaveError('')
+    setSaving(true)
+    try {
+      await saveConductingPerson(data)
 
-    if (data.hasConductingPerson === 'no') {
-      const companyParties = parties.filter((p) => p.type === 'company')
-      const isImpersonal = companyParties.length > 0 && data.conductorIdentifiable === 'no'
-      const conductedByPartyId = isImpersonal
-        ? (companyParties.length === 1 ? companyParties[0].id : data.conductedByPartyId)
-        : (parties.length === 1 ? parties[0].id : data.conductedByPartyId)
-      await saveConductorInfo({
-        conductedByPartyId,
-        methodOfConductingTxn: isImpersonal ? data.methodOfConductingTxn : null,
-      })
-    } else {
-      await saveConductorInfo({ conductedByPartyId: null, methodOfConductingTxn: null })
+      if (data.hasConductingPerson === 'no') {
+        const companyParties = parties.filter((p) => p.type === 'company')
+        const isImpersonal = companyParties.length > 0 && data.conductorIdentifiable === 'no'
+        const conductedByPartyId = isImpersonal
+          ? (companyParties.length === 1 ? companyParties[0].id : data.conductedByPartyId)
+          : (parties.length === 1 ? parties[0].id : data.conductedByPartyId)
+        await saveConductorInfo({
+          conductedByPartyId,
+          methodOfConductingTxn: isImpersonal ? data.methodOfConductingTxn : null,
+        })
+      } else {
+        await saveConductorInfo({ conductedByPartyId: null, methodOfConductingTxn: null })
+      }
+    } catch (err) {
+      setSaveError(describeSaveError(err))
+      return
+    } finally {
+      setSaving(false)
     }
 
     const hasIndividualToVerify = data.hasConductingPerson === 'yes' || parties.some((p) => p.type === 'individual')
@@ -205,7 +239,8 @@ const ConductingPersonPage = () => {
         data.fullName &&
         data.residentialAddress.street &&
         data.relationship &&
-        data.authorityToAct
+        data.authorityToAct &&
+        (data.dobKnown !== 'yes' || data.dateOfBirth)
       )
     }
     return false
@@ -218,7 +253,7 @@ const ConductingPersonPage = () => {
       helperText="Step 4"
       onBack={() => navigate('/party-details')}
       onExit={() => setShowExitModal(true)}
-      actions={<Button onClick={handleContinue}>Continue</Button>}
+      actions={<Button onClick={handleContinue} disabled={saving}>{saving ? 'Saving…' : 'Continue'}</Button>}
     >
       <div className={styles.card}>
         {/* Section 1: Decision */}
@@ -403,7 +438,7 @@ const ConductingPersonPage = () => {
               </FormField>
 
               <FormField label="Is the date of birth known?">
-                <div className={styles.radioGroup}>
+                <div data-testid="dobKnown-group" className={styles.radioGroup}>
                   <label className={styles.radioLabel}>
                     <input
                       type="radio"
@@ -427,7 +462,12 @@ const ConductingPersonPage = () => {
               </FormField>
 
               {data.dobKnown === 'yes' && (
-                <FormField label="Date of birth" labelFor="dateOfBirth">
+                <FormField
+                  label="Date of birth"
+                  labelFor="dateOfBirth"
+                  error={errors.dateOfBirth}
+                  required
+                >
                   <DatePicker
                     id="dateOfBirth"
                     value={data.dateOfBirth}
@@ -846,6 +886,10 @@ const ConductingPersonPage = () => {
               </div>
             )}
           </>
+        )}
+
+        {saveError && (
+          <p role="alert" className={styles.saveError}>{saveError}</p>
         )}
       </div>
 

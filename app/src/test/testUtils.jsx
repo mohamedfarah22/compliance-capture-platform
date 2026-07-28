@@ -26,6 +26,8 @@ export function makeAuthValue(overrides = {}) {
       idv_max_reliance_days: 730,
       idv_block_on_expired: false,
     },
+    aal: { currentLevel: 'aal2', nextLevel: 'aal2' },
+    refreshAal: vi.fn(),
     canApproveReports: false,
     loading: false,
     signOut: vi.fn(),

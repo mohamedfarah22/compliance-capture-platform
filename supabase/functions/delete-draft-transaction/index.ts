@@ -1,4 +1,10 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { deleteRestrictingChildren } from "../_shared/tx-children.ts";
+import type { SupabaseSchema } from "../_shared/tx-children.ts";
+
+// Re-exported so the existing test file's imports keep resolving from this module.
+export { deleteRestrictingChildren };
+export type { SupabaseSchema };
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
@@ -11,7 +17,9 @@ const CORS_HEADERS = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-Deno.serve(async (req: Request) => {
+// Exported so the tests can import the module's helpers without Deno.serve binding a
+// port — same pattern as complete-transaction/index.ts.
+export async function handleRequest(req: Request): Promise<Response> {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: CORS_HEADERS });
   }
@@ -37,8 +45,11 @@ Deno.serve(async (req: Request) => {
   });
   const serviceClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-  // 1. Verify ownership via anonClient (RLS returns nothing if wrong entity)
+  // 1. Verify ownership via anonClient (RLS returns nothing if wrong entity).
+  // .schema("ttr") required — a bare .from() resolves to public.transactions, which does
+  // not exist, so this returned an error and every Cancel reported "Transaction not found".
   const { data: tx, error: txError } = await anonClient
+    .schema("ttr")
     .from("transactions")
     .select("id, status")
     .eq("id", transactionId)
@@ -61,8 +72,20 @@ Deno.serve(async (req: Request) => {
     return json({ error: "Failed to remove associated files. Transaction not deleted." }, 500);
   }
 
-  // 4. Delete the DB row — Storage is already clean
+  // 4. Delete the children that do not cascade, in FK order.
+  const childError = await deleteRestrictingChildren(
+    serviceClient.schema("ttr") as unknown as SupabaseSchema,
+    transactionId,
+  );
+  if (childError) {
+    console.error("Child delete failed for transaction", transactionId, childError);
+    return json({ error: "Failed to delete transaction record" }, 500);
+  }
+
+  // 5. Delete the DB row — Storage and the restricting children are already clean.
+  // .schema("ttr") required, as above.
   const { error: deleteError } = await serviceClient
+    .schema("ttr")
     .from("transactions")
     .delete()
     .eq("id", transactionId)
@@ -74,10 +97,30 @@ Deno.serve(async (req: Request) => {
   }
 
   return json({ deleted: true }, 200);
-});
+}
+
+if (import.meta.main) {
+  Deno.serve(handleRequest);
+}
+
+// Typed structurally rather than as ReturnType<typeof createClient>. That alias resolves
+// to the client's default generic parameters, which do not match the configured client
+// this is actually called with, so it failed type-checking. Harmless while nothing in
+// this directory was type-checked, but adding index.test.ts brought it into `deno test`.
+interface StorageOwner {
+  storage: {
+    from: (bucket: string) => {
+      list: (
+        prefix: string,
+        options: { limit: number; offset: number },
+      ) => PromiseLike<{ data: { name: string }[] | null; error: { message: string } | null }>;
+      remove: (paths: string[]) => PromiseLike<{ error: { message: string } | null }>;
+    };
+  };
+}
 
 async function removeTransactionStorage(
-  client: ReturnType<typeof createClient>,
+  client: StorageOwner,
   transactionId: string,
 ): Promise<Error | null> {
   const prefix = `${transactionId}/`;

@@ -1,5 +1,5 @@
 import { assert, assertEquals } from "std/assert";
-import { validateParties, validatePreciousMetalItems, validateTransaction } from "./index.ts";
+import { supersedePriorImages, validateParties, validatePreciousMetalItems, validateTransaction } from "./index.ts";
 import type { ValidationError } from "./index.ts";
 import { validateIdVerifications } from "./index.ts";
 
@@ -192,4 +192,275 @@ Deno.test("TC-253: a suburb over 35 characters fails validation with a length er
   const companyErrors: ValidationError[] = [];
   validateParties([makeCompanyPartyRow({ biz_suburb: longSuburb })], companyErrors);
   assert(companyErrors.some((e) => e.field === "biz_suburb" && e.message.includes("35 characters")));
+});
+
+// ─── One copy of ID on file (UAT finding #9) ────────────────────────────────
+//
+// uq_idv_doc_new_capture keeps one unlinked ROW per document, but nothing stopped the
+// IMAGES accumulating — one licence ended a UAT pass carrying four stored pairs while the
+// UI told staff each re-capture "replaces" the copy on file. supersedePriorImages deletes
+// the superseded object and leaves the metadata row behind, so §3 becomes true without
+// destroying the seven-year identification record.
+
+interface FakeState {
+  siblings: Record<string, unknown>[];
+  stale: Record<string, unknown>[];
+  removed: string[][];
+  updated: { values: Record<string, unknown>; ids: unknown[] }[];
+  selectError?: unknown;
+  removeError?: unknown;
+}
+
+function makeFakes(state: FakeState) {
+  // Mimics PostgrestFilterBuilder: every method returns the builder, awaiting it yields
+  // { data, error }. Which dataset comes back depends on the table being queried.
+  //
+  // .in() genuinely filters. That matters: the whole point of these tests is which image
+  // ids the function SELECTS, and a fake that returned every `stale` row regardless would
+  // pass no matter how wrong the selection logic was.
+  const builder = (table: string) => {
+    const self: Record<string, unknown> = {};
+    let inIds: unknown[] | null = null;
+    const chain = () => self;
+    self.select = chain;
+    self.eq = chain;
+    self.is = chain;
+    self.in = (_col: string, vals: unknown[]) => {
+      inIds = vals;
+      return self;
+    };
+    self.then = (resolve: (v: unknown) => unknown) => {
+      const rows = table === "id_verifications" ? state.siblings : state.stale;
+      const filtered = inIds === null ? rows : rows.filter((r) => inIds!.includes(r.id));
+      return Promise.resolve({ data: filtered, error: state.selectError ?? null }).then(resolve);
+    };
+    return self;
+  };
+
+  const ttr = {
+    from: (table: string) => ({
+      select: () => builder(table),
+      update: (values: Record<string, unknown>) => ({
+        in: (_col: string, ids: unknown[]) => {
+          state.updated.push({ values, ids });
+          return Promise.resolve({ error: null });
+        },
+      }),
+    }),
+    // deno-lint-ignore no-explicit-any
+  } as any;
+
+  const serviceClient = {
+    storage: {
+      from: () => ({
+        remove: (paths: string[]) => {
+          state.removed.push(paths);
+          return Promise.resolve({ error: state.removeError ?? null });
+        },
+      }),
+    },
+    // deno-lint-ignore no-explicit-any
+  } as any;
+
+  return { ttr, serviceClient };
+}
+
+const RECAPTURE = {
+  verification_basis: "new_capture",
+  prior_verification_id: "idv-original",
+  document_type: "Driver licence",
+  document_number: "RGN-111222",
+  front_image_id: "img-new-front",
+  back_image_id: "img-new-back",
+};
+
+// The row the re-capture links to — the chain root. Unlinked by definition, since
+// get_verification_for_document only ever returns the unlinked row for a document.
+const ROOT = {
+  id: "idv-original",
+  document_number: "RGN-111222",
+  prior_verification_id: null,
+  front_image_id: "img-old-front",
+  back_image_id: "img-old-back",
+};
+
+Deno.test("a linked re-capture deletes the superseded objects and stamps their rows, keeping the metadata", async () => {
+  const state: FakeState = {
+    siblings: [
+      { ...ROOT, document_number: "rgn-111222 " },
+      { id: "idv-new", document_number: "RGN-111222", prior_verification_id: "idv-original", front_image_id: "img-new-front", back_image_id: "img-new-back" },
+    ],
+    stale: [
+      { id: "img-old-front", object_path: "tx-1/party-a-front.jpg" },
+      { id: "img-old-back", object_path: "tx-1/party-a-back.jpg" },
+    ],
+    removed: [],
+    updated: [],
+  };
+  const { ttr, serviceClient } = makeFakes(state);
+
+  await supersedePriorImages(serviceClient, ttr, [RECAPTURE], "entity-1");
+
+  // The objects go — that is what makes "one copy on file" literally true.
+  assertEquals(state.removed, [["tx-1/party-a-front.jpg", "tx-1/party-a-back.jpg"]]);
+  // The rows stay, stamped with what replaced them.
+  assertEquals(state.updated.length, 1);
+  assertEquals(state.updated[0].ids, ["img-old-front", "img-old-back"]);
+  assertEquals(state.updated[0].values.superseded_by_image_id, "img-new-front");
+  assert(state.updated[0].values.superseded_at);
+});
+
+Deno.test("document numbers are matched case- and whitespace-insensitively, exactly as the uniqueness index does", async () => {
+  const state: FakeState = {
+    // Differs from the re-capture only by case and a trailing space. A bare equality
+    // check would miss it and leave a duplicate image on file.
+    siblings: [{ ...ROOT, document_number: "  rgn-111222 ", back_image_id: null }],
+    stale: [{ id: "img-old-front", object_path: "tx-1/party-a-front.jpg" }],
+    removed: [],
+    updated: [],
+  };
+  const { ttr, serviceClient } = makeFakes(state);
+
+  await supersedePriorImages(serviceClient, ttr, [RECAPTURE], "entity-1");
+
+  assertEquals(state.removed, [["tx-1/party-a-front.jpg"]]);
+});
+
+// ─── Never destroy a different person's ID (regression) ─────────────────────
+//
+// Document numbers are unique per state, not nationally, so two unrelated people can hold
+// the same one — which is what the 'different_person' reason records. The first version of
+// this function grouped by document number alone (the key uq_idv_doc_new_capture uses), so
+// completing one customer's renewal DELETED a different customer's licence images. That key
+// answers "may a second unlinked row exist"; it must never decide "may this image be
+// destroyed", because the index deliberately exempts 'different_person'.
+
+Deno.test("never supersedes a different person's capture of the same document number", async () => {
+  const state: FakeState = {
+    siblings: [
+      ROOT,
+      { id: "idv-new", document_number: "RGN-111222", prior_verification_id: "idv-original", front_image_id: "img-new-front", back_image_id: "img-new-back" },
+      // Same entity, same document type, same number — a different human being.
+      // Unlinked, so it is its own chain root and shares one with nobody.
+      {
+        id: "idv-other-person",
+        document_number: "RGN-111222",
+        prior_verification_id: null,
+        new_capture_reason: "different_person",
+        front_image_id: "img-barry-front",
+        back_image_id: "img-barry-back",
+      },
+    ],
+    // If the grouping is wrong, these get selected and their objects deleted.
+    stale: [
+      { id: "img-old-front", object_path: "tx-1/party-a-front.jpg" },
+      { id: "img-old-back", object_path: "tx-1/party-a-back.jpg" },
+      { id: "img-barry-front", object_path: "tx-9/party-b-front.jpg" },
+      { id: "img-barry-back", object_path: "tx-9/party-b-back.jpg" },
+    ],
+    removed: [],
+    updated: [],
+  };
+  const { ttr, serviceClient } = makeFakes(state);
+
+  await supersedePriorImages(serviceClient, ttr, [RECAPTURE], "entity-1");
+
+  // Only the chain root's images. Barry's must be untouched in BOTH storage and metadata.
+  assertEquals(state.removed, [["tx-1/party-a-front.jpg", "tx-1/party-a-back.jpg"]]);
+  assertEquals(state.updated[0].ids, ["img-old-front", "img-old-back"]);
+});
+
+Deno.test("supersedes every earlier link in the chain, not just the row it points at", async () => {
+  const state: FakeState = {
+    siblings: [
+      ROOT,
+      // An earlier re-capture. It links to the same ROOT rather than to the newest row, so
+      // chain-FOLLOWING from the new row would miss it and leave two copies on file.
+      { id: "idv-earlier", document_number: "RGN-111222", prior_verification_id: "idv-original", front_image_id: "img-mid-front", back_image_id: null },
+      { id: "idv-new", document_number: "RGN-111222", prior_verification_id: "idv-original", front_image_id: "img-new-front", back_image_id: "img-new-back" },
+    ],
+    stale: [
+      { id: "img-old-front", object_path: "tx-1/party-a-front.jpg" },
+      { id: "img-old-back", object_path: "tx-1/party-a-back.jpg" },
+      { id: "img-mid-front", object_path: "tx-2/party-a-front.jpg" },
+    ],
+    removed: [],
+    updated: [],
+  };
+  const { ttr, serviceClient } = makeFakes(state);
+
+  await supersedePriorImages(serviceClient, ttr, [RECAPTURE], "entity-1");
+
+  assertEquals(state.removed[0].length, 3);
+  assertEquals(state.updated[0].ids, ["img-old-front", "img-old-back", "img-mid-front"]);
+});
+
+Deno.test("an unlinked capture supersedes nothing — only a re-capture replaces a copy on file", async () => {
+  const state: FakeState = {
+    siblings: [{ id: "idv-other", document_number: "RGN-111222", front_image_id: "img-old-front", back_image_id: null }],
+    stale: [{ id: "img-old-front", object_path: "tx-1/party-a-front.jpg" }],
+    removed: [],
+    updated: [],
+  };
+  const { ttr, serviceClient } = makeFakes(state);
+
+  await supersedePriorImages(
+    serviceClient,
+    ttr,
+    [{ ...RECAPTURE, prior_verification_id: null }],
+    "entity-1",
+  );
+
+  assertEquals(state.removed, []);
+  assertEquals(state.updated, []);
+});
+
+Deno.test("the re-capture never deletes its own images", async () => {
+  const state: FakeState = {
+    siblings: [{ id: "idv-new", document_number: "RGN-111222", prior_verification_id: "idv-original", front_image_id: "img-new-front", back_image_id: "img-new-back" }],
+    stale: [],
+    removed: [],
+    updated: [],
+  };
+  const { ttr, serviceClient } = makeFakes(state);
+
+  await supersedePriorImages(serviceClient, ttr, [RECAPTURE], "entity-1");
+
+  assertEquals(state.removed, []);
+  assertEquals(state.updated, []);
+});
+
+Deno.test("a storage failure leaves the rows unstamped rather than claiming images were deleted", async () => {
+  const state: FakeState = {
+    siblings: [{ ...ROOT, back_image_id: null }],
+    stale: [{ id: "img-old-front", object_path: "tx-1/party-a-front.jpg" }],
+    removed: [],
+    updated: [],
+    removeError: { message: "bucket unavailable" },
+  };
+  const { ttr, serviceClient } = makeFakes(state);
+
+  // Must not throw: the transaction is already complete and a storage hiccup cannot be
+  // allowed to undo a completed legal record. A later run retries.
+  await supersedePriorImages(serviceClient, ttr, [RECAPTURE], "entity-1");
+
+  // Stamping rows as superseded while their objects still exist would be a lie in the
+  // audit trail, and would stop any later run from cleaning them up.
+  assertEquals(state.updated, []);
+});
+
+Deno.test("a failed lookup is swallowed so completion is never rolled back by cleanup", async () => {
+  const state: FakeState = {
+    siblings: [],
+    stale: [],
+    removed: [],
+    updated: [],
+    selectError: { message: "connection reset" },
+  };
+  const { ttr, serviceClient } = makeFakes(state);
+
+  await supersedePriorImages(serviceClient, ttr, [RECAPTURE], "entity-1");
+
+  assertEquals(state.removed, []);
+  assertEquals(state.updated, []);
 });

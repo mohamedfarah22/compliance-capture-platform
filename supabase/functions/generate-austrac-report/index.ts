@@ -580,6 +580,15 @@ function yesterdayAEST(): string {
   return aestNow.toISOString().slice(0, 10);
 }
 
+// reportDate is interpolated straight into a timestamptz filter and into the
+// TTR file name, so anything other than a real ISO calendar date must be
+// rejected up front rather than surfacing as a Postgres range error.
+export function isISODate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const d = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === value;
+}
+
 function dateRangeUTC(aestDate: string): { from: string; to: string } {
   return {
     from: `${aestDate}T00:00:00+10:00`,
@@ -731,6 +740,13 @@ export async function handleRequest(req: Request): Promise<Response> {
     reportDate = typeof body.reportDate === "string" ? body.reportDate : yesterdayAEST();
   } catch {
     reportDate = yesterdayAEST();
+  }
+
+  if (!isISODate(reportDate)) {
+    return json(
+      { error: `Invalid reportDate "${reportDate}" — expected YYYY-MM-DD` },
+      400,
+    );
   }
 
   const { from, to } = dateRangeUTC(reportDate);

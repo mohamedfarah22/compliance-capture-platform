@@ -31,6 +31,13 @@ additional_redirect_urls = ["http://localhost:3000"]
 jwt_expiry = 3600
 enable_signup = false
 
+[auth.mfa]
+max_enrolled_factors = 10
+
+[auth.mfa.totp]
+enroll_enabled = true
+verify_enabled = true
+
 [functions.complete-transaction]
 verify_jwt = true
 
@@ -38,6 +45,9 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.upload-id-image]
+verify_jwt = true
+
+[functions.get-id-image-urls]
 verify_jwt = true
 
 [functions.cleanup-stale-drafts]

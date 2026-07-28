@@ -44,6 +44,17 @@ const RATE_SOURCE_OPTIONS = [
   'Market rate',
 ]
 
+// The Start page blocks refs already used by a completed transaction, but another staff member
+// can claim or complete the same ref between that check and this insert. Translate the
+// constraint violation rather than showing staff "duplicate key value violates unique constraint".
+function describeSaveError(err) {
+  const text = `${err?.code ?? ''} ${err?.message ?? ''}`
+  if (text.includes('23505') || text.includes('uq_tx_ref_per_entity')) {
+    return 'That transaction reference is already in use. Go back to the start and enter a different reference.'
+  }
+  return err?.message || 'Failed to save. Please try again.'
+}
+
 const TransactionDetailsPage = () => {
   const navigate = useNavigate()
   const { staffMember } = useAuth()
@@ -121,7 +132,7 @@ const TransactionDetailsPage = () => {
       }
       navigate('/party-details')
     } catch (err) {
-      setErrors({ _submit: err.message || 'Failed to save. Please try again.' })
+      setErrors({ _submit: describeSaveError(err) })
     } finally {
       setSaving(false)
     }

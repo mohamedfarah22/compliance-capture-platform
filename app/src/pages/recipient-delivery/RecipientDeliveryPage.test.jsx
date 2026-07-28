@@ -3,10 +3,11 @@ import { cleanup, render, screen, waitFor, within } from '@testing-library/react
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import RecipientDeliveryPage from './RecipientDeliveryPage.jsx'
-import { loadConductingPerson, loadCustomers, loadRecipientDelivery, loadTransaction, saveRecipientDelivery } from '../../lib/wizardApi.js'
+import { deleteTransaction, loadConductingPerson, loadCustomers, loadRecipientDelivery, loadTransaction, saveRecipientDelivery } from '../../lib/wizardApi.js'
 import { useAuth } from '../../context/AuthContext.jsx'
 
 vi.mock('../../lib/wizardApi.js', () => ({
+  deleteTransaction: vi.fn(),
   loadConductingPerson: vi.fn(),
   loadCustomers: vi.fn(),
   loadRecipientDelivery: vi.fn(),
@@ -295,5 +296,26 @@ describe('RecipientDeliveryPage', () => {
     await user.click(screen.getByRole('button', { name: 'Back' }))
 
     expect(await screen.findByRole('heading', { name: 'ID Verification' })).toBeInTheDocument()
+  })
+
+  // This page, Bullion Details and Precious Metal Details all rendered WizardFrame without
+  // an onExit prop, so no Exit button was drawn at all — leaving staff who needed to
+  // abandon a transaction with no way out except going backwards or completing one they
+  // should not. WizardFrame only draws the button when the prop is present, so an absent
+  // prop is a silent omission that nothing else would catch.
+  it('offers an Exit that discards the transaction, so a staff member can always abandon', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    await screen.findByRole('radio', { name: 'Yes' })
+    await user.click(screen.getByRole('button', { name: 'Exit' }))
+
+    // Confirmation first — exiting destroys captured data, including any ID images.
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+    expect(deleteTransaction).not.toHaveBeenCalled()
+
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Exit' }))
+
+    await waitFor(() => expect(deleteTransaction).toHaveBeenCalled())
   })
 })

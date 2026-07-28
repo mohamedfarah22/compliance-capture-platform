@@ -7,6 +7,7 @@ import CustomerSearchPage from './pages/customers/CustomerSearchPage.jsx'
 import CreateCustomerPage from './pages/customers/create/CreateCustomerPage.jsx'
 import IdVerificationPage from './pages/id-verification/IdVerificationPage.jsx'
 import LoginPage from './pages/login/LoginPage.jsx'
+import MfaGatePage from './pages/mfa/MfaGatePage.jsx'
 import PartyDetailsPage from './pages/party-details/PartyDetailsPage.jsx'
 import PreciousMetalDetailsPage from './pages/precious-metal-details/PreciousMetalDetailsPage.jsx'
 import RecipientDeliveryPage from './pages/recipient-delivery/RecipientDeliveryPage.jsx'
@@ -23,6 +24,7 @@ const App = () => {
       <AuthProvider>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/mfa" element={<MfaGatePage />} />
           <Route
             path="/"
             element={

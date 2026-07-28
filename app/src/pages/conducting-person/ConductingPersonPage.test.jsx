@@ -296,4 +296,100 @@ describe('ConductingPersonPage', () => {
 
     expect(await screen.findByRole('heading', { name: 'ID Verification Details' })).toBeInTheDocument()
   })
+
+  // ─── UAT finding #10 — date of birth, and the silent save ───────────────────
+  //
+  // chk_cp_dob requires a date whenever dob_known is true, and nothing on the page
+  // enforced that. Worse, handleContinue awaited its saves bare, so the rejection
+  // escaped as an uncaught promise: a console trace, nothing on screen, and a page that
+  // simply would not advance.
+  //
+  // Only reachable because fix #4 made dob_known save correctly — while it was always
+  // false, `dob_known = FALSE OR ...` always held and the constraint could never fire.
+
+  async function startConductingPersonWithDobKnown(user) {
+    await screen.findByText('Is a different person conducting the transaction on behalf of a party?')
+    await user.click(screen.getByRole('radio', { name: 'Yes' }))
+    await fillMinimumYesForm(user)
+    await user.click(within(screen.getByTestId('dobKnown-group')).getByRole('radio', { name: 'Yes' }))
+  }
+
+  it('blocks Continue with a field error when the date of birth is known but not entered', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    await startConductingPersonWithDobKnown(user)
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(await screen.findByText(/Enter the date of birth, or set/i)).toBeInTheDocument()
+    // The database must not be the validator here — the save is never attempted.
+    expect(saveConductingPerson).not.toHaveBeenCalled()
+    expect(screen.queryByRole('heading', { name: 'ID Verification Details' })).not.toBeInTheDocument()
+  })
+
+  it('continues once the date of birth is supplied', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    await startConductingPersonWithDobKnown(user)
+    await user.type(screen.getByLabelText('Date of birth'), '14/02/1986')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await waitFor(() => expect(saveConductingPerson).toHaveBeenCalled())
+    expect(saveConductingPerson).toHaveBeenCalledWith(
+      expect.objectContaining({ dobKnown: 'yes', dateOfBirth: '1986-02-14' }),
+    )
+  })
+
+  it('does not demand a date of birth when it is recorded as unknown', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    await screen.findByText('Is a different person conducting the transaction on behalf of a party?')
+    await user.click(screen.getByRole('radio', { name: 'Yes' }))
+    await fillMinimumYesForm(user)
+    await user.click(within(screen.getByTestId('dobKnown-group')).getByRole('radio', { name: 'No' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await waitFor(() => expect(saveConductingPerson).toHaveBeenCalled())
+    expect(screen.queryByText(/Enter the date of birth, or set/i)).not.toBeInTheDocument()
+  })
+
+  it('shows a rejected save on screen instead of throwing it into the console', async () => {
+    const user = userEvent.setup()
+    saveConductingPerson.mockRejectedValue({
+      code: '23514',
+      message: 'new row for relation "conducting_persons" violates check constraint "chk_cp_dob"',
+    })
+    renderPage()
+
+    await screen.findByText('Is a different person conducting the transaction on behalf of a party?')
+    await user.click(screen.getByRole('radio', { name: 'Yes' }))
+    await fillMinimumYesForm(user)
+    await user.click(within(screen.getByTestId('dobKnown-group')).getByRole('radio', { name: 'No' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(/Enter the date of birth, or set/i)
+    expect(screen.queryByRole('heading', { name: 'ID Verification Details' })).not.toBeInTheDocument()
+  })
+
+  it('translates the other conducting-person constraints rather than leaking raw SQL', async () => {
+    const user = userEvent.setup()
+    saveConductingPerson.mockRejectedValue({
+      code: '23514',
+      message: 'violates check constraint "chk_cp_entity"',
+    })
+    renderPage()
+
+    await screen.findByText('Is a different person conducting the transaction on behalf of a party?')
+    await user.click(screen.getByRole('radio', { name: 'Yes' }))
+    await fillMinimumYesForm(user)
+    await user.click(within(screen.getByTestId('dobKnown-group')).getByRole('radio', { name: 'No' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(/Entity name and street address are required/i)
+    expect(alert).not.toHaveTextContent(/check constraint/i)
+  })
 })

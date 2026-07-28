@@ -8,6 +8,9 @@ vi.mock('../lib/supabase.js', () => ({
     auth: {
       getSession: vi.fn(),
       onAuthStateChange: vi.fn(),
+      mfa: {
+        getAuthenticatorAssuranceLevel: vi.fn(),
+      },
     },
     from: vi.fn(),
   },
@@ -44,6 +47,9 @@ describe('AuthContext', () => {
     supabase.from.mockReturnValue(builder)
     supabase.auth.getSession.mockResolvedValue({ data: { session: { user: { id: 'user-1' } } } })
     supabase.auth.onAuthStateChange.mockReturnValue({ data: { subscription: { unsubscribe: vi.fn() } } })
+    supabase.auth.mfa.getAuthenticatorAssuranceLevel.mockResolvedValue({
+      data: { currentLevel: 'aal2', nextLevel: 'aal2' },
+    })
 
     render(
       <AuthProvider>

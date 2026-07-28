@@ -1,4 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { supersedeImages } from "../_shared/supersede.ts";
+import type { StorageOwner, SupabaseSchema } from "../_shared/supersede.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
@@ -6,6 +8,7 @@ const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 const TTR_THRESHOLD_AUD = 10_000;
 const AUSTRAC_MIN_DATE = new Date("2000-01-01T00:00:00Z");
+const STORAGE_BUCKET = "compliance-media";
 const MAX_DOCUMENT_NUMBER_LENGTH = 100; // AUSTRAC IdNumber type maxLength
 const MAX_NAME_LENGTH = 140; // AUSTRAC Name type maxLength
 const MAX_SUBURB_LENGTH = 35; // AUSTRAC Address.suburb maxLength
@@ -20,6 +23,14 @@ export interface ValidationError {
   message: string;
   partyId?: string;
 }
+
+// Structural types covering only what supersedePriorImages calls, so the Deno tests can
+// pass plain fakes rather than constructing a real Supabase client. Written as a
+// self-referential thenable because that is the shape PostgrestFilterBuilder has —
+// every method returns the builder, and awaiting it yields { data, error }.
+// StorageOwner / SupabaseSchema / FilterBuilder now live in _shared/supersede.ts,
+// re-exported here so existing importers and tests keep working unchanged.
+export type { FilterBuilder, StorageOwner, SupabaseSchema } from "../_shared/supersede.ts";
 
 export async function handleRequest(req: Request): Promise<Response> {
   if (req.method === "OPTIONS") {
@@ -140,7 +151,19 @@ export async function handleRequest(req: Request): Promise<Response> {
     return json({ error: "Unexpected database error" }, 500);
   }
 
-  // 8. Return completed_at from the freshly updated row
+  // 8. Enforce "one copy of your identification on file" (privacy policy §3).
+  // Deliberately after the RPC and deliberately non-fatal — see supersedePriorImages.
+  // Cast: supersedePriorImages is typed against a minimal structural interface so the
+  // Deno tests can pass fakes. Postgrest's generics are too deep for TS to prove the
+  // real client satisfies it, though it does at runtime.
+  await supersedePriorImages(
+    serviceClient as unknown as StorageOwner,
+    ttr as unknown as SupabaseSchema,
+    idVerifications ?? [],
+    tx.reporting_entity_id as string,
+  );
+
+  // 9. Return completed_at from the freshly updated row
   const { data: completed } = await ttr
     .from("transactions")
     .select("completed_at")
@@ -148,6 +171,97 @@ export async function handleRequest(req: Request): Promise<Response> {
     .single();
 
   return json({ completed: true, completedAt: completed?.completed_at }, 200);
+}
+
+// ─── One copy of ID on file ───────────────────────────────────────────────────
+
+// A linked re-capture ('stored_copy_unclear' or 'id_changed') photographs a document
+// already held. uq_idv_doc_new_capture keeps that honest at the ROW level, but nothing
+// stopped the images accumulating — UAT finding #9 found one licence carrying four
+// stored pairs, while the UI told staff each re-capture "replaces" the copy on file and
+// privacy policy §3 told customers we do not take "a new copy for every visit".
+//
+// So once the transaction is real, delete the superseded OBJECTS and leave their
+// metadata rows behind carrying superseded_at / superseded_by_image_id. AML/CTF requires
+// identification records be retained for seven years; the retained row still proves a
+// document was sighted, by whom, when, and what it hashed to. The image itself is gone,
+// which is what §3 actually promises.
+//
+// Runs after complete_transaction and never fails the request. A storage hiccup must not
+// undo a completed legal record — the transaction is the thing that matters, and an
+// un-superseded image is a tidiness problem that a later run resolves.
+export async function supersedePriorImages(
+  serviceClient: StorageOwner,
+  ttr: SupabaseSchema,
+  idVerifications: Record<string, unknown>[],
+  reportingEntityId: string,
+): Promise<void> {
+  const linkedRecaptures = idVerifications.filter(
+    (v) =>
+      v.verification_basis === "new_capture" &&
+      v.prior_verification_id &&
+      (v.front_image_id || v.back_image_id),
+  );
+  if (linkedRecaptures.length === 0) return;
+
+  for (const recapture of linkedRecaptures) {
+    try {
+      const docType = recapture.document_type as string;
+      const docNumber = ((recapture.document_number as string) ?? "").trim().toUpperCase();
+      const keepIds = [recapture.front_image_id, recapture.back_image_id].filter(Boolean);
+      // The chain root: every linked re-capture points at the UNLINKED row for its
+      // document, because that is the only row get_verification_for_document returns.
+      const rootId = recapture.prior_verification_id as string;
+
+      const { data: siblings, error: siblingError } = await ttr
+        .from("id_verifications")
+        .select("id, front_image_id, back_image_id, document_number, prior_verification_id")
+        .eq("reporting_entity_id", reportingEntityId)
+        .eq("document_type", docType);
+
+      if (siblingError) {
+        console.error("supersede: sibling lookup failed", siblingError);
+        continue;
+      }
+
+      // Group by CHAIN ROOT, not by document number alone.
+      //
+      // Document numbers are unique per state, not nationally, so two unrelated people can
+      // hold the same one — which is exactly what the 'different_person' reason records.
+      // Grouping on the number alone (the key uq_idv_doc_new_capture uses) swept those in,
+      // so completing one customer's renewal deleted a DIFFERENT customer's ID images.
+      // That key answers "may a second unlinked row exist"; it must not decide "may this
+      // image be destroyed", because the index deliberately exempts 'different_person'.
+      //
+      // The root is person-safe by construction: a 'different_person' capture is always
+      // unlinked, so it is its own root and can never share one with somebody else's
+      // chain — and check_idv_recapture_link() rejects any link whose target belongs to a
+      // different person, so a chain cannot span two people either.
+      //
+      // Note this cannot be chain-FOLLOWING from the new row instead. Two re-captures of
+      // one document both link to the same root rather than to each other, so following
+      // only this row's link would leave the other's images live — two copies on file,
+      // which is the thing §3 forbids.
+      //
+      // The document-number check below is now redundant (the trigger guarantees a link
+      // targets the same document) and kept as a cheap backstop.
+      const staleIds = (siblings ?? [])
+        .filter((s) => ((s.prior_verification_id as string | null) ?? s.id) === rootId)
+        .filter((s) => ((s.document_number as string) ?? "").trim().toUpperCase() === docNumber)
+        .flatMap((s) => [s.front_image_id, s.back_image_id])
+        .filter((id): id is string => Boolean(id) && !keepIds.includes(id));
+
+      if (staleIds.length === 0) continue;
+
+      // The delete-then-stamp step is shared with reconcile-stored-images, so a swept
+      // duplicate is handled identically to one caught at completion time. Only the
+      // selection above differs — and selection is where the danger is.
+      const replacement = (recapture.front_image_id ?? recapture.back_image_id) as string;
+      await supersedeImages(serviceClient, ttr, staleIds, replacement);
+    } catch (err) {
+      console.error("supersede: unexpected error, continuing", err);
+    }
+  }
 }
 
 if (import.meta.main) {

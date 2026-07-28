@@ -3,6 +3,7 @@ import {
   completeTransaction,
   deleteParty,
   deleteTransaction,
+  findTransactionByRef,
   initTransaction,
   loadConductingPerson,
   loadCustomers,
@@ -18,6 +19,8 @@ import {
   saveTransaction,
   searchCompanyCustomers,
   searchIndividualCustomers,
+  fetchVerificationForDocument,
+  getIdImageSignedUrls,
   uploadIdImage,
 } from './wizardApi.js'
 import { supabase } from './supabase.js'
@@ -352,6 +355,92 @@ describe('wizardApi', () => {
     )
   })
 
+  it('saveIdVerifications() derives verification_basis from the chosen method, so a re-capture that links to the ID on file is still stored as new_capture', async () => {
+    window.sessionStorage.setItem('ttr.transactionId', 'tx-1')
+    const builder = makeBuilder({ data: null, error: null })
+    fromMock.mockReturnValue(builder)
+
+    await saveIdVerifications({
+      'party-party-1': {
+        verificationMethod: 'Sighted original document',
+        documentType: 'Passport',
+        documentNumber: 'P123456',
+        priorVerificationId: 'idv-old-1',
+        newCaptureReason: 'stored_copy_unclear',
+        isComplete: true,
+      },
+    })
+
+    expect(builder.insert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        verification_basis: 'new_capture',
+        prior_verification_id: 'idv-old-1',
+        new_capture_reason: 'stored_copy_unclear',
+        reliance_reason: null,
+      }),
+    )
+  })
+
+  it('saveIdVerifications() stores a reliance row with no new_capture_reason, keeping the two justification fields mutually exclusive', async () => {
+    window.sessionStorage.setItem('ttr.transactionId', 'tx-1')
+    const builder = makeBuilder({ data: null, error: null })
+    fromMock.mockReturnValue(builder)
+
+    await saveIdVerifications({
+      'party-party-1': {
+        verificationMethod: 'Relied on prior identification',
+        documentType: 'Passport',
+        documentNumber: 'P123456',
+        priorVerificationId: 'idv-old-1',
+        relianceReason: 'prior_id_reviewed_still_valid',
+        newCaptureReason: 'other',
+        isComplete: true,
+      },
+    })
+
+    expect(builder.insert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        verification_basis: 'relied_on_prior_identification',
+        reliance_reason: 'prior_id_reviewed_still_valid',
+        new_capture_reason: null,
+      }),
+    )
+  })
+
+  it('fetchVerificationForDocument() returns the single matching record, or null when the number is unused', async () => {
+    supabase.rpc.mockResolvedValue({ data: [{ id: 'idv-1', document_number: 'DL999' }], error: null })
+
+    const hit = await fetchVerificationForDocument({ documentType: 'Driver licence', documentNumber: 'DL999' })
+    expect(supabase.rpc).toHaveBeenCalledWith('get_verification_for_document', {
+      p_document_type: 'Driver licence',
+      p_document_number: 'DL999',
+      p_exclude_id: null,
+    })
+    expect(hit).toEqual({ id: 'idv-1', document_number: 'DL999' })
+
+    supabase.rpc.mockResolvedValue({ data: [], error: null })
+    expect(await fetchVerificationForDocument({ documentType: 'Passport', documentNumber: 'PA1' })).toBeNull()
+  })
+
+  it('fetchVerificationForDocument() passes excludeId so a saved record does not report colliding with itself', async () => {
+    supabase.rpc.mockResolvedValue({ data: [], error: null })
+
+    await fetchVerificationForDocument({ documentType: 'Passport', documentNumber: 'PA1', excludeId: 'idv-self' })
+
+    expect(supabase.rpc).toHaveBeenCalledWith(
+      'get_verification_for_document',
+      expect.objectContaining({ p_exclude_id: 'idv-self' }),
+    )
+  })
+
+  it('fetchVerificationForDocument() short-circuits without querying when the document is not yet identified', async () => {
+    supabase.rpc.mockResolvedValue({ data: [], error: null })
+
+    expect(await fetchVerificationForDocument({ documentType: '', documentNumber: 'DL999' })).toBeNull()
+    expect(await fetchVerificationForDocument({ documentType: 'Passport', documentNumber: '   ' })).toBeNull()
+    expect(supabase.rpc).not.toHaveBeenCalled()
+  })
+
   it('saveRecipientDelivery() upserts the delivery record for the current transactionId', async () => {
     window.sessionStorage.setItem('ttr.transactionId', 'tx-1')
     const builder = makeBuilder({ data: null, error: null }) // maybeSingle "existing?" -> none
@@ -474,6 +563,53 @@ describe('wizardApi', () => {
     expect(result.cashAmount).toBe('8000')
   })
 
+  // The lookup used to filter on status = 'draft', making a completed ref indistinguishable from
+  // an unused one — StartTransactionPage then opened the wizard on a ref that uq_tx_ref_per_entity
+  // would reject at insert time, two screens later.
+  describe('findTransactionByRef()', () => {
+    const rowFor = (status) => ({
+      id: 'tx-9',
+      scenario: 'bullion_sell',
+      transaction_ref: 'INV-9',
+      transaction_datetime: '2026-07-04T10:00:00Z',
+      status,
+      cash_currency: 'AUD',
+      cash_amount: 15000,
+      aud_value: 15000,
+    })
+
+    it('returns a completed transaction with its status, without adopting it as the active transaction', async () => {
+      const builder = makeBuilder({ data: rowFor('complete'), error: null })
+      fromMock.mockReturnValue(builder)
+
+      const result = await findTransactionByRef('INV-9')
+
+      expect(result).toMatchObject({ transactionRef: 'INV-9', status: 'complete' })
+      // Adopting a completed row's id would wedge the wizard — trg_lock_completed blocks every
+      // subsequent update and delete against it.
+      expect(window.sessionStorage.getItem('ttr.transactionId')).toBeNull()
+      // The status filter is gone, so completed rows are visible to the caller.
+      expect(builder.eq).toHaveBeenCalledWith('transaction_ref', 'INV-9')
+      expect(builder.eq).not.toHaveBeenCalledWith('status', 'draft')
+    })
+
+    it('adopts a draft as the active transaction so the wizard resumes it', async () => {
+      fromMock.mockReturnValue(makeBuilder({ data: rowFor('draft'), error: null }))
+
+      const result = await findTransactionByRef('INV-9')
+
+      expect(result).toMatchObject({ transactionRef: 'INV-9', status: 'draft' })
+      expect(window.sessionStorage.getItem('ttr.transactionId')).toBe('tx-9')
+    })
+
+    it('returns null for an unused reference', async () => {
+      fromMock.mockReturnValue(makeBuilder({ data: null, error: null }))
+
+      expect(await findTransactionByRef('INV-UNUSED')).toBeNull()
+      expect(window.sessionStorage.getItem('ttr.transactionId')).toBeNull()
+    })
+  })
+
   it('deleteTransaction() calls the delete-draft-transaction edge function with the current transactionId and clears it', async () => {
     window.sessionStorage.setItem('ttr.transactionId', 'tx-1')
     supabase.auth.getSession.mockResolvedValue({ data: { session: { access_token: 'tok' } } })
@@ -496,6 +632,21 @@ describe('wizardApi', () => {
     const result = await loadConductingPerson()
 
     expect(result).toEqual({ hasConductingPerson: 'no' })
+  })
+
+  it('loadConductingPerson() converts dob_known to the yes/no string the radios use, so a reloaded draft keeps its answer', async () => {
+    window.sessionStorage.setItem('ttr.transactionId', 'tx-1')
+    const row = { id: 'cp-1', full_name: 'Priya Agent', dob_known: true, date_of_birth: '1982-04-10', cp_aliases: [] }
+    fromMock.mockReturnValue(makeBuilder({ data: row, error: null }))
+
+    const loaded = await loadConductingPerson()
+
+    // Was passing the raw boolean straight through, which the page reads as unselected.
+    expect(loaded.dobKnown).toBe('yes')
+    expect(loaded.dateOfBirth).toBe('1982-04-10')
+
+    fromMock.mockReturnValue(makeBuilder({ data: { ...row, dob_known: false, date_of_birth: null }, error: null }))
+    expect((await loadConductingPerson()).dobKnown).toBe('no')
   })
 
   it('loadPreciousMetalItems() orders by sort_order and maps rows to camelCase', async () => {
@@ -601,6 +752,38 @@ describe('wizardApi', () => {
     expect(options.body).toBeInstanceOf(FormData)
     expect(options.headers['Content-Type']).toBeUndefined()
     expect(result).toEqual({ imageId: 'img-1', path: 'x', sha256: 'y' })
+  })
+
+  it('getIdImageSignedUrls() mints URLs via the get-id-image-urls Edge Function, so the view is logged server-side rather than signed directly by the client', async () => {
+    supabase.auth.getSession.mockResolvedValue({ data: { session: { access_token: 'tok' } } })
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ urls: { 'img-1': 'https://signed/one', 'img-2': 'https://signed/two' } }),
+    })
+
+    const result = await getIdImageSignedUrls(['img-1', 'img-2'])
+
+    const [url, options] = globalThis.fetch.mock.calls[0]
+    expect(url).toContain('/get-id-image-urls')
+    expect(JSON.parse(options.body)).toEqual({ imageIds: ['img-1', 'img-2'] })
+    expect(result).toEqual({ 'img-1': 'https://signed/one', 'img-2': 'https://signed/two' })
+  })
+
+  it('getIdImageSignedUrls() makes no request and returns an empty map when given no usable ids — nothing is logged for a no-op', async () => {
+    globalThis.fetch = vi.fn()
+
+    expect(await getIdImageSignedUrls([null, undefined, ''])).toEqual({})
+    expect(globalThis.fetch).not.toHaveBeenCalled()
+  })
+
+  it('getIdImageSignedUrls() returns an empty map when the function fails, so a failed access log never yields a viewable URL', async () => {
+    supabase.auth.getSession.mockResolvedValue({ data: { session: { access_token: 'tok' } } })
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      json: async () => ({ error: 'Failed to record image access' }),
+    })
+
+    expect(await getIdImageSignedUrls(['img-1'])).toEqual({})
   })
 
   it('surfaces the Supabase error object when a query fails (e.g. loadCustomers)', async () => {

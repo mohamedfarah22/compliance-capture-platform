@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Navigate, useNavigate } from 'react-router-dom'
+import { Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import Button from '../../components/ui/Button.jsx'
 import FormField from '../../components/ui/FormField.jsx'
 import TextInput from '../../components/ui/TextInput.jsx'
@@ -8,17 +8,25 @@ import { supabase } from '../../lib/supabase.js'
 import styles from './LoginPage.module.css'
 
 const LoginPage = () => {
-  const { session, loading } = useAuth()
+  const { session, loading, aal } = useAuth()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
-  const redirectTo = '/start'
+  // Where the user was heading before being sent here, so they land there rather
+  // than on the wizard start once both factors are done.
+  const requested = searchParams.get('redirect')
+  const afterAuth = requested || '/start'
+  // A password on its own only reaches aal1, so the second factor comes next.
+  // Sending them to a protected route instead would trip ProtectedRoute's
+  // partial-session check and sign them straight back out.
+  const mfaStep = `/mfa?redirect=${encodeURIComponent(afterAuth)}`
 
   if (!loading && session) {
-    return <Navigate to={redirectTo} replace />
+    return <Navigate to={aal?.currentLevel === 'aal2' ? afterAuth : mfaStep} replace />
   }
 
   const handleSubmit = async (event) => {
@@ -32,7 +40,7 @@ const LoginPage = () => {
       setError('Invalid email or password.')
       setSubmitting(false)
     } else {
-      navigate(redirectTo, { replace: true })
+      navigate(mfaStep, { replace: true })
     }
   }
 

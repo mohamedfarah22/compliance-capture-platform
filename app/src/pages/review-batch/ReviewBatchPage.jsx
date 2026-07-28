@@ -31,6 +31,7 @@ const ReviewBatchPage = () => {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [submitting, setSubmitting] = useState(false)
+  const [downloading, setDownloading] = useState(false)
   const [actionDone, setActionDone] = useState(null) // 'submit' | 'reject'
 
   useEffect(() => {
@@ -38,7 +39,7 @@ const ReviewBatchPage = () => {
       const { data: batchData, error: batchErr } = await supabase
         .schema('ttr')
         .from('report_batches')
-        .select('id, report_date, transaction_count, status, generated_at, xml_content, approval_token')
+        .select('id, report_date, transaction_count, status, generated_at, approval_token')
         .eq('id', batchId)
         .single()
 
@@ -61,15 +62,42 @@ const ReviewBatchPage = () => {
     load()
   }, [batchId])
 
-  const handleDownload = () => {
-    if (!batch?.xml_content) return
-    const blob = new Blob([batch.xml_content], { type: 'application/xml' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `ttr-fbs-${batch.report_date}.xml`
-    a.click()
-    URL.revokeObjectURL(url)
+  // Fetched on demand rather than loaded with the batch: the XML holds the same
+  // personal information as the underlying records, so it reaches the browser
+  // only when actually exported — and that export is logged server-side.
+  const handleDownload = async () => {
+    if (!session) return
+    setDownloading(true)
+    setError(null)
+    try {
+      const resp = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/approve-batch`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ batchId, token, action: 'download' }),
+        },
+      )
+      const result = await resp.json()
+      if (!resp.ok) {
+        setError(result.error ?? 'Download failed')
+        return
+      }
+      const blob = new Blob([result.xmlContent], { type: 'application/xml' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = result.fileName
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setDownloading(false)
+    }
   }
 
   const handleAction = async (action) => {
@@ -150,8 +178,8 @@ const ReviewBatchPage = () => {
       )}
 
       <div className={styles.batchActions}>
-        <Button onClick={handleDownload} variant="secondary">
-          Download XML
+        <Button disabled={downloading} onClick={handleDownload} variant="secondary">
+          {downloading ? 'Preparing…' : 'Download XML'}
         </Button>
         {isPending && (
           <>

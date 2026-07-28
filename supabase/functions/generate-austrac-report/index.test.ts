@@ -8,6 +8,7 @@ import {
   buildTTRXML,
   DESIGNATED_SERVICE_MAP,
   ID_TYPE_MAP,
+  isISODate,
   LEGAL_FORM_MAP,
   loadTxnScopedData,
   makeIdGen,
@@ -1000,4 +1001,20 @@ Deno.test("TC-258: physicalCurrencyDirection is RECEIVED for a sell scenario and
     bullionItems: [{ metal_type: "Gold", line_total_aud: 10000 }],
   });
   assertMatch(buyXml, /<physicalCurrencyDirection>PROVIDED<\/physicalCurrencyDirection>/);
+});
+
+Deno.test("a locale-formatted reportDate (dd/MM/yyyy) is rejected before it reaches the timestamptz filter", () => {
+  assertEquals(isISODate("26/07/2026"), false);
+  assertEquals(isISODate("2026-7-4"), false);
+  assertEquals(isISODate(""), false);
+});
+
+Deno.test("isISODate rejects a well-formed but non-existent calendar date", () => {
+  assertEquals(isISODate("2026-02-30"), false);
+  assertEquals(isISODate("2026-13-01"), false);
+});
+
+Deno.test("isISODate accepts a real ISO calendar date", () => {
+  assertEquals(isISODate("2026-07-26"), true);
+  assertEquals(isISODate("2024-02-29"), true);
 });
