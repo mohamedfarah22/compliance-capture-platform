@@ -7,7 +7,7 @@ import TextInput from '../../components/ui/TextInput.jsx'
 import WizardFrame from '../../components/layout/WizardFrame.jsx'
 import { wizardStorageKeys, readWizardData } from '../../components/wizardStorage.js'
 import { useAuth } from '../../context/AuthContext.jsx'
-import { deleteTransaction, getTransactionId, initTransaction, migrateNewParties, saveTransaction } from '../../lib/wizardApi.js'
+import { deleteTransaction, describeSaveError, getTransactionId, initTransaction, migrateNewParties, saveTransaction } from '../../lib/wizardApi.js'
 import styles from './TransactionDetailsPage.module.css'
 
 const LOCATION = 'Coburg, VIC'
@@ -44,23 +44,13 @@ const RATE_SOURCE_OPTIONS = [
   'Market rate',
 ]
 
-// The Start page blocks refs already used by a completed transaction, but another staff member
-// can claim or complete the same ref between that check and this insert. Translate the
-// constraint violation rather than showing staff "duplicate key value violates unique constraint".
-function describeSaveError(err) {
-  const text = `${err?.code ?? ''} ${err?.message ?? ''}`
-  if (text.includes('23505') || text.includes('uq_tx_ref_per_entity')) {
-    return 'That transaction reference is already in use. Go back to the start and enter a different reference.'
-  }
-  return err?.message || 'Failed to save. Please try again.'
-}
-
 const TransactionDetailsPage = () => {
   const navigate = useNavigate()
   const { staffMember } = useAuth()
 
   const [transactionData] = useState(() => readWizardData(wizardStorageKeys.transaction, {}))
   const [selectedParties] = useState(() => readWizardData(wizardStorageKeys.customers, []))
+  const fastPath = readWizardData(wizardStorageKeys.selfConductedFastPath, false)
 
   const [scenario, setScenario] = useState(transactionData.scenario || 'sell')
   const [serviceType] = useState(transactionData.serviceType || 'bullion')
@@ -155,9 +145,9 @@ const TransactionDetailsPage = () => {
     <WizardFrame
       title="Transaction & Cash Details"
       subtitle="Enter the transaction and physical cash details for this reportable transaction."
-      helperText="Step 2 of 3"
+      helperText={fastPath ? 'Step 3' : 'Step 2 of 3'}
       backLabel="Back"
-      onBack={() => navigate('/customers')}
+      onBack={() => navigate(fastPath ? '/id-verification' : '/customers')}
       onExit={() => setShowExitModal(true)}
       actions={
         <>

@@ -7,11 +7,28 @@ import FormField from '../../components/ui/FormField.jsx'
 import TextInput from '../../components/ui/TextInput.jsx'
 import WizardFrame from '../../components/layout/WizardFrame.jsx'
 import { wizardStorageKeys, writeWizardData, readWizardData } from '../../components/wizardStorage.js'
-import { deleteParty, deleteTransaction, searchIndividualCustomers, searchCompanyCustomers } from '../../lib/wizardApi.js'
+import { useAuth } from '../../context/AuthContext.jsx'
+import { deleteParty, deleteTransaction, describeSaveError, getTransactionId, initTransaction, migrateNewParties, searchIndividualCustomers, searchCompanyCustomers } from '../../lib/wizardApi.js'
 import styles from './CustomerSearchPage.module.css'
+
+// Inert placeholder — satisfies the transactions table's NOT NULL/CHECK(>0) constraints on
+// cash_amount/aud_value until Transaction Details overwrites them with the real figures via
+// saveTransaction. complete-transaction validates aud_value against the reportable threshold
+// only at completion time, so a transaction stuck at this placeholder can never be completed.
+const FAST_PATH_PLACEHOLDER_FINANCIAL_DATA = {
+  cashCurrency: 'AUD',
+  cashAmount: '1',
+  foreignCurrencyType: '',
+  foreignCurrencyAmount: '',
+  fxRate: '',
+  rateSource: '',
+  lppFlag: false,
+  isOtherDsProviderInvolved: false,
+}
 
 const CustomerSearchPage = () => {
   const navigate = useNavigate()
+  const { staffMember } = useAuth()
 
   const [searchMode, setSearchMode] = useState('individual')
 
@@ -36,6 +53,11 @@ const CustomerSearchPage = () => {
   const [continueError, setContinueError] = useState('')
   const [removeError, setRemoveError] = useState('')
   const [showExitModal, setShowExitModal] = useState(false)
+
+  const [selfConducted, setSelfConducted] = useState(null)
+  const [continuing, setContinuing] = useState(false)
+
+  const isFastPathEligible = selectedParties.length === 1 && selectedParties[0].type === 'individual'
 
   const switchMode = (mode) => {
     setSearchMode(mode)
@@ -135,14 +157,47 @@ const CustomerSearchPage = () => {
     navigate('/start')
   }
 
-  const handleContinue = () => {
+  const handleContinue = async () => {
     if (selectedParties.length === 0) {
       setContinueError('Add at least one customer or party to continue.')
       return
     }
 
+    if (isFastPathEligible && !selfConducted) {
+      setContinueError('Answer whether the customer is acting on their own behalf.')
+      return
+    }
+
+    setContinueError('')
     writeWizardData(wizardStorageKeys.customers, selectedParties)
-    navigate('/transaction-details')
+
+    const fastPath = isFastPathEligible && selfConducted === 'yes'
+    writeWizardData(wizardStorageKeys.selfConductedFastPath, fastPath)
+
+    if (!fastPath) {
+      navigate('/transaction-details')
+      return
+    }
+
+    setContinuing(true)
+    try {
+      if (getTransactionId()) {
+        await migrateNewParties(selectedParties)
+      } else {
+        const startData = readWizardData(wizardStorageKeys.transaction, {})
+        await initTransaction({
+          startData,
+          financialData: FAST_PATH_PLACEHOLDER_FINANCIAL_DATA,
+          parties: selectedParties,
+          staffMember,
+        })
+      }
+      navigate('/id-verification')
+    } catch (err) {
+      setContinueError(describeSaveError(err))
+    } finally {
+      setContinuing(false)
+    }
   }
 
   const isPartyAdded = (partyId) => selectedParties.some((p) => p.id === partyId)
@@ -157,7 +212,9 @@ const CustomerSearchPage = () => {
       onBack={() => navigate('/start')}
       onExit={() => setShowExitModal(true)}
       actions={
-        <Button onClick={handleContinue}>Continue</Button>
+        <Button disabled={continuing} onClick={handleContinue}>
+          {continuing ? 'Continuing…' : 'Continue'}
+        </Button>
       }
     >
       {continueError ? <p className={styles.continueError}>{continueError}</p> : null}
@@ -322,6 +379,31 @@ const CustomerSearchPage = () => {
                 </li>
               ))}
             </ul>
+          )}
+
+          {isFastPathEligible && (
+            <FormField label={`Is ${selectedParties[0].displayName} acting on their own behalf for this transaction?`}>
+              <div className={styles.radioGroup} data-testid="selfConducted-group">
+                <label className={styles.radioLabel}>
+                  <input
+                    type="radio"
+                    name="selfConducted"
+                    checked={selfConducted === 'yes'}
+                    onChange={() => setSelfConducted('yes')}
+                  />
+                  Yes
+                </label>
+                <label className={styles.radioLabel}>
+                  <input
+                    type="radio"
+                    name="selfConducted"
+                    checked={selfConducted === 'no'}
+                    onChange={() => setSelfConducted('no')}
+                  />
+                  No
+                </label>
+              </div>
+            </FormField>
           )}
         </div>
       </div>

@@ -19,6 +19,11 @@ vi.mock('../../context/AuthContext.jsx', () => ({
   useAuth: vi.fn(),
 }))
 
+// Pinned off (matching the live config) so the no-individual routing is tested independently of it.
+vi.mock('../../config/featureFlags.js', () => ({
+  ITEM_AND_DELIVERY_CAPTURE_ENABLED: false,
+}))
+
 const PARTIES = [
   { id: 'ind-001', type: 'individual', displayName: 'Jane Smith', dateOfBirth: '1990-04-15' },
   { id: 'co-001', type: 'company', displayName: 'Acme Pty Ltd', abnAcn: '12345678901' },
@@ -33,6 +38,7 @@ function renderPage() {
         <Route path="/conducting-person" element={<ConductingPersonPage />} />
         <Route path="/id-verification" element={<h1>ID Verification Details</h1>} />
         <Route path="/recipient-delivery" element={<h1>Recipient / Delivery</h1>} />
+        <Route path="/review" element={<h1>Review</h1>} />
       </Routes>
     </MemoryRouter>,
   )
@@ -271,7 +277,7 @@ describe('ConductingPersonPage', () => {
     })
   })
 
-  it('skips straight to /recipient-delivery — bypassing /id-verification — when there is no individual to verify (company-only customer, impersonal channel)', async () => {
+  it('skips straight to /review — bypassing /id-verification and the disabled /recipient-delivery — when there is no individual to verify (company-only customer, impersonal channel)', async () => {
     const user = userEvent.setup()
     loadCustomers.mockResolvedValue([{ id: 'co-001', type: 'company', displayName: 'Acme Pty Ltd', abnAcn: '12345678901' }])
     renderPage()
@@ -282,7 +288,7 @@ describe('ConductingPersonPage', () => {
     await user.selectOptions(screen.getByLabelText('Method of conducting the transaction'), 'N')
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
-    expect(await screen.findByRole('heading', { name: 'Recipient / Delivery' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Review' })).toBeInTheDocument()
   })
 
   it('still navigates to /id-verification when an individual party exists', async () => {

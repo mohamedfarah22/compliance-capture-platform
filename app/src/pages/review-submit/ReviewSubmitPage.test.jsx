@@ -57,6 +57,7 @@ function renderPage() {
         <Route path="/recipient-delivery" element={<h1>Recipient / Delivery</h1>} />
         <Route path="/transaction-details" element={<h1>Transaction & Cash Details</h1>} />
         <Route path="/party-details" element={<h1>Party Details</h1>} />
+        <Route path="/id-verification" element={<h1>ID Verification Details & Capture</h1>} />
         <Route path="/" element={<h1>Root</h1>} />
       </Routes>
     </MemoryRouter>,
@@ -146,24 +147,14 @@ describe('ReviewSubmitPage', () => {
     expect(screen.getByRole('button', { name: /complete \/ reportable/i })).toBeDisabled()
   })
 
-  it('the missing-items blocking issue links to /precious-metal-details when service type is precious_metal, and to /bullion-details otherwise', async () => {
-    const user = userEvent.setup()
-    seedCompleteMocks({ transaction: { serviceType: 'bullion' }, bullionItems: [] })
+  it('does not require recipient/delivery or bullion/precious-metal data, and does not render those sections, while ITEM_AND_DELIVERY_CAPTURE_ENABLED is off', async () => {
+    seedCompleteMocks({ recipientDelivery: null, bullionItems: [], preciousMetalItems: [] })
     renderPage()
 
-    await user.click(await screen.findByText('At least one bullion item is required.'))
-
-    expect(await screen.findByRole('heading', { name: 'Bullion Details' })).toBeInTheDocument()
-  })
-
-  it('the missing-items blocking issue links to /precious-metal-details for precious metal transactions', async () => {
-    const user = userEvent.setup()
-    seedCompleteMocks({ transaction: { serviceType: 'precious_metal' }, preciousMetalItems: [] })
-    renderPage()
-
-    await user.click(await screen.findByText('At least one precious metal item is required.'))
-
-    expect(await screen.findByRole('heading', { name: 'Precious Metal Details' })).toBeInTheDocument()
+    expect(await screen.findByText('This transaction is ready to be completed.')).toBeInTheDocument()
+    expect(screen.queryByText('Recipient / Delivery')).not.toBeInTheDocument()
+    expect(screen.queryByText(/^Bullion \(/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/^Precious metal \(/)).not.toBeInTheDocument()
   })
 
   it('calls completeTransaction() when the Complete button is clicked', async () => {
@@ -212,23 +203,6 @@ describe('ReviewSubmitPage', () => {
     expect(screen.queryByRole('heading', { name: 'Root' })).not.toBeInTheDocument()
   })
 
-  it('shows the yellow warning banner listing non-blocking issues when present', async () => {
-    seedCompleteMocks({ recipientDelivery: { recipientIsParty: 'yes', selectedPartyId: 'party-1', purposeOfTransfer: 'Collecting bullion', deliveryMethod: 'Collected', deliveryAddressDifferent: null } })
-    renderPage()
-
-    expect(await screen.findByText(/Ready to complete — 1 warning to review/)).toBeInTheDocument()
-  })
-
-  it('each blocking issue card links to the correct wizard page for remediation', async () => {
-    const user = userEvent.setup()
-    seedCompleteMocks({ recipientDelivery: { recipientIsParty: null, purposeOfTransfer: '', deliveryMethod: '' } })
-    renderPage()
-
-    await user.click(await screen.findByText('Recipient information incomplete.'))
-
-    expect(await screen.findByRole('heading', { name: 'Recipient / Delivery' })).toBeInTheDocument()
-  })
-
   it('transaction summary shows transactionRef, dateTime, scenario, and cash amount', async () => {
     seedCompleteMocks({ transaction: { transactionRef: 'INV-999', dateTime: '2026-07-04T10:00', scenario: 'sell', cashAmount: '15000', cashCurrency: 'AUD' } })
     renderPage()
@@ -244,21 +218,11 @@ describe('ReviewSubmitPage', () => {
     renderPage()
 
     expect(await screen.findByText('Parties (2)')).toBeInTheDocument()
-    // "Jane Doe" also appears in the Recipient/Delivery section (she's the selected recipient).
-    expect(screen.getAllByText('Jane Doe').length).toBeGreaterThan(0)
+    expect(screen.getByText('Jane Doe')).toBeInTheDocument()
     expect(screen.getByText('Acme Pty Ltd')).toBeInTheDocument()
   })
 
-  it('renders a "Precious metal" summary section — sourced from loadPreciousMetalItems() — instead of "Bullion" when the service type recorded on the transaction is precious_metal', async () => {
-    const pmItem = { metalType: 'Gold', quantity: '1', weight: '10', weightUnit: 'grams', unitPrice: '100', lineTotal: 1000 }
-    seedCompleteMocks({ transaction: { serviceType: 'precious_metal' }, bullionItems: [], preciousMetalItems: [pmItem] })
-    renderPage()
-
-    expect(await screen.findByText('Precious metal (1 item)')).toBeInTheDocument()
-    expect(screen.queryByText(/^Bullion \(/)).not.toBeInTheDocument()
-  })
-
-  it('back button routes to /precious-metal-details vs /bullion-details based on the service type recorded on the transaction', async () => {
+  it('back button routes to /id-verification regardless of service type (recipient-delivery/bullion-details steps are flagged off)', async () => {
     const user = userEvent.setup()
     seedCompleteMocks({ transaction: { serviceType: 'precious_metal' } })
     renderPage()
@@ -266,14 +230,6 @@ describe('ReviewSubmitPage', () => {
     await screen.findByText('This transaction is ready to be completed.')
     await user.click(screen.getByRole('button', { name: 'Back' }))
 
-    expect(await screen.findByRole('heading', { name: 'Precious Metal Details' })).toBeInTheDocument()
-  })
-
-  it('shows a non-blocking warning — Complete stays enabled — when "different delivery address" has not yet been answered', async () => {
-    seedCompleteMocks({ recipientDelivery: { recipientIsParty: 'yes', selectedPartyId: 'party-1', purposeOfTransfer: 'Collecting bullion', deliveryMethod: 'Shipped', deliveryAddressDifferent: null } })
-    renderPage()
-
-    expect(await screen.findByText('Delivery address preference not specified.')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /complete \/ reportable/i })).not.toBeDisabled()
+    expect(await screen.findByRole('heading', { name: 'ID Verification Details & Capture' })).toBeInTheDocument()
   })
 })

@@ -11,10 +11,18 @@ vi.mock('../context/AuthContext.jsx', () => ({
   useAuth: vi.fn(),
 }))
 
+// ITEM_AND_DELIVERY_CAPTURE_ENABLED is currently off pending an unrelated client-driven
+// change that removes Recipient Delivery/Bullion Details entirely. This suite still
+// exercises those steps, so it forces the flag on here without touching the real config.
+vi.mock('../config/featureFlags.js', () => ({
+  ITEM_AND_DELIVERY_CAPTURE_ENABLED: true,
+}))
+
 vi.mock('../lib/wizardApi.js', () => ({
   clearTransactionId: vi.fn(),
   completeTransaction: vi.fn(),
   deleteTransaction: vi.fn(),
+  describeSaveError: vi.fn((err) => err?.message || 'Failed to save. Please try again.'),
   fetchPriorVerifications: vi.fn(),
   fetchVerificationForDocument: vi.fn(),
   findTransactionByRef: vi.fn(),
@@ -65,7 +73,10 @@ function wireWizardApiToFakeDb(db) {
   wizardApi.clearTransactionId.mockImplementation(() => { db.transactionId = null })
   wizardApi.initTransaction.mockImplementation(async ({ parties }) => {
     db.transactionId = 'tx-1'
-    db.parties = parties.map((p, i) => ({ ...p, id: `db-party-${i}` }))
+    // Mirrors the real initTransaction, which internally calls migrateNewParties and so
+    // flags parties migrated and persists them back to sessionStorage as a side effect.
+    db.parties = parties.map((p, i) => ({ ...p, id: `db-party-${i}`, _migrated: true }))
+    window.sessionStorage.setItem(wizardStorageKeys.customers, JSON.stringify(db.parties))
     return db.transactionId
   })
   wizardApi.saveTransaction.mockResolvedValue(undefined)
@@ -173,7 +184,10 @@ describe('wizard integration flow', () => {
     await user.click(screen.getByRole('button', { name: 'Save customer' }))
 
     // /customers -> /transaction-details
+    // A single individual party makes this eligible for the self-conducted fast path —
+    // select "No" to keep exercising today's full linear path.
     expect(await screen.findByRole('heading', { name: 'Add Customers / Parties' })).toBeInTheDocument()
+    await user.click(screen.getByRole('radio', { name: 'No' }))
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     // /transaction-details -> /party-details
@@ -213,6 +227,10 @@ describe('wizard integration flow', () => {
     // /recipient-delivery -> /bullion-details
     await screen.findByRole('radio', { name: 'Yes' })
     await user.click(screen.getByRole('radio', { name: 'Yes' }))
+    // The "Select recipient" section only appears once the Yes click's re-render lands —
+    // wait for it rather than querying synchronously (see 95a24cf for the same class of
+    // CI-only render-timing race in BullionDetailsPage's tests).
+    await screen.findByRole('heading', { name: 'Select recipient' })
     // "Recipient" also matches the section <h2> — filter to the FormField <label>.
     const recipientLabel = screen.getAllByText('Recipient').find((el) => el.tagName === 'LABEL')
     await user.selectOptions(recipientLabel.nextElementSibling, 'db-party-0')
@@ -258,6 +276,9 @@ describe('wizard integration flow', () => {
 
     expect(await screen.findByRole('heading', { name: 'Add Customers / Parties' })).toBeInTheDocument()
     expect(screen.getByText('Jane Doe')).toBeInTheDocument()
+    // The single existing individual party makes this fast-path eligible — select "No" to
+    // keep exercising the full linear path this test is actually about.
+    await user.click(screen.getByRole('radio', { name: 'No' }))
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     expect(await screen.findByRole('heading', { name: 'Transaction & Cash Details' })).toBeInTheDocument()
@@ -266,6 +287,142 @@ describe('wizard integration flow', () => {
 
     await screen.findByRole('heading', { name: 'Party Details' })
     expect(db.parties).toHaveLength(1)
+  })
+
+  it('the self-conducted fast-path question only appears for exactly one individual party', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    expect(await screen.findByRole('heading', { name: 'Start TTR Transaction' })).toBeInTheDocument()
+    await user.click(screen.getByRole('radio', { name: /sell bullion to customer/i }))
+    await user.type(screen.getByLabelText(/transaction reference/i), 'INV-1')
+    await user.click(screen.getByRole('button', { name: /start transaction/i }))
+
+    // One individual party -> question appears.
+    expect(await screen.findByRole('heading', { name: 'Add Customers / Parties' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /create new customer/i }))
+    await user.type(screen.getByLabelText('First name'), 'Jane')
+    await user.type(screen.getByLabelText('Last name'), 'Doe')
+    await user.type(screen.getByLabelText('Date of birth'), '15/06/1985')
+    await user.click(screen.getByRole('button', { name: 'Save customer' }))
+    expect(await screen.findByTestId('selfConducted-group')).toBeInTheDocument()
+
+    // Adding a second individual party -> question disappears.
+    await user.click(screen.getByRole('button', { name: /create new customer/i }))
+    await user.type(screen.getByLabelText('First name'), 'John')
+    await user.type(screen.getByLabelText('Last name'), 'Smith')
+    await user.type(screen.getByLabelText('Date of birth'), '01/01/1980')
+    await user.click(screen.getByRole('button', { name: 'Save customer' }))
+    await screen.findByRole('heading', { name: 'Add Customers / Parties' })
+    expect(screen.queryByTestId('selfConducted-group')).not.toBeInTheDocument()
+
+    // Remove one party back down to a single individual, then switch it to a company ->
+    // question stays absent.
+    await user.click(screen.getAllByRole('button', { name: 'Remove' })[0])
+    await screen.findByTestId('selfConducted-group')
+    await user.click(screen.getAllByRole('button', { name: 'Remove' })[0])
+    await screen.findByRole('button', { name: /create new customer/i })
+    expect(screen.queryByTestId('selfConducted-group')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /create new customer/i }))
+    await user.click(screen.getByRole('button', { name: 'Company / Business' }))
+    await user.type(screen.getByLabelText('Registered entity name'), 'Acme Pty Ltd')
+    await user.type(screen.getByLabelText('ABN / ACN'), '12345678901')
+    await user.click(screen.getByRole('button', { name: 'Save customer' }))
+    await screen.findByRole('heading', { name: 'Add Customers / Parties' })
+    expect(screen.queryByTestId('selfConducted-group')).not.toBeInTheDocument()
+  })
+
+  it('fast path: answering Yes skips Party Details/Conducting Person until after ID Verification', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    expect(await screen.findByRole('heading', { name: 'Start TTR Transaction' })).toBeInTheDocument()
+    await user.click(screen.getByRole('radio', { name: /sell bullion to customer/i }))
+    await user.type(screen.getByLabelText(/transaction reference/i), 'INV-1')
+    await user.click(screen.getByRole('button', { name: /start transaction/i }))
+
+    expect(await screen.findByRole('heading', { name: 'Add Customers / Parties' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /create new customer/i }))
+    await user.type(screen.getByLabelText('First name'), 'Jane')
+    await user.type(screen.getByLabelText('Last name'), 'Doe')
+    await user.type(screen.getByLabelText('Date of birth'), '15/06/1985')
+    await user.click(screen.getByRole('button', { name: 'Save customer' }))
+
+    await screen.findByTestId('selfConducted-group')
+    await user.click(screen.getByRole('radio', { name: 'Yes' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    // Straight to ID Verification — Transaction Details, Party Details and Conducting
+    // Person are all skipped for now.
+    expect(await screen.findByRole('heading', { name: 'ID Verification Details & Capture' })).toBeInTheDocument()
+    expect(wizardApi.initTransaction).toHaveBeenCalledWith(
+      expect.objectContaining({ financialData: expect.objectContaining({ cashCurrency: 'AUD', cashAmount: '1' }) }),
+    )
+
+    await user.selectOptions(screen.getByLabelText('Verification method'), 'Sighted original document')
+    await user.selectOptions(screen.getByLabelText('Document or data-source type'), 'Passport')
+    await user.type(screen.getByLabelText('Document or reference number'), 'P123456')
+    await user.click(screen.getByRole('button', { name: /start camera for front/i }))
+    await user.click(screen.getByRole('button', { name: 'Capture front' }))
+    await user.click(screen.getByRole('button', { name: 'Accept front image' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    // ID Verification -> Transaction Details, with a blank (not placeholder) cash amount.
+    expect(await screen.findByRole('heading', { name: 'Transaction & Cash Details' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Cash amount')).toHaveValue(null)
+    await user.type(screen.getByLabelText('Cash amount'), '15000')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(wizardApi.saveTransaction).toHaveBeenCalled()
+    expect(wizardApi.initTransaction).toHaveBeenCalledTimes(1)
+
+    // Transaction Details -> Party Details (remaining fields only).
+    expect(await screen.findByRole('heading', { name: 'Party Details' })).toBeInTheDocument()
+    await user.type(screen.getByLabelText('Street address'), '1 Main St')
+    await user.type(screen.getByLabelText('Suburb'), 'Coburg')
+    await user.selectOptions(screen.getByLabelText('State'), 'VIC')
+    await user.type(screen.getByLabelText('Postcode'), '3058')
+    await user.type(screen.getByLabelText('Phone number'), '0400000000')
+    await user.type(screen.getByLabelText('Occupation or principal activity'), 'Jeweller')
+    await user.selectOptions(screen.getByLabelText('Gender'), 'F')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    // Party Details -> Recipient Delivery directly — Conducting Person is never shown.
+    await screen.findByRole('radio', { name: 'Yes' })
+    expect(screen.queryByText('Is a different person conducting the transaction on behalf of a party?')).not.toBeInTheDocument()
+  }, 30000)
+
+  it('fast path back-navigation lands on the correct previous page at each new transition', async () => {
+    const user = userEvent.setup()
+
+    // ID Verification -> back -> Customer Search
+    db.transactionId = 'tx-1'
+    db.parties = [{ id: 'db-party-0', type: 'individual', displayName: 'Jane Doe', firstName: 'Jane', lastName: 'Doe', dateOfBirth: '1985-06-15', _migrated: true }]
+    window.sessionStorage.setItem(wizardStorageKeys.selfConductedFastPath, JSON.stringify(true))
+    window.sessionStorage.setItem(wizardStorageKeys.customers, JSON.stringify(db.parties))
+    window.history.pushState({}, '', '/id-verification')
+    const { unmount: unmount1 } = render(<App />)
+    await screen.findByRole('heading', { name: 'ID Verification Details & Capture' })
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+    expect(await screen.findByRole('heading', { name: 'Add Customers / Parties' })).toBeInTheDocument()
+    unmount1()
+
+    // Transaction Details -> back -> ID Verification
+    window.sessionStorage.setItem(wizardStorageKeys.selfConductedFastPath, JSON.stringify(true))
+    window.history.pushState({}, '', '/transaction-details')
+    const { unmount: unmount2 } = render(<App />)
+    await screen.findByRole('heading', { name: 'Transaction & Cash Details' })
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+    expect(await screen.findByRole('heading', { name: 'ID Verification Details & Capture' })).toBeInTheDocument()
+    unmount2()
+
+    // Recipient Delivery -> back -> Party Details
+    window.sessionStorage.setItem(wizardStorageKeys.selfConductedFastPath, JSON.stringify(true))
+    window.history.pushState({}, '', '/recipient-delivery')
+    render(<App />)
+    await screen.findByRole('radio', { name: 'Yes' })
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+    expect(await screen.findByRole('heading', { name: 'Party Details' })).toBeInTheDocument()
   })
 
   it('cancelling from any page mid-wizard clears all sessionStorage wizard keys', async () => {

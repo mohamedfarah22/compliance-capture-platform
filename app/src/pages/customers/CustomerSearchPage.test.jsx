@@ -127,6 +127,8 @@ describe('CustomerSearchPage', () => {
     await user.type(screen.getByLabelText('Date of birth'), '15/06/1985')
     await user.click(screen.getByRole('button', { name: 'Search' }))
     await user.click(await screen.findByRole('button', { name: 'Add to transaction' }))
+    // A single individual triggers the self-conducted question; "No" keeps the standard route.
+    await user.click(await screen.findByRole('radio', { name: 'No' }))
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     expect(await screen.findByRole('heading', { name: 'Transaction Details' })).toBeInTheDocument()

@@ -4,6 +4,7 @@ import { AlertCircle, Building2, CheckCircle2, Edit2, User, XCircle } from 'luci
 import Button from '../../components/ui/Button.jsx'
 import WizardFrame from '../../components/layout/WizardFrame.jsx'
 import { useAuth } from '../../context/AuthContext.jsx'
+import { ITEM_AND_DELIVERY_CAPTURE_ENABLED } from '../../config/featureFlags.js'
 import {
   completeTransaction,
   loadBullionItems,
@@ -45,15 +46,15 @@ const ReviewSubmitPage = () => {
 
   useEffect(() => {
     const init = async () => {
-      const [txnData, customersData, cpData, recipientData, bullionData, preciousMetalData, idData] = await Promise.all([
+      const [txnData, customersData, cpData, idData] = await Promise.all([
         loadTransaction(),
         loadCustomers(),
         loadConductingPerson(),
-        loadRecipientDelivery(),
-        loadBullionItems(),
-        loadPreciousMetalItems(),
         loadIdVerifications(),
       ])
+      const [recipientData, bullionData, preciousMetalData] = ITEM_AND_DELIVERY_CAPTURE_ENABLED
+        ? await Promise.all([loadRecipientDelivery(), loadBullionItems(), loadPreciousMetalItems()])
+        : [null, [], []]
 
       const txnSafe = txnData || {}
       const isPreciousMetal = txnSafe.serviceType === 'precious_metal'
@@ -78,14 +79,16 @@ const ReviewSubmitPage = () => {
       if (!txnSafe.scenario) v.push({ section: 'Transaction Details', message: 'Transaction scenario missing.', route: '/transaction-details', blocking: true })
       if (!txnSafe.cashAmount || parseFloat(txnSafe.cashAmount) <= 0) v.push({ section: 'Transaction Details', message: 'Cash amount missing or invalid.', route: '/transaction-details', blocking: true })
       if (!customersData.length) v.push({ section: 'Customers / Parties', message: 'At least one party is required.', route: '/customers', blocking: true })
-      if (!recipientData?.recipientIsParty) v.push({ section: 'Recipient / Delivery', message: 'Recipient information incomplete.', route: '/recipient-delivery', blocking: true })
-      if (!recipientData?.purposeOfTransfer?.trim()) v.push({ section: 'Recipient / Delivery', message: 'Purpose of transfer missing.', route: '/recipient-delivery', blocking: true })
-      if (isPreciousMetal) {
-        if (!preciousMetalData.length) v.push({ section: 'Precious Metal Details', message: 'At least one precious metal item is required.', route: '/precious-metal-details', blocking: true })
-      } else {
-        if (!bullionData.length) v.push({ section: 'Bullion Details', message: 'At least one bullion item is required.', route: '/bullion-details', blocking: true })
+      if (ITEM_AND_DELIVERY_CAPTURE_ENABLED) {
+        if (!recipientData?.recipientIsParty) v.push({ section: 'Recipient / Delivery', message: 'Recipient information incomplete.', route: '/recipient-delivery', blocking: true })
+        if (!recipientData?.purposeOfTransfer?.trim()) v.push({ section: 'Recipient / Delivery', message: 'Purpose of transfer missing.', route: '/recipient-delivery', blocking: true })
+        if (isPreciousMetal) {
+          if (!preciousMetalData.length) v.push({ section: 'Precious Metal Details', message: 'At least one precious metal item is required.', route: '/precious-metal-details', blocking: true })
+        } else {
+          if (!bullionData.length) v.push({ section: 'Bullion Details', message: 'At least one bullion item is required.', route: '/bullion-details', blocking: true })
+        }
+        if (recipientData?.deliveryAddressDifferent === null) v.push({ section: 'Recipient / Delivery', message: 'Delivery address preference not specified.', route: '/recipient-delivery', blocking: false })
       }
-      if (recipientData?.deliveryAddressDifferent === null) v.push({ section: 'Recipient / Delivery', message: 'Delivery address preference not specified.', route: '/recipient-delivery', blocking: false })
       setIssues(v)
     }
     init()
@@ -135,7 +138,7 @@ const ReviewSubmitPage = () => {
     <WizardFrame
       title="Review / Validate / Submit"
       subtitle="Review the transaction and resolve any issues before completion."
-      onBack={() => navigate(isPreciousMetal ? '/precious-metal-details' : '/bullion-details')}
+      onBack={() => navigate(ITEM_AND_DELIVERY_CAPTURE_ENABLED ? (isPreciousMetal ? '/precious-metal-details' : '/bullion-details') : '/id-verification')}
       onExit={() => navigate('/start')}
       actions={
         <Button onClick={handleComplete} disabled={!isComplete || isSubmitting}>
@@ -339,111 +342,115 @@ const ReviewSubmitPage = () => {
             )}
           </div>
 
-          {/* Recipient / delivery */}
-          <div className={styles.section}>
-            <div className={styles.sectionHeader}>
-              <h2 className={styles.sectionTitle}>Recipient / Delivery</h2>
-              <button className={styles.editBtn} onClick={() => navigate('/recipient-delivery')}>
-                <Edit2 size={14} aria-hidden="true" /> Edit
-              </button>
-            </div>
-            {recipient ? (
-              <div className={styles.detailGrid}>
-                <div>
-                  <p className={styles.detailLabel}>Recipient</p>
-                  <p className={styles.detailValue}>{recipientName()}</p>
+          {ITEM_AND_DELIVERY_CAPTURE_ENABLED && (
+            <>
+              {/* Recipient / delivery */}
+              <div className={styles.section}>
+                <div className={styles.sectionHeader}>
+                  <h2 className={styles.sectionTitle}>Recipient / Delivery</h2>
+                  <button className={styles.editBtn} onClick={() => navigate('/recipient-delivery')}>
+                    <Edit2 size={14} aria-hidden="true" /> Edit
+                  </button>
                 </div>
-                <div>
-                  <p className={styles.detailLabel}>Delivery method</p>
-                  <p className={styles.detailValue}>{recipient.deliveryMethod || '—'}</p>
-                </div>
-                <div className={styles.spanFull}>
-                  <p className={styles.detailLabel}>Purpose of transfer</p>
-                  <p className={styles.detailValue}>{recipient.purposeOfTransfer || '—'}</p>
-                </div>
-                {recipient.handoverNotes && (
-                  <div className={styles.spanFull}>
-                    <p className={styles.detailLabel}>Handover notes</p>
-                    <p className={styles.detailValue}>{recipient.handoverNotes}</p>
+                {recipient ? (
+                  <div className={styles.detailGrid}>
+                    <div>
+                      <p className={styles.detailLabel}>Recipient</p>
+                      <p className={styles.detailValue}>{recipientName()}</p>
+                    </div>
+                    <div>
+                      <p className={styles.detailLabel}>Delivery method</p>
+                      <p className={styles.detailValue}>{recipient.deliveryMethod || '—'}</p>
+                    </div>
+                    <div className={styles.spanFull}>
+                      <p className={styles.detailLabel}>Purpose of transfer</p>
+                      <p className={styles.detailValue}>{recipient.purposeOfTransfer || '—'}</p>
+                    </div>
+                    {recipient.handoverNotes && (
+                      <div className={styles.spanFull}>
+                        <p className={styles.detailLabel}>Handover notes</p>
+                        <p className={styles.detailValue}>{recipient.handoverNotes}</p>
+                      </div>
+                    )}
                   </div>
+                ) : (
+                  <p className={styles.empty}>No recipient information recorded.</p>
                 )}
               </div>
-            ) : (
-              <p className={styles.empty}>No recipient information recorded.</p>
-            )}
-          </div>
 
-          {/* Bullion */}
-          {!isPreciousMetal && (
-            <div className={styles.section}>
-              <div className={styles.sectionHeader}>
-                <h2 className={styles.sectionTitle}>
-                  Bullion ({bullion.length} {bullion.length === 1 ? 'item' : 'items'})
-                </h2>
-                <button className={styles.editBtn} onClick={() => navigate('/bullion-details')}>
-                  <Edit2 size={14} aria-hidden="true" /> Edit
-                </button>
-              </div>
-              {bullion.length === 0 ? (
-                <p className={styles.empty}>No bullion items recorded.</p>
-              ) : (
-                <div className={styles.itemList}>
-                  {bullion.map((item, i) => (
-                    <div key={i} className={styles.bullionCard}>
-                      <p className={styles.bullionTitle}>
-                        {item.metalType} {item.productType} — {item.purity}
-                      </p>
-                      <div className={styles.bullionMeta}>
-                        <span>Qty: {item.quantity}</span>
-                        <span>Weight: {item.weight} {item.weightUnit === 'other' ? item.weightUnitOther : item.weightUnit}</span>
-                        <span>Unit price: ${fmtAmount(item.unitPrice)}</span>
-                        <span>Line total: ${(item.lineTotal || 0).toFixed(2)}</span>
-                      </div>
-                      {item.description && <p className={styles.bullionDesc}>{item.description}</p>}
-                    </div>
-                  ))}
-                  <div className={styles.bullionTotals}>
-                    Total bullion value: <strong>${bullionTotal.toFixed(2)} AUD</strong>
+              {/* Bullion */}
+              {!isPreciousMetal && (
+                <div className={styles.section}>
+                  <div className={styles.sectionHeader}>
+                    <h2 className={styles.sectionTitle}>
+                      Bullion ({bullion.length} {bullion.length === 1 ? 'item' : 'items'})
+                    </h2>
+                    <button className={styles.editBtn} onClick={() => navigate('/bullion-details')}>
+                      <Edit2 size={14} aria-hidden="true" /> Edit
+                    </button>
                   </div>
+                  {bullion.length === 0 ? (
+                    <p className={styles.empty}>No bullion items recorded.</p>
+                  ) : (
+                    <div className={styles.itemList}>
+                      {bullion.map((item, i) => (
+                        <div key={i} className={styles.bullionCard}>
+                          <p className={styles.bullionTitle}>
+                            {item.metalType} {item.productType} — {item.purity}
+                          </p>
+                          <div className={styles.bullionMeta}>
+                            <span>Qty: {item.quantity}</span>
+                            <span>Weight: {item.weight} {item.weightUnit === 'other' ? item.weightUnitOther : item.weightUnit}</span>
+                            <span>Unit price: ${fmtAmount(item.unitPrice)}</span>
+                            <span>Line total: ${(item.lineTotal || 0).toFixed(2)}</span>
+                          </div>
+                          {item.description && <p className={styles.bullionDesc}>{item.description}</p>}
+                        </div>
+                      ))}
+                      <div className={styles.bullionTotals}>
+                        Total bullion value: <strong>${bullionTotal.toFixed(2)} AUD</strong>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
-            </div>
-          )}
 
-          {/* Precious metal */}
-          {isPreciousMetal && (
-            <div className={styles.section}>
-              <div className={styles.sectionHeader}>
-                <h2 className={styles.sectionTitle}>
-                  Precious metal ({preciousMetal.length} {preciousMetal.length === 1 ? 'item' : 'items'})
-                </h2>
-                <button className={styles.editBtn} onClick={() => navigate('/precious-metal-details')}>
-                  <Edit2 size={14} aria-hidden="true" /> Edit
-                </button>
-              </div>
-              {preciousMetal.length === 0 ? (
-                <p className={styles.empty}>No precious metal items recorded.</p>
-              ) : (
-                <div className={styles.itemList}>
-                  {preciousMetal.map((item, i) => (
-                    <div key={i} className={styles.bullionCard}>
-                      <p className={styles.bullionTitle}>{item.metalType}</p>
-                      <div className={styles.bullionMeta}>
-                        <span>Qty: {item.quantity}</span>
-                        <span>Weight: {item.weight} {item.weightUnit === 'other' ? item.weightUnitOther : item.weightUnit}</span>
-                        <span>Unit price: ${fmtAmount(item.unitPrice)}</span>
-                        <span>Line total: ${(item.lineTotal || 0).toFixed(2)}</span>
-                        {item.serialNumber && <span>Serial: {item.serialNumber}</span>}
-                      </div>
-                      {item.description && <p className={styles.bullionDesc}>{item.description}</p>}
-                    </div>
-                  ))}
-                  <div className={styles.bullionTotals}>
-                    Total precious metal value: <strong>${preciousMetalTotal.toFixed(2)} AUD</strong>
+              {/* Precious metal */}
+              {isPreciousMetal && (
+                <div className={styles.section}>
+                  <div className={styles.sectionHeader}>
+                    <h2 className={styles.sectionTitle}>
+                      Precious metal ({preciousMetal.length} {preciousMetal.length === 1 ? 'item' : 'items'})
+                    </h2>
+                    <button className={styles.editBtn} onClick={() => navigate('/precious-metal-details')}>
+                      <Edit2 size={14} aria-hidden="true" /> Edit
+                    </button>
                   </div>
+                  {preciousMetal.length === 0 ? (
+                    <p className={styles.empty}>No precious metal items recorded.</p>
+                  ) : (
+                    <div className={styles.itemList}>
+                      {preciousMetal.map((item, i) => (
+                        <div key={i} className={styles.bullionCard}>
+                          <p className={styles.bullionTitle}>{item.metalType}</p>
+                          <div className={styles.bullionMeta}>
+                            <span>Qty: {item.quantity}</span>
+                            <span>Weight: {item.weight} {item.weightUnit === 'other' ? item.weightUnitOther : item.weightUnit}</span>
+                            <span>Unit price: ${fmtAmount(item.unitPrice)}</span>
+                            <span>Line total: ${(item.lineTotal || 0).toFixed(2)}</span>
+                            {item.serialNumber && <span>Serial: {item.serialNumber}</span>}
+                          </div>
+                          {item.description && <p className={styles.bullionDesc}>{item.description}</p>}
+                        </div>
+                      ))}
+                      <div className={styles.bullionTotals}>
+                        Total precious metal value: <strong>${preciousMetalTotal.toFixed(2)} AUD</strong>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
-            </div>
+            </>
           )}
 
           {/* ID verification */}

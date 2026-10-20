@@ -8,6 +8,7 @@ import FormField from '../../components/ui/FormField.jsx'
 import WizardFrame from '../../components/layout/WizardFrame.jsx'
 import { deleteTransaction, loadConductingPerson, loadCustomers, loadTransaction, saveConductingPerson, saveConductorInfo } from '../../lib/wizardApi.js'
 import { MAX_NAME_LENGTH, MAX_SUBURB_LENGTH } from '../../lib/austrac.js'
+import { ITEM_AND_DELIVERY_CAPTURE_ENABLED } from '../../config/featureFlags.js'
 import styles from './ConductingPersonPage.module.css'
 
 const STATES = ['VIC', 'NSW', 'QLD', 'WA', 'SA', 'TAS', 'ACT', 'NT']
@@ -222,7 +223,7 @@ const ConductingPersonPage = () => {
     }
 
     const hasIndividualToVerify = data.hasConductingPerson === 'yes' || parties.some((p) => p.type === 'individual')
-    navigate(hasIndividualToVerify ? '/id-verification' : '/recipient-delivery')
+    navigate(hasIndividualToVerify ? '/id-verification' : (ITEM_AND_DELIVERY_CAPTURE_ENABLED ? '/recipient-delivery' : '/review'))
   }
 
   const getPartyLabel = (party) => {

@@ -7,7 +7,11 @@ import { wizardStorageKeys } from '../../components/wizardStorage.js'
 import { deleteTransaction, getTransactionId, initTransaction, migrateNewParties, saveTransaction } from '../../lib/wizardApi.js'
 import { useAuth } from '../../context/AuthContext.jsx'
 
-vi.mock('../../lib/wizardApi.js', () => ({
+vi.mock('../../lib/supabase.js', () => ({ supabase: {} }))
+
+// describeSaveError stays real so the ref-race tests below prove the message staff actually see.
+vi.mock('../../lib/wizardApi.js', async () => ({
+  describeSaveError: (await vi.importActual('../../lib/wizardApi.js')).describeSaveError,
   deleteTransaction: vi.fn(),
   getTransactionId: vi.fn(),
   initTransaction: vi.fn(),

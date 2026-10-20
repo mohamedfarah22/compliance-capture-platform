@@ -2,6 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import ProtectedRoute from './components/ProtectedRoute.jsx'
 import { AuthProvider } from './context/AuthContext.jsx'
 import BullionDetailsPage from './pages/bullion-details/BullionDetailsPage.jsx'
+import { ITEM_AND_DELIVERY_CAPTURE_ENABLED } from './config/featureFlags.js'
 import ConductingPersonPage from './pages/conducting-person/ConductingPersonPage.jsx'
 import CustomerSearchPage from './pages/customers/CustomerSearchPage.jsx'
 import CreateCustomerPage from './pages/customers/create/CreateCustomerPage.jsx'
@@ -81,30 +82,36 @@ const App = () => {
               </ProtectedRoute>
             }
           />
-          <Route
-            path="/recipient-delivery"
-            element={
-              <ProtectedRoute>
-                <RecipientDeliveryPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/bullion-details"
-            element={
-              <ProtectedRoute>
-                <BullionDetailsPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/precious-metal-details"
-            element={
-              <ProtectedRoute>
-                <PreciousMetalDetailsPage />
-              </ProtectedRoute>
-            }
-          />
+          {ITEM_AND_DELIVERY_CAPTURE_ENABLED && (
+            <Route
+              path="/recipient-delivery"
+              element={
+                <ProtectedRoute>
+                  <RecipientDeliveryPage />
+                </ProtectedRoute>
+              }
+            />
+          )}
+          {ITEM_AND_DELIVERY_CAPTURE_ENABLED && (
+            <Route
+              path="/bullion-details"
+              element={
+                <ProtectedRoute>
+                  <BullionDetailsPage />
+                </ProtectedRoute>
+              }
+            />
+          )}
+          {ITEM_AND_DELIVERY_CAPTURE_ENABLED && (
+            <Route
+              path="/precious-metal-details"
+              element={
+                <ProtectedRoute>
+                  <PreciousMetalDetailsPage />
+                </ProtectedRoute>
+              }
+            />
+          )}
           <Route
             path="/review"
             element={

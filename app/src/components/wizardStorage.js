@@ -5,6 +5,7 @@ export const wizardStorageKeys = {
   idVerification: 'ttr.idVerification',
   recipientDelivery: 'ttr.recipientDelivery',
   bullionDetails: 'ttr.bullionDetails',
+  selfConductedFastPath: 'ttr.selfConductedFastPath',
 }
 
 export function readWizardData(key, fallback = null) {

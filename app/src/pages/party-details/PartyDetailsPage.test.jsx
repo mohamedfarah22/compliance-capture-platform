@@ -5,6 +5,12 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import PartyDetailsPage from './PartyDetailsPage.jsx'
 import { deleteTransaction, loadCustomers, saveCustomers } from '../../lib/wizardApi.js'
 import { useAuth } from '../../context/AuthContext.jsx'
+import { wizardStorageKeys } from '../../components/wizardStorage.js'
+
+// Pinned off (matching the live config) so fast-path routing is tested independently of it.
+vi.mock('../../config/featureFlags.js', () => ({
+  ITEM_AND_DELIVERY_CAPTURE_ENABLED: false,
+}))
 
 vi.mock('../../lib/wizardApi.js', () => ({
   deleteTransaction: vi.fn(),
@@ -60,6 +66,7 @@ function renderPage() {
         <Route path="/transaction-details" element={<h1>Transaction Details</h1>} />
         <Route path="/party-details" element={<PartyDetailsPage />} />
         <Route path="/conducting-person" element={<h1>Conducting Person</h1>} />
+        <Route path="/review" element={<h1>Review</h1>} />
         <Route path="/" element={<h1>Start TTR Transaction</h1>} />
       </Routes>
     </MemoryRouter>,
@@ -90,6 +97,7 @@ describe('PartyDetailsPage', () => {
   afterEach(() => {
     cleanup()
     vi.restoreAllMocks()
+    window.sessionStorage.clear()
   })
 
   it('renders a navigator card for each party loaded from the DB', async () => {
@@ -207,6 +215,21 @@ describe('PartyDetailsPage', () => {
 
     expect(await screen.findByText('Complete the required details for all parties before continuing.')).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Conducting Person' })).not.toBeInTheDocument()
+  })
+
+  // UAT F9 (UAT-FP-003): the fast path went to the unregistered /recipient-delivery route,
+  // which redirected to the dashboard and abandoned the transaction.
+  it('fast path: Continue goes straight to /review when item/delivery capture is disabled', async () => {
+    const user = userEvent.setup()
+    window.sessionStorage.setItem(wizardStorageKeys.selfConductedFastPath, JSON.stringify(true))
+    loadCustomers.mockResolvedValue([INDIVIDUAL_PARTY])
+    renderPage()
+
+    await screen.findAllByText('Jane Doe')
+    await fillIndividualForm(user)
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(await screen.findByRole('heading', { name: 'Review' })).toBeInTheDocument()
   })
 
   it('party details form captures fullLegalName and a complete residential address — the AUSTRAC-mandatory client-side elements of a customer record', async () => {

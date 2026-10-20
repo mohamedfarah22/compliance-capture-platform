@@ -45,6 +45,7 @@ function renderPage() {
         <Route path="/conducting-person" element={<h1>Conducting Person Details</h1>} />
         <Route path="/id-verification" element={<IdVerificationPage />} />
         <Route path="/recipient-delivery" element={<h1>Recipient / Delivery</h1>} />
+        <Route path="/review" element={<h1>Review / Validate / Submit</h1>} />
       </Routes>
     </MemoryRouter>,
   )
@@ -126,7 +127,8 @@ describe('IdVerificationPage', () => {
 
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
-    expect(await screen.findByRole('heading', { name: 'Recipient / Delivery' })).toBeInTheDocument()
+    // recipient-delivery/bullion-details are flagged off — id-verification goes straight to /review
+    expect(await screen.findByRole('heading', { name: 'Review / Validate / Submit' })).toBeInTheDocument()
     expect(saveIdVerifications).not.toHaveBeenCalled()
   })
 
@@ -236,7 +238,8 @@ describe('IdVerificationPage', () => {
         }),
       )
     })
-    expect(await screen.findByRole('heading', { name: 'Recipient / Delivery' })).toBeInTheDocument()
+    // recipient-delivery/bullion-details are flagged off — id-verification goes straight to /review
+    expect(await screen.findByRole('heading', { name: 'Review / Validate / Submit' })).toBeInTheDocument()
   })
 
   it('requires a back image only when the document type is Driver licence', async () => {

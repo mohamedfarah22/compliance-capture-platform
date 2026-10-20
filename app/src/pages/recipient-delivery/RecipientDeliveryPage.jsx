@@ -6,6 +6,7 @@ import ConfirmModal from '../../components/ui/ConfirmModal.jsx'
 import DatePicker from '../../components/ui/DatePicker.jsx'
 import FormField from '../../components/ui/FormField.jsx'
 import WizardFrame from '../../components/layout/WizardFrame.jsx'
+import { wizardStorageKeys, readWizardData } from '../../components/wizardStorage.js'
 import { deleteTransaction, loadConductingPerson, loadCustomers, loadRecipientDelivery, loadTransaction, saveRecipientDelivery } from '../../lib/wizardApi.js'
 import { MAX_SUBURB_LENGTH } from '../../lib/austrac.js'
 import styles from './RecipientDeliveryPage.module.css'
@@ -55,6 +56,7 @@ const getPartyLabel = (party) => {
 
 const RecipientDeliveryPage = () => {
   const navigate = useNavigate()
+  const fastPath = readWizardData(wizardStorageKeys.selfConductedFastPath, false)
   const [parties, setParties] = useState([])
   const [txn, setTxn] = useState({})
   const [conductingPerson, setConductingPerson] = useState(null)
@@ -144,7 +146,7 @@ const RecipientDeliveryPage = () => {
     <WizardFrame
       title="Recipient / Delivery"
       subtitle="Record the recipient and any delivery or handover details for this transaction."
-      onBack={() => navigate(hasIndividualToVerify ? '/id-verification' : '/conducting-person')}
+      onBack={() => navigate(fastPath ? '/party-details' : (hasIndividualToVerify ? '/id-verification' : '/conducting-person'))}
       onExit={() => setShowExitModal(true)}
       actions={<Button onClick={handleContinue}>Continue</Button>}
     >
