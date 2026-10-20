@@ -6,6 +6,8 @@ import ConfirmModal from '../../components/ui/ConfirmModal.jsx'
 import DatePicker from '../../components/ui/DatePicker.jsx'
 import FormField from '../../components/ui/FormField.jsx'
 import WizardFrame from '../../components/layout/WizardFrame.jsx'
+import { wizardStorageKeys, readWizardData } from '../../components/wizardStorage.js'
+import { ITEM_AND_DELIVERY_CAPTURE_ENABLED } from '../../config/featureFlags.js'
 import { useAuth } from '../../context/AuthContext.jsx'
 import {
   deleteTransaction,
@@ -291,6 +293,7 @@ const PriorVerificationPicker = ({ records, loading, onSelect, imageUrlMap, onIm
 const IdVerificationPage = () => {
   const navigate = useNavigate()
   const { reportingEntity } = useAuth()
+  const fastPath = readWizardData(wizardStorageKeys.selfConductedFastPath, false)
   const videoRef = useRef(null)
   const canvasRef = useRef(null)
 
@@ -830,7 +833,7 @@ const IdVerificationPage = () => {
 
   const handleContinue = async () => {
     if (people.length === 0) {
-      navigate('/recipient-delivery')
+      navigate(fastPath ? '/transaction-details' : (ITEM_AND_DELIVERY_CAPTURE_ENABLED ? '/recipient-delivery' : '/review'))
       return
     }
     if (!saveCurrentPerson()) return
@@ -868,7 +871,7 @@ const IdVerificationPage = () => {
         }
       }
       await saveIdVerifications(updated)
-      navigate('/recipient-delivery')
+      navigate(fastPath ? '/transaction-details' : (ITEM_AND_DELIVERY_CAPTURE_ENABLED ? '/recipient-delivery' : '/review'))
     } catch (err) {
       setContinueError(describeSaveError(err))
     } finally {
@@ -891,8 +894,8 @@ const IdVerificationPage = () => {
     <WizardFrame
       title="ID Verification Details & Capture"
       subtitle="Record ID verification details and store front/back ID images for each relevant person."
-      helperText="Step 5"
-      onBack={() => navigate('/conducting-person')}
+      helperText={fastPath ? 'Step 2' : 'Step 5'}
+      onBack={() => navigate(fastPath ? '/customers' : '/conducting-person')}
       onExit={() => setShowExitModal(true)}
       wide
     >

@@ -6,14 +6,17 @@ import ConfirmModal from '../../components/ui/ConfirmModal.jsx'
 import DatePicker from '../../components/ui/DatePicker.jsx'
 import FormField from '../../components/ui/FormField.jsx'
 import WizardFrame from '../../components/layout/WizardFrame.jsx'
+import { wizardStorageKeys, readWizardData } from '../../components/wizardStorage.js'
 import { deleteTransaction, loadCustomers, saveCustomers } from '../../lib/wizardApi.js'
 import { MAX_SUBURB_LENGTH } from '../../lib/austrac.js'
+import { ITEM_AND_DELIVERY_CAPTURE_ENABLED } from '../../config/featureFlags.js'
 import styles from './PartyDetailsPage.module.css'
 
 const STATES = ['VIC', 'NSW', 'QLD', 'WA', 'SA', 'TAS', 'ACT', 'NT']
 
 const PartyDetailsPage = () => {
   const navigate = useNavigate()
+  const fastPath = readWizardData(wizardStorageKeys.selfConductedFastPath, false)
 
   const [parties, setParties] = useState([])
   const [loading, setLoading] = useState(true)
@@ -279,7 +282,7 @@ const PartyDetailsPage = () => {
     if (!updatedParty) return
     const updatedParties = await commitSave(updatedParty)
     if (updatedParties.every(p => p.isComplete)) {
-      navigate('/conducting-person')
+      navigate(fastPath ? (ITEM_AND_DELIVERY_CAPTURE_ENABLED ? '/recipient-delivery' : '/review') : '/conducting-person')
     } else {
       setContinueError('Complete the required details for all parties before continuing.')
     }
@@ -322,7 +325,7 @@ const PartyDetailsPage = () => {
       wide
       title="Party Details"
       subtitle="Complete the required details for each customer or party involved in this transaction."
-      helperText="Step 3 of 4"
+      helperText={fastPath ? 'Step 4' : 'Step 3 of 4'}
       onBack={handleBack}
       onExit={handleExit}
       actions={

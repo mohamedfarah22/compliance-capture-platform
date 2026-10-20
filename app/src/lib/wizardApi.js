@@ -9,6 +9,17 @@ function setTransactionId(id) { sessionStorage.setItem(TX_KEY, id) }
 
 const ttr = () => supabase.schema('ttr')
 
+// The Start page blocks refs already used by a completed transaction, but another staff member
+// can claim or complete the same ref between that check and this insert. Translate the
+// constraint violation rather than showing staff "duplicate key value violates unique constraint".
+export function describeSaveError(err) {
+  const text = `${err?.code ?? ''} ${err?.message ?? ''}`
+  if (text.includes('23505') || text.includes('uq_tx_ref_per_entity')) {
+    return 'That transaction reference is already in use. Go back to the start and enter a different reference.'
+  }
+  return err?.message || 'Failed to save. Please try again.'
+}
+
 async function getAuthHeader() {
   const { data: { session } } = await supabase.auth.getSession()
   return {

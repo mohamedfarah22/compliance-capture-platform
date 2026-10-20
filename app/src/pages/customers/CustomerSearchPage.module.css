@@ -205,6 +205,21 @@
   line-height: 1.45;
 }
 
+.radioGroup {
+  display: flex;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.radioLabel {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  font-size: 0.9375rem;
+  color: var(--color-text);
+}
+
 @media (max-width: 900px) {
   .layout {
     grid-template-columns: 1fr;

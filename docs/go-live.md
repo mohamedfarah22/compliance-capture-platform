@@ -4,9 +4,11 @@
 
 **Prerequisite: [dev-test-sheet.md](dev-test-sheet.md) fully signed off.** That sheet proves the *behaviour* is correct. This one proves the *production environment* is configured and deployed correctly — a much shorter job, because it deliberately does not re-test logic already established in dev.
 
-What can only be proven here: that every migration and function actually arrived, that the project is hosted where the privacy policy says it is, that MFA works with real accounts on a new project, and that a transaction can be completed and filed end to end.
+What can only be proven here: that every migration and function actually arrived, that the scheduled jobs actually run, that the project is hosted where the privacy policy says it is, that MFA works with real accounts on a new project, and that a transaction can be completed and filed end to end.
 
 **Do not launch with any item red.** §4's gap register is the only place "not done" is acceptable, and it needs the compliance owner's signature.
+
+> **What the dev run changed about this document.** The 2026-07-27 validation pass found 15 defects, none of which the automated suites could catch, and **three were visible only because a function was invoked by hand rather than trusted to work** — including a nightly job that had never once executed and a Cancel that had never deleted anything. Every ⚠ item below marks a check whose failure is *silent*: the screen looks correct while a promise to customers is false. Those are the ones to do carefully rather than quickly.
 
 ---
 
@@ -25,10 +27,20 @@ UNION ALL SELECT 'recapture trigger', EXISTS (SELECT 1 FROM pg_trigger WHERE tgn
 UNION ALL SELECT 'owner columns',     pg_get_function_result(
     'public.get_verification_for_document(text,text,uuid)'::regprocedure) LIKE '%owner_dob%'
 UNION ALL SELECT 'two grounds only',  pg_get_constraintdef(oid) NOT LIKE '%''other''%'
-    FROM pg_constraint WHERE conname = 'chk_idv_new_capture_reason_values';
+    FROM pg_constraint WHERE conname = 'chk_idv_new_capture_reason_values'
+-- The two below are easy to miss: both were added late, and their absence is silent.
+UNION ALL SELECT 'captures only',     pg_get_functiondef(
+    'public.get_prior_verifications_individual(text,text,date)'::regprocedure)
+    LIKE '%verification_basis = ''new_capture''%'
+UNION ALL SELECT 'completed only',    pg_get_functiondef(
+    'ttr.find_unsuperseded_duplicates()'::regprocedure) LIKE '%t.status = ''complete''%';
 ```
 
-☐ **All eight `t`.** `two grounds only` false means the §3 restriction is missing and the app can offer a reason the published policy forbids.
+☐ **All ten `t`.** Three of these fail *silently* if missing, and each corresponds to a defect found in dev:
+
+- **`two grounds only`** false → the app can offer a capture reason the published policy forbids.
+- **`captures only`** false → reliance rows shadow real captures in the prior-verification picker: no image renders, the ID-match confirmation is skipped entirely, and the re-verification window resets on every reliance so it never expires for returning customers.
+- **`completed only`** false → the reconciliation sweep treats a draft's in-progress photo as the surviving copy and would delete a **completed** record's live ID images in its favour.
 
 ### 1.2 Immutability triggers enabled
 
@@ -54,6 +66,31 @@ npx supabase functions deploy approve-batch
 
 ☐ All eight. **This is the item most likely to be missed and its failure is silent** — a stale `complete-transaction` disables the whole of §3 while every screen looks correct. It caused two false failure reports during dev testing.
 
+Then confirm what actually arrived, rather than trusting the deploy command:
+
+```
+npx supabase functions list
+```
+
+☐ All eight `ACTIVE`, and every `updated_at` matching this deployment. A partial deploy — Docker failing to pull the runtime image midway, say — leaves some functions on old versions with no error at the end.
+
+### 1.3b ⚠ Invoke the two scheduled functions once, by hand
+
+**Do not skip this.** Both scheduled functions were found in dev to have *never once run* — `cleanup-stale-drafts` returned `500` on its first statement since the day it was written, and the failure went into logs nobody reads. A cron job that has never been invoked manually has never been tested, and its failure mode is silence.
+
+```
+# Expect {"processed":0,"deleted":0,"skipped":0} on a fresh project
+curl -X POST https://<project>.supabase.co/functions/v1/cleanup-stale-drafts \
+     -H "Content-Type: application/json" -d '{}'
+
+# Expect all four drift classes zero, mode "dry-run"
+curl -X POST https://<project>.supabase.co/functions/v1/reconcile-stored-images \
+     -H "apikey: <anon key>" -H "Authorization: Bearer <anon key>" \
+     -H "Content-Type: application/json" -d '{"apply": false, "full": true}'
+```
+
+☐ Both return **200 with a JSON body**, not a `500`. Zero counts are expected on an empty project — what is being proven is that each function *runs*, reaches its database, and returns a report. Anything else means it will fail silently every night.
+
 ### 1.4 Frontend built and deployed from the same commit
 
 ☐ Same commit as 1.3. The §3 reason list and the ID-capture recovery fixes are frontend-only; a stale bundle reintroduces the dead-end where staff can neither continue nor cancel.
@@ -73,7 +110,7 @@ npx supabase functions deploy approve-batch
 
 ```sql
 SELECT austrac_account_number, idv_max_reliance_days, idv_block_on_expired,
-       name, address_line, suburb, state, postcode
+       legal_name, trading_name, address_street, address_suburb, address_state, address_postcode
   FROM public.reporting_entities;
 ```
 
@@ -123,11 +160,11 @@ Not a re-run of dev. One real transaction through the live environment, plus the
 |---|---|---|---|
 | 3.1 | Complete one transaction end to end: create a customer, capture ID front and back, complete | Completes with no error | ☐ |
 | 3.2 | On that customer's ID Verification step, before completing | **No "Reason for taking a new copy" field** — first-time customer, nothing duplicated | ☐ |
-| 3.3 | Start a second transaction for the **same** customer | Reliance auto-selects; **the stored ID images render**. Confirms storage, signed URLs and access logging are all wired | ☐ |
-| 3.4 | Switch that second one to `Sighted original document`, re-enter the same document number, tab out | Reason field narrows to three options, helper text names the customer, and **`Other` is absent** — the §3 restriction is live | ☐ |
+| 3.3 ⚠ | Start a second transaction for the **same** customer | Reliance auto-selects; **the stored ID images render**, and the **"I confirm the person presenting today matches these ID images" checkbox is present and blocks Continue**. A missing checkbox means the picker offered an image-less row and §3's confirmation requirement is being bypassed | ☐ |
+| 3.4 | Switch that second one to `Sighted original document`, re-enter the same document number, tab out | Reason field narrows to three options, helper text **names the customer and their date of birth**, and **`Other` is absent** | ☐ |
 | 3.5 ⚠ | Capture front and back, go **offline** in DevTools, Continue, back online, Continue again | Succeeds. No *"An image for this person/side already exists"*. Staff can recover from a dropped connection at the counter | ☐ |
 | 3.6 | Complete it, then check the images | Exactly **one live pair** for that document; the first transaction's objects are gone from the bucket, its rows retained | ☐ |
-| 3.7 | Start a third transaction, capture photos, then **Cancel** | Deletes cleanly, no error, bucket folder gone | ☐ |
+| 3.7 ⚠ | Start a third transaction, capture photos, Continue to **Recipient / Delivery**, then **Exit** from there | An Exit button is present on that step; a confirmation appears first; it deletes cleanly with no error and the bucket folder is gone. Three separate defects had to be fixed for this to work — do not assume it | ☐ |
 | 3.8 | Re-enter the first transaction's reference on `/start` | *"This reference belongs to a completed transaction and cannot be reused."* | ☐ |
 | 3.9 | Trigger `generate-austrac-report` for today | A batch is produced covering the completed transactions | ☐ |
 | 3.10 ⚠ | Validate that batch against the XSD with **`xmlschema.XMLSchema11`**, plus both negative controls | 0 errors; each control reports exactly 1. Without the controls you cannot tell a valid file from a validator that checked nothing | ☐ |

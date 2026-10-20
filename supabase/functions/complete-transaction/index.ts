@@ -6,6 +6,11 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
+// Mirrors app/src/config/featureFlags.js — client no longer wants to collect
+// bullion/precious-metal item details or Recipient/Delivery's delivery/handover
+// fields. Flip back to true to re-require them; the validators below are unchanged.
+const ITEM_AND_DELIVERY_CAPTURE_ENABLED = false;
+
 const TTR_THRESHOLD_AUD = 10_000;
 const AUSTRAC_MIN_DATE = new Date("2000-01-01T00:00:00Z");
 const STORAGE_BUCKET = "compliance-media";
@@ -124,11 +129,13 @@ export async function handleRequest(req: Request): Promise<Response> {
     ttr,
     tx.reporting_entity_id as string,
   );
-  validateRecipientDelivery(recipientDeliveries ?? [], errors);
-  if ((tx.scenario as string)?.startsWith("precious_metal")) {
-    validatePreciousMetalItems(preciousMetalItems ?? [], errors);
-  } else {
-    validateBullionItems(bullionItems ?? [], errors);
+  if (ITEM_AND_DELIVERY_CAPTURE_ENABLED) {
+    validateRecipientDelivery(recipientDeliveries ?? [], errors);
+    if ((tx.scenario as string)?.startsWith("precious_metal")) {
+      validatePreciousMetalItems(preciousMetalItems ?? [], errors);
+    } else {
+      validateBullionItems(bullionItems ?? [], errors);
+    }
   }
 
   if (errors.length > 0) return json({ errors }, 422);
