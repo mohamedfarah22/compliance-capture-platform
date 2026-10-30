@@ -106,6 +106,7 @@ function buildBlock(overrides: {
   recipientDeliveries?: Record<string, unknown>[];
   bullionItems?: Record<string, unknown>[];
   preciousMetalItems?: Record<string, unknown>[];
+  cpAliases?: Record<string, unknown>[];
 } = {}) {
   return buildTTRBlock(
     overrides.tx ?? makeTransaction(),
@@ -118,6 +119,7 @@ function buildBlock(overrides: {
     overrides.recipientDeliveries ?? [],
     overrides.bullionItems ?? [{ metal_type: "Gold", line_total_aud: 15000 }],
     overrides.preciousMetalItems ?? NO_PRECIOUS_METAL,
+    overrides.cpAliases ?? [],
   );
 }
 
@@ -515,6 +517,16 @@ Deno.test("transaction date is emitted in YYYY-MM-DD format, compatible with the
   assertMatch(xml, /<txnDate>2026-07-04<\/txnDate>/);
 });
 
+Deno.test("txnDate/txnTime are Melbourne local time, not UTC — a 9:35am AEST sale is not reported as the previous day", () => {
+  const xml = buildBlock({ tx: makeTransaction({ transaction_datetime: "2026-07-06T23:35:00+00:00" }) });
+  assertMatch(xml, /<txnDate>2026-07-07<\/txnDate><txnTime>09:35:00<\/txnTime>/);
+});
+
+Deno.test("txnDate/txnTime follow Melbourne daylight saving (AEDT, UTC+11)", () => {
+  const xml = buildBlock({ tx: makeTransaction({ transaction_datetime: "2026-10-30T22:00:00+00:00" }) });
+  assertMatch(xml, /<txnDate>2026-10-31<\/txnDate><txnTime>09:00:00<\/txnTime>/);
+});
+
 // ─── TC-214: txnRefNo does not exceed 60 characters (AUSTRAC TRN type) ─────
 
 Deno.test("transaction reference number is included in transaction as txnRefNo", () => {
@@ -529,6 +541,16 @@ Deno.test("transaction reference number is included in transaction as txnRefNo",
 Deno.test("txnPurpose is omitted entirely — not emitted as an empty element — when no recipient/delivery record exists", () => {
   const xml = buildBlock({ recipientDeliveries: [] });
   assert(!xml.includes("<txnPurpose>"));
+});
+
+Deno.test("with no recipient/delivery record, the customer is reported as the recipient — <recipient> is mandatory in TTR-1-0", () => {
+  const xml = buildBlock({ recipientDeliveries: [] });
+  assertMatch(xml, /<\/transaction><recipient id="[^"]+"><sameAsCustomer refId="customer-tx-1-1"\/><\/recipient><isOtherDsProviderInvolved>/);
+});
+
+Deno.test("with no recipient/delivery record and several customers, each customer gets its own <recipient>", () => {
+  const xml = buildBlock({ recipientDeliveries: [], parties: [makeParty({ id: "party-1" }), makeCompanyParty({ id: "party-2" })] });
+  assertMatch(xml, /<recipient id="[^"]+"><sameAsCustomer refId="customer-tx-1-1"\/><\/recipient><recipient id="[^"]+"><sameAsCustomer refId="customer-tx-1-2"\/><\/recipient>/);
 });
 
 Deno.test("txnPurpose is emitted when a recipient/delivery record provides one", () => {
@@ -722,6 +744,39 @@ Deno.test("loadTxnScopedData fetches party_aliases by party_id derived from the 
   assertEquals(aliasCall!.column, "party_id");
   assertEquals([...aliasCall!.values].sort(), ["party-1", "party-2"]);
   assertEquals(result.allAliases.length, 2);
+});
+
+Deno.test("loadTxnScopedData fetches cp_aliases by conducting_person_id derived from the resolved conducting_persons rows", async () => {
+  const { client, calls } = makeFakeTtr({
+    conducting_persons: [{ id: "cp-1", transaction_id: "tx-1" }],
+    cp_aliases: [{ id: "cpa-1", conducting_person_id: "cp-1", alias: "Al B." }],
+  });
+  const result = await loadTxnScopedData(client, ["tx-1"]);
+  const aliasCall = calls.find((c) => c.table === "cp_aliases");
+  assert(aliasCall, "expected cp_aliases to be queried");
+  assertEquals(aliasCall!.column, "conducting_person_id");
+  assertEquals(aliasCall!.values, ["cp-1"]);
+  assertEquals(result.allCpAliases.length, 1);
+});
+
+Deno.test("the primary conducting person's aliases are emitted as altName inside otherPerson — other CPs' aliases are not", () => {
+  const cp = {
+    id: "cp-1",
+    is_primary: true,
+    full_name: "Alice Brown",
+    relationship: "Agent",
+    represented_party_id: "party-1",
+    authority_to_act: null,
+  };
+  const xml = buildBlock({
+    conductingPersons: [cp],
+    cpAliases: [
+      { conducting_person_id: "cp-1", alias: "Al B." },
+      { conducting_person_id: "cp-other", alias: "Not Me" },
+    ],
+  });
+  assertMatch(xml, /<otherPerson [^>]*><individualDetails><fullName>Alice Brown<\/fullName><altName>Al B\.<\/altName>/);
+  assert(!xml.includes("Not Me"));
 });
 
 Deno.test("loadTxnScopedData rejects instead of silently returning empty data when a query fails (e.g. a column that doesn't exist)", async () => {

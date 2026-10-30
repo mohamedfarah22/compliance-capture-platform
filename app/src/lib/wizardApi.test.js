@@ -208,6 +208,24 @@ describe('wizardApi', () => {
     expect(aliasesBuilder.insert).toHaveBeenCalledWith([{ party_id: 'party-1', alias: 'J. Doe' }])
   })
 
+  it('an individual sole trader round-trips legal_form through saveCustomers() and loadCustomers()', async () => {
+    window.sessionStorage.setItem('ttr.transactionId', 'tx-1')
+    const partiesBuilder = makeBuilder({ error: null })
+    fromMock.mockImplementation((table) => (table === 'parties' ? partiesBuilder : makeBuilder({ error: null })))
+
+    await saveCustomers([
+      { id: 'party-1', type: 'individual', firstName: 'Jane', legalForm: 'Sole trader', abn: '12345678901', aliases: [] },
+    ])
+    expect(partiesBuilder.update).toHaveBeenCalledWith(expect.objectContaining({ legal_form: 'Sole trader', abn: '12345678901' }))
+
+    fromMock.mockReturnValue(makeBuilder({
+      data: [{ id: 'p1', party_type: 'individual', legal_form: 'Sole trader', party_aliases: [] }],
+      error: null,
+    }))
+    const result = await loadCustomers()
+    expect(result).toEqual([expect.objectContaining({ id: 'p1', legalForm: 'Sole trader' })])
+  })
+
   it('loadCustomers() returns all ttr.parties rows belonging to the current transactionId', async () => {
     window.sessionStorage.setItem('ttr.transactionId', 'tx-1')
     const builder = makeBuilder({
