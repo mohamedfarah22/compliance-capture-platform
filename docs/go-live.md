@@ -78,22 +78,32 @@ npx supabase functions list
 
 **Do not skip this.** Both scheduled functions were found in dev to have *never once run* — `cleanup-stale-drafts` returned `500` on its first statement since the day it was written, and the failure went into logs nobody reads. A cron job that has never been invoked manually has never been tested, and its failure mode is silence.
 
+Both functions accept only the project's **secret key** (`sb_secret_…`, Project Settings → API Keys → Secret keys) — not the legacy JWT `service_role` key, and not the anon/publishable key. Until 2026-10-30 neither checked its caller, so the public browser key could run `reconcile-stored-images` with `apply: true` and delete ID images across every entity.
+
 ```
 # Expect {"processed":0,"deleted":0,"skipped":0} on a fresh project
 curl -X POST https://<project>.supabase.co/functions/v1/cleanup-stale-drafts \
+     -H "apikey: <secret key>" -H "Authorization: Bearer <secret key>" \
      -H "Content-Type: application/json" -d '{}'
 
 # Expect all four drift classes zero, mode "dry-run"
 curl -X POST https://<project>.supabase.co/functions/v1/reconcile-stored-images \
-     -H "apikey: <anon key>" -H "Authorization: Bearer <anon key>" \
+     -H "apikey: <secret key>" -H "Authorization: Bearer <secret key>" \
      -H "Content-Type: application/json" -d '{"apply": false, "full": true}'
+
+# Negative control — must be refused
+curl -X POST https://<project>.supabase.co/functions/v1/reconcile-stored-images \
+     -H "apikey: <anon key>" -H "Authorization: Bearer <anon key>" \
+     -H "Content-Type: application/json" -d '{"apply": false}'
 ```
 
-☐ Both return **200 with a JSON body**, not a `500`. Zero counts are expected on an empty project — what is being proven is that each function *runs*, reaches its database, and returns a report. Anything else means it will fail silently every night.
+☐ The first two return **200 with a JSON body**, not a `500`. Zero counts are expected on an empty project — what is being proven is that each function *runs*, reaches its database, and returns a report. Anything else means it will fail silently every night.
+☐ The negative control returns **401**. A `200` means anyone with the public key can delete ID images.
 
 ### 1.4 Frontend built and deployed from the same commit
 
 ☐ Same commit as 1.3. The §3 reason list and the ID-capture recovery fixes are frontend-only; a stale bundle reintroduces the dead-end where staff can neither continue nor cancel.
+☐ During smoke tests 3.1 and 3.3 (camera, stored ID images), the browser console shows **no "Content Security Policy" errors**. The policy in `app/vercel.json` allows `*.supabase.co`; if the project moves to a custom Supabase domain, add it there or sign-in and images will fail.
 
 ### 1.5 Data residency — a factual claim to customers
 
@@ -122,6 +132,7 @@ SELECT austrac_account_number, idv_max_reliance_days, idv_block_on_expired,
 
 ☐ `cleanup-stale-drafts` scheduled (daily)
 ☐ `reconcile-stored-images` scheduled with **`{"apply": false}`** — dry-run only. See gap G6; enable `apply` after reviewing one report against real data
+☐ Both schedules send the **secret key** in `apikey` and `Authorization: Bearer` (see 1.3b) — otherwise every run is a silent `401`
 ☐ `generate-austrac-report` scheduling decided and recorded: ________
 
 ### 1.9 Staff accounts
@@ -129,6 +140,8 @@ SELECT austrac_account_number, idv_max_reliance_days, idv_block_on_expired,
 ☐ One `admin` and at least one `staff` account created, each with an individual login
 ☐ **No shared accounts** — §4 states this explicitly
 ☐ TOTP enabled in the Supabase dashboard for this project (`[auth.mfa]` in `config.toml` configures the *local* stack only)
+☐ **Sign-ups disabled** in the dashboard (Authentication → Sign In / Providers). `enable_signup = false` in `config.toml` is local only
+☐ **Exposed schemas** (Project Settings → Data API) are `public`, `ttr`, `graphql_public` — **not `storage`**. Again, `config.toml` is local only
 
 ---
 
@@ -147,8 +160,18 @@ SELECT austrac_account_number, idv_max_reliance_days, idv_block_on_expired,
 | 2.7 | While signed out, open `/reports` directly, then complete both factors | `/login` → `/mfa` → lands on **`/reports`**. The requested page survives both steps | ☐ |
 | 2.8 | As the non-admin account, complete MFA and open `/reports` | "You are not authorised to view this page" — the role check still runs after MFA | ☐ |
 | 2.9 | As a fully signed-in user, hard-refresh a protected page | You stay put — the sign-out fires only for genuinely half-authenticated sessions | ☐ |
+| 2.10 ⚠ | Get a **password-only** token from the API, then query customers with it (commands below) | `[]` — no rows, even though the account has data. A non-empty result means MFA is enforced only by the browser | ☐ |
 
-*Known and accepted:* a password-only token can still call the Supabase REST API directly via curl or Postman. DB-level AAL2 hardening was deliberately deferred.
+```
+curl -s -X POST "https://<project>.supabase.co/auth/v1/token?grant_type=password" \
+     -H "apikey: <anon key>" -H "Content-Type: application/json" \
+     -d '{"email":"<staff email>","password":"<password>"}'      # copy access_token
+
+curl -s "https://<project>.supabase.co/rest/v1/parties?select=id&limit=1" \
+     -H "apikey: <anon key>" -H "Authorization: Bearer <access_token>" -H "Accept-Profile: ttr"
+```
+
+MFA is enforced in the database (20261030000001): `public.reporting_entity_id()` and `public.has_role()` require an `aal2` token, and every policy goes through them. Before that migration a password alone could read every customer through the REST API.
 
 ---
 

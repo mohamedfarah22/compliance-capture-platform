@@ -4,6 +4,7 @@ import Button from '../../components/ui/Button.jsx'
 import FormField from '../../components/ui/FormField.jsx'
 import TextInput from '../../components/ui/TextInput.jsx'
 import { useAuth } from '../../context/AuthContext.jsx'
+import { safeRedirect } from '../../lib/safeRedirect.js'
 import { supabase } from '../../lib/supabase.js'
 import styles from './MfaGatePage.module.css'
 
@@ -16,7 +17,7 @@ const MfaGatePage = () => {
   const { session, loading, refreshAal } = useAuth()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const redirectTo = searchParams.get('redirect') || '/start'
+  const redirectTo = safeRedirect(searchParams.get('redirect'))
 
   const [checking, setChecking] = useState(true)
   const [mode, setMode] = useState(null)

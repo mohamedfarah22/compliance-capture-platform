@@ -20,7 +20,14 @@ interface StaleTransaction {
   reporting_entity_id: string;
 }
 
-Deno.serve(async (_req: Request) => {
+Deno.serve(async (req: Request) => {
+  // verify_jwt is off (the secret key is not a JWT), so without this anyone holding the
+  // function URL could trigger deletions.
+  const auth = req.headers.get("Authorization");
+  if (!auth || auth !== `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`) {
+    return json({ error: "Unauthorized" }, 401);
+  }
+
   const serviceClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
   // 1. Fetch stale draft IDs from the read-only DB helper.

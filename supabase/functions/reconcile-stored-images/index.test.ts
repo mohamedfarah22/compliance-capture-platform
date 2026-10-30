@@ -1,5 +1,5 @@
 import { assertEquals, assertRejects } from "std/assert";
-import { reconcile } from "./index.ts";
+import { handleRequest, reconcile } from "./index.ts";
 import type { ReconcileDeps, ReconcileSchema, StorageLister } from "./index.ts";
 import type { StorageOwner } from "../_shared/supersede.ts";
 
@@ -235,4 +235,18 @@ Deno.test("without full, only folders for recent transactions have their objects
   // listing cost, not correctness of class 4.
   assertEquals(report.scanned.folders, 2);
   assertEquals(report.danglingFolders.count, 0);
+});
+
+// Without this check the public browser key was enough to run the sweep with apply:true,
+// deleting ID images across every entity, or to list every entity's image paths.
+Deno.test("rejects a caller without the service-role key before touching storage", async () => {
+  const post = (headers: Record<string, string>) =>
+    handleRequest(new Request("http://localhost/", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ apply: true, full: true }),
+    }));
+
+  assertEquals((await post({})).status, 401);
+  assertEquals((await post({ Authorization: "Bearer sb_publishable_not-the-secret" })).status, 401);
 });

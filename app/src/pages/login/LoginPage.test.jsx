@@ -118,6 +118,19 @@ describe('LoginPage', () => {
     expect(screen.getByTestId('mfa-redirect')).toHaveTextContent('/reports')
   })
 
+  it('drops a requested page outside the app, so a phishing link cannot send the signed-in user elsewhere', async () => {
+    const user = userEvent.setup()
+    supabase.auth.signInWithPassword.mockResolvedValue({ error: null })
+    renderLoginPage('/login?redirect=%2F%5Cevil.example')
+
+    await user.type(screen.getByLabelText(/email address/i), 'staff@example.com')
+    await user.type(screen.getByLabelText(/password/i), 'correct-password')
+    await user.click(screen.getByRole('button', { name: /sign in/i }))
+
+    await screen.findByRole('heading', { name: 'Two-factor' })
+    expect(screen.getByTestId('mfa-redirect')).toHaveTextContent('/start')
+  })
+
   it('sends an already fully-authenticated visitor straight through, not back to the second factor', () => {
     useAuth.mockReturnValue({
       session: { user: { id: 'user-1' } },
