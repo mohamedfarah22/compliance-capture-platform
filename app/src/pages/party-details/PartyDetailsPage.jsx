@@ -45,6 +45,7 @@ const PartyDetailsPage = () => {
   const [postCountry, setPostCountry] = useState('Australia')
   const [phone, setPhone] = useState('')
   const [occupation, setOccupation] = useState('')
+  const [isSoleTrader, setIsSoleTrader] = useState('')
   const [abn, setAbn] = useState('')
   const [gender, setGender] = useState('')
   const [citizenshipCountryCode, setCitizenshipCountryCode] = useState('AU')
@@ -93,6 +94,8 @@ const PartyDetailsPage = () => {
       setPostCountry(party.postalAddress?.country || 'Australia')
       setPhone(party.phone || '')
       setOccupation(party.occupation || '')
+      // A saved "No" is stored as no legal form, so only a completed party can be read back as "No".
+      setIsSoleTrader(party.legalForm === 'Sole trader' ? 'Yes' : party.isComplete ? 'No' : '')
       setAbn(party.abn || '')
       setGender(party.gender || '')
       setCitizenshipCountryCode(party.citizenshipCountryCode || 'AU')
@@ -160,7 +163,8 @@ const PartyDetailsPage = () => {
     if (!gender) newErrors.gender = 'Select the gender.'
     if (!citizenshipCountryCode.trim()) newErrors.citizenshipCountryCode = 'Enter the citizenship country code.'
     if (!taxResidencyCountryCode.trim()) newErrors.taxResidencyCountryCode = 'Enter the tax residency country code.'
-    if (abn.trim() && !/^[0-9]{11}$/.test(abn.replace(/\s/g, ''))) {
+    if (!isSoleTrader) newErrors.isSoleTrader = 'Select whether this person is a sole trader.'
+    if (isSoleTrader === 'Yes' && abn.trim() && !/^[0-9]{11}$/.test(abn.replace(/\s/g, ''))) {
       newErrors.abn = 'ABN must be exactly 11 digits.'
     }
     if (hasPostalAddress) {
@@ -230,7 +234,9 @@ const PartyDetailsPage = () => {
         : undefined
       updatedParty.phone = phone
       updatedParty.occupation = occupation
-      updatedParty.abn = abn
+      // AUSTRAC only accepts an ABN for an individual who is a sole trader.
+      updatedParty.legalForm = isSoleTrader === 'Yes' ? 'Sole trader' : ''
+      updatedParty.abn = isSoleTrader === 'Yes' ? abn : ''
       updatedParty.gender = gender
       updatedParty.citizenshipCountryCode = citizenshipCountryCode
       updatedParty.taxResidencyCountryCode = taxResidencyCountryCode
@@ -650,16 +656,35 @@ const PartyDetailsPage = () => {
                 />
               </FormField>
 
-              <FormField label="ABN" labelFor="abn" helperText="Only if relevant or known." error={errors.abn ?? ""}>
-                <input
-                  id="abn"
-                  type="text"
-                  value={abn}
-                  onChange={(e) => { setAbn(e.target.value); markChanged() }}
-                  className={styles.input}
-                  placeholder="Enter ABN if relevant"
-                />
+              <FormField label="Is this person a sole trader?" labelFor="isSoleTrader" error={errors.isSoleTrader ?? ""}>
+                <select
+                  id="isSoleTrader"
+                  value={isSoleTrader}
+                  onChange={(e) => {
+                    setIsSoleTrader(e.target.value)
+                    if (e.target.value !== 'Yes') setAbn('')
+                    markChanged()
+                  }}
+                  className={styles.select}
+                >
+                  <option value="">Select an option</option>
+                  <option value="Yes">Yes</option>
+                  <option value="No">No</option>
+                </select>
               </FormField>
+
+              {isSoleTrader === 'Yes' && (
+                <FormField label="ABN" labelFor="abn" helperText="Leave blank if they don't have an ABN." error={errors.abn ?? ""}>
+                  <input
+                    id="abn"
+                    type="text"
+                    value={abn}
+                    onChange={(e) => { setAbn(e.target.value); markChanged() }}
+                    className={styles.input}
+                    placeholder="Enter ABN"
+                  />
+                </FormField>
+              )}
 
               <FormField label="Gender" labelFor="gender" error={errors.gender ?? ""}>
                 <select

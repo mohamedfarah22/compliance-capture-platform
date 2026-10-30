@@ -207,6 +207,7 @@ describe('wizard integration flow', () => {
     await user.type(screen.getByLabelText('Phone number'), '0400000000')
     await user.type(screen.getByLabelText('Occupation or principal activity'), 'Jeweller')
     await user.selectOptions(screen.getByLabelText('Gender'), 'F')
+    await user.selectOptions(screen.getByLabelText('Is this person a sole trader?'), 'No')
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     // /conducting-person -> /id-verification (skip: same as party)
@@ -385,6 +386,7 @@ describe('wizard integration flow', () => {
     await user.type(screen.getByLabelText('Phone number'), '0400000000')
     await user.type(screen.getByLabelText('Occupation or principal activity'), 'Jeweller')
     await user.selectOptions(screen.getByLabelText('Gender'), 'F')
+    await user.selectOptions(screen.getByLabelText('Is this person a sole trader?'), 'No')
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     // Party Details -> Recipient Delivery directly — Conducting Person is never shown.

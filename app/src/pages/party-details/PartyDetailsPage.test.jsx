@@ -85,6 +85,7 @@ async function fillIndividualForm(user) {
   await user.type(screen.getByLabelText('Phone number'), '0400000000')
   await user.type(screen.getByLabelText('Occupation or principal activity'), 'Jeweller')
   await user.selectOptions(screen.getByLabelText('Gender'), 'F')
+  await user.selectOptions(screen.getByLabelText('Is this person a sole trader?'), 'No')
 }
 
 describe('PartyDetailsPage', () => {
@@ -312,6 +313,59 @@ describe('PartyDetailsPage', () => {
     })
   })
 
+  it('requires an answer to "Is this person a sole trader?" and hides the ABN field until the answer is Yes', async () => {
+    const user = userEvent.setup()
+    loadCustomers.mockResolvedValue([INDIVIDUAL_PARTY])
+    renderPage()
+
+    await screen.findAllByText('Jane Doe')
+    await fillIndividualForm(user)
+    await user.selectOptions(screen.getByLabelText('Is this person a sole trader?'), '')
+    expect(screen.queryByLabelText('ABN')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(await screen.findByText('Select whether this person is a sole trader.')).toBeInTheDocument()
+    expect(saveCustomers).not.toHaveBeenCalled()
+  })
+
+  it('a sole trader is saved with legalForm "Sole trader" and their ABN, so the TTR reports isSoleTrader/isAbnHolder/abn', async () => {
+    const user = userEvent.setup()
+    loadCustomers.mockResolvedValue([INDIVIDUAL_PARTY])
+    renderPage()
+
+    await screen.findAllByText('Jane Doe')
+    await fillIndividualForm(user)
+    await user.selectOptions(screen.getByLabelText('Is this person a sole trader?'), 'Yes')
+    await user.type(screen.getByLabelText('ABN'), '12345678901')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => {
+      expect(saveCustomers).toHaveBeenCalledWith([
+        expect.objectContaining({ legalForm: 'Sole trader', abn: '12345678901' }),
+      ])
+    })
+  })
+
+  it('answering No clears the ABN and saves no legal form', async () => {
+    const user = userEvent.setup()
+    loadCustomers.mockResolvedValue([INDIVIDUAL_PARTY])
+    renderPage()
+
+    await screen.findAllByText('Jane Doe')
+    await fillIndividualForm(user)
+    await user.selectOptions(screen.getByLabelText('Is this person a sole trader?'), 'Yes')
+    await user.type(screen.getByLabelText('ABN'), '12345678901')
+    await user.selectOptions(screen.getByLabelText('Is this person a sole trader?'), 'No')
+    expect(screen.queryByLabelText('ABN')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => {
+      expect(saveCustomers).toHaveBeenCalledWith([
+        expect.objectContaining({ legalForm: '', abn: '' }),
+      ])
+    })
+  })
+
   it('ABN accepted by the form is exactly 11 digits with no spaces or hyphens, matching the AUSTRAC ABN pattern [0-9]{11}', async () => {
     const user = userEvent.setup()
     loadCustomers.mockResolvedValue([INDIVIDUAL_PARTY])
@@ -319,6 +373,7 @@ describe('PartyDetailsPage', () => {
 
     await screen.findAllByText('Jane Doe')
     await fillIndividualForm(user)
+    await user.selectOptions(screen.getByLabelText('Is this person a sole trader?'), 'Yes')
     await user.type(screen.getByLabelText('ABN'), '12 345 678 90')
     await user.click(screen.getByRole('button', { name: 'Save' }))
 

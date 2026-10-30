@@ -466,6 +466,31 @@ function buildMoneyProvided(idGen: IdGen, tx: Row, bullionItems: Row[], precious
   return `<cash>${buildCashEl(idGen, tx)}</cash>`;
 }
 
+// ─── Transaction date/time ────────────────────────────────────────────────────
+// transaction_datetime is stored in UTC, but AUSTRAC expects the local date and
+// time of the transaction. The client trades in Victoria (daylight saving applies).
+
+const TXN_TIME_ZONE = "Australia/Melbourne";
+
+export function toLocalDateTime(iso: string): { date: string; time: string } {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: TXN_TIME_ZONE,
+      hourCycle: "h23",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    }).formatToParts(new Date(iso)).map((p) => [p.type, p.value]),
+  );
+  return {
+    date: `${parts.year}-${parts.month}-${parts.day}`,
+    time: `${parts.hour}:${parts.minute}:${parts.second}`,
+  };
+}
+
 // ─── Full TTR block ───────────────────────────────────────────────────────────
 
 export interface EntityRecord {
@@ -490,6 +515,7 @@ export function buildTTRBlock(
   recipientDeliveries: Row[],
   bullionItems: Row[],
   preciousMetalItems: Row[],
+  cpAliases: Row[] = [],
 ): string {
   const idGen = makeIdGen(tx.id as string);
   const idvByParty = Object.fromEntries(
@@ -526,15 +552,14 @@ export function buildTTRBlock(
     idGen,
     primaryCP,
     cpIdv,
-    [],
+    cpAliases.filter((a) => a.conducting_person_id === primaryCP?.id),
     tx,
     parties,
     partyIdToCustomerId,
   );
 
   // 4. transaction
-  const txDate = (tx.transaction_datetime as string ?? "").slice(0, 10);
-  const txTime = (tx.transaction_datetime as string ?? "").slice(11, 19) || "00:00:00";
+  const { date: txDate, time: txTime } = toLocalDateTime(tx.transaction_datetime as string);
   const physDir = (tx.scenario as string).endsWith("_sell") ? "RECEIVED" : "PROVIDED";
   const rd = recipientDeliveries[0] ?? null;
   const txnPurpose = rd ? (rd.purpose_of_transfer as string ?? "") : "";
@@ -545,8 +570,13 @@ export function buildTTRBlock(
 
   const transaction = `<transaction id="${xmlEsc(idGen("txn"))}">${el("designatedService", DESIGNATED_SERVICE_MAP[tx.scenario as string] ?? "BULSER")}${txnLocationEl}${el("txnDate", txDate)}${el("txnTime", txTime)}${el("txnRefNo", tx.transaction_ref)}${opt("txnPurpose", txnPurpose)}${el("physicalCurrencyDirection", physDir)}<moneyReceived id="${xmlEsc(idGen("mrv"))}">${buildMoneyReceived(idGen, tx, bullionItems, preciousMetalItems)}</moneyReceived><moneyProvided id="${xmlEsc(idGen("mpr"))}">${buildMoneyProvided(idGen, tx, bullionItems, preciousMetalItems)}</moneyProvided>${totalAmountEl}</transaction>`;
 
-  // 5. recipient
-  const recipientEl = rd ? `<recipient id="${xmlEsc(idGen("recipient"))}">${buildRecipientInner(idGen, rd, parties, idvByParty, partyIdToCustomerId)}</recipient>` : "";
+  // 5. recipient — mandatory (1..*) in TTR-1-0. When no recipient/delivery record
+  // exists (e.g. that step is switched off), each customer is reported as the recipient.
+  const recipientEl = rd
+    ? `<recipient id="${xmlEsc(idGen("recipient"))}">${buildRecipientInner(idGen, rd, parties, idvByParty, partyIdToCustomerId)}</recipient>`
+    : parties
+        .map((p) => `<recipient id="${xmlEsc(idGen("recipient"))}"><sameAsCustomer refId="${xmlEsc(partyIdToCustomerId[p.id as string])}"/></recipient>`)
+        .join("");
 
   // 6. isOtherDsProviderInvolved
   const otherDsEl = el("isOtherDsProviderInvolved", yesNo(tx.is_other_ds_provider_involved));
@@ -685,6 +715,7 @@ export async function loadTxnScopedData(
   allBIs: Row[];
   allPMIs: Row[];
   allAliases: Row[];
+  allCpAliases: Row[];
 }> {
   const [partiesRes, cpsRes, idvsRes, rdsRes, bisRes, pmisRes] = await Promise.all([
     ttr.from("parties").select("*").in("transaction_id", allTxnIds),
@@ -708,7 +739,14 @@ export async function loadTxnScopedData(
     : { data: [] as Row[], error: null };
   const allAliases = unwrapQuery("party_aliases", aliasesRes);
 
-  return { allParties, allCPs, allIDVs, allRDs, allBIs, allPMIs, allAliases };
+  // cp_aliases likewise has no transaction_id — fetch by conducting_person_id.
+  const allCpIds = allCPs.map((cp) => cp.id as string);
+  const cpAliasesRes = allCpIds.length > 0
+    ? await ttr.from("cp_aliases").select("*").in("conducting_person_id", allCpIds)
+    : { data: [] as Row[], error: null };
+  const allCpAliases = unwrapQuery("cp_aliases", cpAliasesRes);
+
+  return { allParties, allCPs, allIDVs, allRDs, allBIs, allPMIs, allAliases, allCpAliases };
 }
 
 // party_aliases rows carry party_id only (no transaction_id) — scope a
@@ -815,7 +853,7 @@ export async function handleRequest(req: Request): Promise<Response> {
 
       const allTxnIds = txns.map((t) => t.id as string);
 
-      const { allParties, allCPs, allIDVs, allRDs, allBIs, allPMIs, allAliases } =
+      const { allParties, allCPs, allIDVs, allRDs, allBIs, allPMIs, allAliases, allCpAliases } =
         await loadTxnScopedData(ttr, allTxnIds);
 
       // Determine batch sequence number (1-based count of existing batches for this entity+date)
@@ -839,6 +877,7 @@ export async function handleRequest(req: Request): Promise<Response> {
           allRDs.filter((r) => r.transaction_id === txId),
           allBIs.filter((b) => b.transaction_id === txId),
           allPMIs.filter((p) => p.transaction_id === txId),
+          allCpAliases,
         );
       });
 
