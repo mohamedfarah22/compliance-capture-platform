@@ -1,11 +1,12 @@
 import { ChevronLeft, LogOut } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext.jsx'
 import Button from '../ui/Button.jsx'
 import styles from './WizardFrame.module.css'
 
 const WizardFrame = ({ actions, backLabel = 'Back', children, exitLabel = 'Exit', helperText, onBack, onExit, subtitle, title, wide }) => {
   const { staffMember, canApproveReports, signOut } = useAuth()
+  const { pathname } = useLocation()
 
   return (
     <main className={styles.page}>
@@ -13,7 +14,9 @@ const WizardFrame = ({ actions, backLabel = 'Back', children, exitLabel = 'Exit'
         <span className={styles.topBarUser}>{staffMember?.full_name ?? ''}</span>
         <div className={styles.topBarActions}>
           {canApproveReports ? (
-            <Link className={styles.reportsLink} to="/reports">Reports</Link>
+            pathname === '/reports'
+              ? <Link className={styles.reportsLink} to="/">New transaction</Link>
+              : <Link className={styles.reportsLink} to="/reports">Reports</Link>
           ) : null}
           <button className={styles.signOut} onClick={signOut} title="Sign out" type="button">
             <LogOut aria-hidden="true" size={15} />
