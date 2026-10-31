@@ -68,32 +68,99 @@ describe("CustomerSearchPage", () => {
         vi.restoreAllMocks();
     });
 
-    it("individual search: shows a validation error when any of the three required fields (firstName, lastName, DOB) are missing", async () => {
+    it("individual search: first name + last name is enough (no date of birth needed)", async () => {
         const user = userEvent.setup();
         renderPage();
 
         await user.type(screen.getByLabelText("First name"), "Sarah");
         await user.type(screen.getByLabelText("Last name"), "Johnson");
-        // Date of birth intentionally left blank.
         await user.click(screen.getByRole("button", { name: "Search" }));
 
-        expect(await screen.findByText("Enter First Name, Last Name and Date of Birth to search.")).toBeInTheDocument();
+        expect(await screen.findByText("Sarah Johnson")).toBeInTheDocument();
+        expect(searchIndividualCustomers).toHaveBeenCalledWith({ firstName: "Sarah", lastName: "Johnson", dob: null });
+    });
+
+    it("individual search: last name + date of birth is enough (no first name needed)", async () => {
+        const user = userEvent.setup();
+        renderPage();
+
+        await user.type(screen.getByLabelText("Last name"), "Johnson");
+        await user.type(screen.getByLabelText("Date of birth"), "15/06/1985");
+        await user.click(screen.getByRole("button", { name: "Search" }));
+
+        expect(await screen.findByText("Sarah Johnson")).toBeInTheDocument();
+        expect(searchIndividualCustomers).toHaveBeenCalledWith({
+            firstName: "",
+            lastName: "Johnson",
+            dob: expect.stringMatching(/1985/),
+        });
+    });
+
+    it("individual search: first name alone is rejected, and the message names both allowed combinations", async () => {
+        const user = userEvent.setup();
+        renderPage();
+
+        await user.type(screen.getByLabelText("First name"), "Sarah");
+        await user.click(screen.getByRole("button", { name: "Search" }));
+
+        expect(
+            await screen.findByText("Enter First Name and Last Name, or Last Name and Date of Birth, to search.")
+        ).toBeInTheDocument();
         expect(searchIndividualCustomers).not.toHaveBeenCalled();
     });
 
-    it("company search: shows a validation error when any of the three required fields (entityName, ABN/ACN, suburb/postcode) are missing", async () => {
+    it("individual search: last name alone is rejected", async () => {
+        const user = userEvent.setup();
+        renderPage();
+
+        await user.type(screen.getByLabelText("Last name"), "Johnson");
+        await user.click(screen.getByRole("button", { name: "Search" }));
+
+        expect(
+            await screen.findByText("Enter First Name and Last Name, or Last Name and Date of Birth, to search.")
+        ).toBeInTheDocument();
+        expect(searchIndividualCustomers).not.toHaveBeenCalled();
+    });
+
+    it("company search: shows a validation error when neither entity name nor ABN/ACN is entered", async () => {
         const user = userEvent.setup();
         renderPage();
 
         await user.click(screen.getByRole("button", { name: "Company / Business" }));
-        await user.type(screen.getByLabelText("Registered entity name"), "Acme Bullion Pty Ltd");
-        // ABN/ACN and suburb/postcode intentionally left blank.
+        // Suburb alone is not enough: it only narrows a name or ABN/ACN search.
+        await user.type(screen.getByLabelText("Registered suburb / postcode"), "Melbourne");
         await user.click(screen.getByRole("button", { name: "Search" }));
 
-        expect(
-            await screen.findByText("Enter Entity Name, ABN / ACN and Suburb / Postcode to search.")
-        ).toBeInTheDocument();
+        expect(await screen.findByText("Enter the Registered Entity Name or ABN / ACN to search.")).toBeInTheDocument();
         expect(searchCompanyCustomers).not.toHaveBeenCalled();
+    });
+
+    it("company search: searches with the entity name alone", async () => {
+        const user = userEvent.setup();
+        renderPage();
+
+        await user.click(screen.getByRole("button", { name: "Company / Business" }));
+        await user.type(screen.getByLabelText("Registered entity name"), "Acme");
+        await user.click(screen.getByRole("button", { name: "Search" }));
+
+        expect(searchCompanyCustomers).toHaveBeenCalledWith({ entityName: "Acme", regIdentifier: "", suburb: null });
+        expect(await screen.findByText("Acme Bullion Pty Ltd")).toBeInTheDocument();
+    });
+
+    it("company search: searches with the ABN/ACN alone", async () => {
+        const user = userEvent.setup();
+        renderPage();
+
+        await user.click(screen.getByRole("button", { name: "Company / Business" }));
+        await user.type(screen.getByLabelText("ABN / ACN"), "12345678901");
+        await user.click(screen.getByRole("button", { name: "Search" }));
+
+        expect(searchCompanyCustomers).toHaveBeenCalledWith({
+            entityName: "",
+            regIdentifier: "12345678901",
+            suburb: null,
+        });
+        expect(await screen.findByText("Acme Bullion Pty Ltd")).toBeInTheDocument();
     });
 
     it("clicking a search result adds the party to the selected parties panel", async () => {

@@ -211,6 +211,56 @@ describe("wizardApi", () => {
         expect(aliasesBuilder.insert).not.toHaveBeenCalled();
     });
 
+    it("migrateNewParties() sets customer_id on a party picked from search, and copies the retyped fields", async () => {
+        window.sessionStorage.setItem("ttr.transactionId", "tx-1");
+        const partiesBuilder = makeBuilder({ data: [{ id: "new-party-id" }], error: null });
+        fromMock.mockReturnValue(partiesBuilder);
+
+        await migrateNewParties([
+            {
+                id: "cust-1",
+                customerId: "cust-1",
+                type: "individual",
+                firstName: "Sarah",
+                lastName: "Austen",
+                citizenshipCountryCode: "NZ",
+                taxResidencyCountryCode: "AU",
+                legalForm: "Sole trader",
+                abn: "11223344556",
+                hasPostalAddress: true,
+                postalAddress: {
+                    street: "5 Post St",
+                    suburb: "Postville",
+                    state: "NSW",
+                    postcode: "2000",
+                    country: "Australia",
+                },
+            },
+        ]);
+
+        expect(partiesBuilder.insert).toHaveBeenCalledWith([
+            expect.objectContaining({
+                customer_id: "cust-1",
+                citizenship_country_code: "NZ",
+                tax_residency_country_code: "AU",
+                legal_form: "Sole trader",
+                abn: "11223344556",
+                has_postal_address: true,
+                post_street: "5 Post St",
+            }),
+        ]);
+    });
+
+    it("migrateNewParties() sends a null customer_id for a party created in the wizard", async () => {
+        window.sessionStorage.setItem("ttr.transactionId", "tx-1");
+        const partiesBuilder = makeBuilder({ data: [{ id: "new-party-id" }], error: null });
+        fromMock.mockReturnValue(partiesBuilder);
+
+        await migrateNewParties([{ id: "new-1", type: "individual", firstName: "Jane", lastName: "Doe" }]);
+
+        expect(partiesBuilder.insert).toHaveBeenCalledWith([expect.objectContaining({ customer_id: null })]);
+    });
+
     it("saveTransaction() updates the existing ttr.transactions row matched by transactionId", async () => {
         window.sessionStorage.setItem("ttr.transactionId", "tx-existing");
         const builder = makeBuilder({ error: null });
@@ -879,6 +929,103 @@ describe("wizardApi", () => {
 
         expect(result[0].isExpressTrust).toBe("No");
         expect(result[1].isExpressTrust).toBe("");
+    });
+
+    it("searchIndividualCustomers() maps customer_id and the fields TTR used to retype", async () => {
+        supabase.rpc.mockResolvedValue({
+            data: [
+                {
+                    party_id: "p1",
+                    customer_id: "c1",
+                    first_name: "Jane",
+                    last_name: "Doe",
+                    citizenship_country_code: "NZ",
+                    tax_residency_country_code: "AU",
+                    is_sole_trader: true,
+                    abn: "11223344556",
+                    business_trading_name: "Doe Metals",
+                    has_postal_address: true,
+                    post_street: "5 Post St",
+                    post_suburb: "Postville",
+                    post_state: "NSW",
+                    post_postcode: "2000",
+                    post_country: "Australia",
+                },
+            ],
+            error: null,
+        });
+
+        const [result] = await searchIndividualCustomers({ firstName: "Jane", lastName: "Doe" });
+
+        expect(result).toEqual(
+            expect.objectContaining({
+                id: "c1",
+                customerId: "c1",
+                citizenshipCountryCode: "NZ",
+                taxResidencyCountryCode: "AU",
+                legalForm: "Sole trader",
+                abn: "11223344556",
+                businessTradingName: "Doe Metals",
+                hasPostalAddress: true,
+                postalAddress: {
+                    street: "5 Post St",
+                    suburb: "Postville",
+                    state: "NSW",
+                    postcode: "2000",
+                    country: "Australia",
+                },
+            })
+        );
+    });
+
+    it("searchIndividualCustomers() identifies a customer with no party by customer_id", async () => {
+        supabase.rpc.mockResolvedValue({
+            data: [{ party_id: null, customer_id: "gold-1", first_name: "Gwen", last_name: "Goldonly" }],
+            error: null,
+        });
+
+        const [result] = await searchIndividualCustomers({ firstName: "Gwen", lastName: "Goldonly" });
+
+        expect(result.id).toBe("gold-1");
+        expect(result.customerId).toBe("gold-1");
+        expect(result.legalForm).toBe("");
+        expect(result.hasPostalAddress).toBe(false);
+    });
+
+    it("searchCompanyCustomers() maps customer_id and the company postal address", async () => {
+        supabase.rpc.mockResolvedValue({
+            data: [
+                {
+                    party_id: null,
+                    customer_id: "c2",
+                    entity_name: "Acme Pty Ltd",
+                    has_company_postal_address: true,
+                    co_post_street: "PO Box 7",
+                    co_post_suburb: "Bizville",
+                    co_post_state: "VIC",
+                    co_post_postcode: "3000",
+                    co_post_country: "Australia",
+                },
+            ],
+            error: null,
+        });
+
+        const [result] = await searchCompanyCustomers({ entityName: "Acme" });
+
+        expect(result).toEqual(
+            expect.objectContaining({
+                id: "c2",
+                customerId: "c2",
+                hasCompanyPostalAddress: true,
+                companyPostalAddress: {
+                    street: "PO Box 7",
+                    suburb: "Bizville",
+                    state: "VIC",
+                    postcode: "3000",
+                    country: "Australia",
+                },
+            })
+        );
     });
 
     it("uploadIdImage() POSTs a multipart FormData payload (no explicit Content-Type header) and returns the parsed response", async () => {

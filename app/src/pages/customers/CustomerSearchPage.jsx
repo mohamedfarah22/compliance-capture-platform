@@ -83,8 +83,9 @@ const CustomerSearchPage = () => {
             const ln = lastName.trim();
 
             const dob = dateOfBirth.trim();
-            if (!fn || !ln || !dob) {
-                setSearchError("Enter First Name, Last Name and Date of Birth to search.");
+            // The hint on this form promises two combinations, and the search accepts both.
+            if (!ln || (!fn && !dob)) {
+                setSearchError("Enter First Name and Last Name, or Last Name and Date of Birth, to search.");
                 setHasSearched(false);
                 setResults([]);
                 return;
@@ -105,9 +106,9 @@ const CustomerSearchPage = () => {
             const en = entityName.trim();
             const abn = abnAcn.trim();
 
-            const sub = suburb.trim();
-            if (!en || !abn || !sub) {
-                setSearchError("Enter Entity Name, ABN / ACN and Suburb / Postcode to search.");
+            // The hint on this form promises entity name or ABN / ACN; suburb only narrows the results.
+            if (!en && !abn) {
+                setSearchError("Enter the Registered Entity Name or ABN / ACN to search.");
                 setHasSearched(false);
                 setResults([]);
                 return;
