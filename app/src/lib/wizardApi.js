@@ -620,7 +620,14 @@ export async function fetchPriorVerifications(person) {
     const isIndividual = person.type === "individual";
     const rpc = isIndividual ? "get_prior_verifications_individual" : "get_prior_verifications_company";
     const params = isIndividual
-        ? { p_last_name: person.lastName, p_first_name: person.firstName, p_dob: person.dateOfBirth || null }
+        ? {
+              p_last_name: person.lastName,
+              p_first_name: person.firstName,
+              p_dob: person.dateOfBirth || null,
+              // A linked customer is looked up by id (which also finds captures taken outside
+              // any TTR); with none, the RPC falls back to name + date of birth.
+              p_customer_id: person.customerId || null,
+          }
         : { p_entity_name: person.entityName, p_reg_identifier: person.abnAcn || null };
     const { data, error } = await supabase.rpc(rpc, params);
     if (error) throw error;
@@ -912,6 +919,9 @@ function dbRowToParty(row) {
             id: row.id,
             type: "individual",
             isComplete: row.is_complete,
+            // The shared customer this party was linked to (picked from search, or set when the
+            // TTR was completed). Null for a person typed in by hand.
+            customerId: row.customer_id || null,
             firstName: row.first_name || "",
             middleName: row.middle_name || "",
             lastName: row.last_name || "",

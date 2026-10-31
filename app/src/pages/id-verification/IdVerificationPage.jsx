@@ -265,7 +265,8 @@ const PriorVerificationPicker = ({ records, loading, onSelect, imageUrlMap, onIm
                                     <span className={`${styles.badge} ${styles[badge.className]}`}>{badge.label}</span>
                                 </div>
                                 <p className={styles.priorPickerMeta}>
-                                    Verified {verifiedDate} by {record.verified_by_name} · Ref: {record.transaction_ref}
+                                    Verified {verifiedDate} by {record.verified_by_name}
+                                    {record.transaction_ref ? ` · Ref: ${record.transaction_ref}` : ""}
                                     {expiryText}
                                 </p>
                                 {(imageUrlMap[record.front_image_id] || imageUrlMap[record.back_image_id]) && (
@@ -358,6 +359,7 @@ const IdVerificationPage = () => {
                             firstName: p.firstName,
                             lastName: p.lastName,
                             dateOfBirth: p.dateOfBirth,
+                            customerId: p.customerId,
                         })
                     );
                 if (cp?.hasConductingPerson === "yes" && cp.fullName) {
@@ -1344,10 +1346,12 @@ const IdVerificationPage = () => {
                                                         Verified {currentData.priorVerificationSummary.verifiedDate} by{" "}
                                                         {currentData.priorVerificationSummary.verifiedBy}
                                                     </p>
-                                                    <p className={styles.priorVerificationDetail}>
-                                                        Transaction:{" "}
-                                                        {currentData.priorVerificationSummary.transactionRef}
-                                                    </p>
+                                                    {currentData.priorVerificationSummary.transactionRef && (
+                                                        <p className={styles.priorVerificationDetail}>
+                                                            Transaction:{" "}
+                                                            {currentData.priorVerificationSummary.transactionRef}
+                                                        </p>
+                                                    )}
                                                 </div>
                                                 <Button
                                                     variant="secondary"

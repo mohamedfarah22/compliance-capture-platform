@@ -20,6 +20,7 @@ import {
     searchCompanyCustomers,
     searchIndividualCustomers,
     fetchVerificationForDocument,
+    fetchPriorVerifications,
     getIdImageSignedUrls,
     uploadIdImage,
 } from "./wizardApi.js";
@@ -575,6 +576,32 @@ describe("wizardApi", () => {
         expect(supabase.rpc).toHaveBeenCalledWith(
             "get_verification_for_document",
             expect.objectContaining({ p_exclude_id: "idv-self" })
+        );
+    });
+
+    it("fetchPriorVerifications() passes the party's customer_id to the individual lookup, or null when it has none", async () => {
+        supabase.rpc.mockResolvedValue({ data: [{ id: "idv-1" }], error: null });
+
+        const rows = await fetchPriorVerifications({
+            role: "party",
+            type: "individual",
+            lastName: "Smith",
+            firstName: "Jane",
+            dateOfBirth: "1990-04-15",
+            customerId: "cust-1",
+        });
+        expect(rows).toEqual([{ id: "idv-1" }]);
+        expect(supabase.rpc).toHaveBeenCalledWith("get_prior_verifications_individual", {
+            p_last_name: "Smith",
+            p_first_name: "Jane",
+            p_dob: "1990-04-15",
+            p_customer_id: "cust-1",
+        });
+
+        await fetchPriorVerifications({ role: "party", type: "individual", lastName: "Smith", firstName: "Jane" });
+        expect(supabase.rpc).toHaveBeenLastCalledWith(
+            "get_prior_verifications_individual",
+            expect.objectContaining({ p_customer_id: null })
         );
     });
 
