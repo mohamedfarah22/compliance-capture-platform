@@ -26,7 +26,7 @@ const WizardFrame = ({
                 <div className={styles.topBarActions}>
                     {canApproveReports ? (
                         pathname === "/reports" ? (
-                            <Link className={styles.reportsLink} to="/">
+                            <Link className={styles.reportsLink} to="/start">
                                 New transaction
                             </Link>
                         ) : (

@@ -32,7 +32,7 @@ function renderMfaPage(initialEntry = "/mfa") {
             <Routes>
                 <Route path="/mfa" element={<MfaGatePage />} />
                 <Route path="/login" element={<h1>Sign in</h1>} />
-                <Route path="/start" element={<h1>Start Transaction</h1>} />
+                <Route path="/" element={<h1>Journey picker</h1>} />
                 <Route path="/reports" element={<h1>Reports</h1>} />
             </Routes>
         </MemoryRouter>
@@ -130,7 +130,7 @@ describe("MfaGatePage", () => {
         await waitFor(() => {
             expect(supabase.auth.mfa.challengeAndVerify).toHaveBeenCalledWith({ factorId: "factor-1", code: "654321" });
         });
-        expect(await screen.findByRole("heading", { name: "Start Transaction" })).toBeInTheDocument();
+        expect(await screen.findByRole("heading", { name: "Journey picker" })).toBeInTheDocument();
     });
 
     it("shows an error and stays on the page when the code is invalid", async () => {
@@ -148,6 +148,6 @@ describe("MfaGatePage", () => {
 
         expect(await screen.findByText(/invalid code/i)).toBeInTheDocument();
         expect(refreshAal).not.toHaveBeenCalled();
-        expect(screen.queryByRole("heading", { name: "Start Transaction" })).not.toBeInTheDocument();
+        expect(screen.queryByRole("heading", { name: "Journey picker" })).not.toBeInTheDocument();
     });
 });
