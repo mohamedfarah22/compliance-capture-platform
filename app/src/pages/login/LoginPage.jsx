@@ -9,7 +9,7 @@ import { supabase } from "../../lib/supabase.js";
 import styles from "./LoginPage.module.css";
 
 const LoginPage = () => {
-    const { session, loading, aal } = useAuth();
+    const { session, loading, aal, signedOutForIdle } = useAuth();
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
     const [email, setEmail] = useState("");
@@ -18,7 +18,7 @@ const LoginPage = () => {
     const [submitting, setSubmitting] = useState(false);
 
     // Where the user was heading before being sent here, so they land there rather
-    // than on the wizard start once both factors are done.
+    // than on the journey picker once both factors are done.
     const afterAuth = safeRedirect(searchParams.get("redirect"));
     // A password on its own only reaches aal1, so the second factor comes next.
     // Sending them to a protected route instead would trip ProtectedRoute's
@@ -51,6 +51,12 @@ const LoginPage = () => {
                     <h1>Sign in</h1>
                     <p>Compliance Capture Platform — authorised staff only.</p>
                 </div>
+
+                {signedOutForIdle ? (
+                    <p className={styles.notice} role="status">
+                        You were signed out after 10 minutes without activity.
+                    </p>
+                ) : null}
 
                 {error ? <p className={styles.error}>{error}</p> : null}
 

@@ -11,7 +11,7 @@ const TransactionCompletePage = () => {
     const [fallbackNow] = useState(() => Date.now());
 
     useEffect(() => {
-        if (!state?.transactionRef) navigate("/", { replace: true });
+        if (!state?.transactionRef) navigate("/start", { replace: true });
     }, [state, navigate]);
 
     if (!state?.transactionRef) return null;
@@ -29,7 +29,7 @@ const TransactionCompletePage = () => {
         <WizardFrame
             title="Transaction Complete"
             subtitle="The transaction report has been successfully submitted."
-            actions={<Button onClick={() => navigate("/")}>Start New Transaction</Button>}
+            actions={<Button onClick={() => navigate("/start")}>Start New Transaction</Button>}
         >
             <div className={styles.card}>
                 <div className={styles.iconWrap}>

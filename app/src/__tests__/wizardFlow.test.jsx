@@ -151,7 +151,7 @@ describe("wizard integration flow", () => {
 
     beforeEach(() => {
         window.sessionStorage.clear();
-        window.history.pushState({}, "", "/");
+        window.history.pushState({}, "", "/start");
         db = makeFakeDb();
         wireWizardApiToFakeDb(db);
         useAuth.mockReturnValue({

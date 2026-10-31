@@ -1,0 +1,50 @@
+.list {
+    display: grid;
+    gap: 0.75rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.card {
+    display: grid;
+    gap: 0.25rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    background: var(--color-surface);
+    padding: 1.25rem 1.5rem;
+    color: var(--color-text);
+    text-decoration: none;
+    box-shadow: var(--shadow-soft);
+    transition:
+        background-color 160ms ease,
+        border-color 160ms ease;
+}
+
+.card:hover {
+    border-color: var(--color-primary);
+    background: #f8fafc;
+}
+
+.card:focus-visible {
+    outline: 3px solid var(--color-focus);
+    outline-offset: 2px;
+}
+
+.title {
+    font-size: 1.0625rem;
+    font-weight: 700;
+    line-height: 1.35;
+}
+
+.description {
+    color: var(--color-muted);
+    font-size: 0.875rem;
+    line-height: 1.45;
+}
+
+@media (max-width: 640px) {
+    .card {
+        padding: 1rem;
+    }
+}
