@@ -48,6 +48,13 @@ export async function handleRequest(req: Request): Promise<Response> {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS_HEADERS });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
+  // This function deletes ID images with the service role and reports every entity's
+  // image paths, so only a caller holding the service-role key may run it.
+  const auth = req.headers.get("Authorization");
+  if (!auth || auth !== `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`) {
+    return json({ error: "Unauthorized" }, 401);
+  }
+
   let apply = false;
   let full = false;
   let windowDays = DEFAULT_WINDOW_DAYS;

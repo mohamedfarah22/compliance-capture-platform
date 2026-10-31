@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState } from 'react'
+import { clearWizardData } from '../components/wizardStorage.js'
 import { supabase } from '../lib/supabase.js'
 
 const AuthContext = createContext(null)
@@ -35,6 +36,8 @@ export function AuthProvider({ children }) {
       if (session) {
         Promise.all([fetchStaffMember(session.user.id), refreshAal()]).finally(() => setLoading(false))
       } else {
+        // Also covers other tabs and expired sessions, which never call signOut() below.
+        clearWizardData()
         setStaffMember(null)
         setAal({ currentLevel: null, nextLevel: null })
         setLoading(false)
@@ -45,6 +48,9 @@ export function AuthProvider({ children }) {
   }, [])
 
   async function signOut() {
+    // Customer details and ID photos from an unfinished transaction sit in
+    // sessionStorage; on a shared counter PC they must not outlive the session.
+    clearWizardData()
     sessionStorage.removeItem('ttr.transactionId')
     await supabase.auth.signOut()
   }

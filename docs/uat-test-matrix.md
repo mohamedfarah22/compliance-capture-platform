@@ -179,7 +179,7 @@ No transaction data needed for any of these.
 | R9 | ✓ | While signed out, open `/reports` directly, then complete both factors | `/login` → `/mfa` → lands on **`/reports`**, not `/start`. The requested page survives both steps |
 | R10 | ✓ | As the non-admin account, complete MFA and open `/reports`. Then sign in fully and hard-refresh a protected page | First: "You are not authorised to view this page" — the role check still runs after MFA. Second: you stay put, confirming the sign-out only fires for genuinely half-authenticated sessions, not in the moment before the assurance level resolves |
 
-*Known and expected:* a password-only token can still call the Supabase REST API directly (curl/Postman). DB-level AAL2 hardening was deliberately deferred.
+*Superseded 2026-10-30:* a password-only token could call the Supabase REST API directly (curl/Postman) and read every customer. Migration 20261030000001 now enforces AAL2 in the database; go-live check 2.10 verifies it.
 
 ### Regression cast
 

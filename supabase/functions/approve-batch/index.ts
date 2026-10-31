@@ -29,6 +29,17 @@ Deno.serve(async (req: Request) => {
   const { data: { user }, error: userError } = await anonClient.auth.getUser();
   if (userError || !user) return json({ error: "Invalid or expired token" }, 401);
 
+  // Everything below reads with the service role, which bypasses the database's MFA
+  // requirement, so the assurance level is checked here. getUser() has already accepted
+  // this token, so its payload can be trusted.
+  let aal: unknown;
+  try {
+    aal = JSON.parse(atob(jwt.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"))).aal;
+  } catch {
+    aal = null;
+  }
+  if (aal !== "aal2") return json({ error: "Two-factor authentication required" }, 403);
+
   // Verify active admin
   const { data: staff, error: staffError } = await serviceClient
     .from("staff_members")

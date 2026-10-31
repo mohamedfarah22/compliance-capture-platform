@@ -4,6 +4,7 @@ import Button from '../../components/ui/Button.jsx'
 import FormField from '../../components/ui/FormField.jsx'
 import TextInput from '../../components/ui/TextInput.jsx'
 import { useAuth } from '../../context/AuthContext.jsx'
+import { safeRedirect } from '../../lib/safeRedirect.js'
 import { supabase } from '../../lib/supabase.js'
 import styles from './LoginPage.module.css'
 
@@ -18,8 +19,7 @@ const LoginPage = () => {
 
   // Where the user was heading before being sent here, so they land there rather
   // than on the wizard start once both factors are done.
-  const requested = searchParams.get('redirect')
-  const afterAuth = requested || '/start'
+  const afterAuth = safeRedirect(searchParams.get('redirect'))
   // A password on its own only reaches aal1, so the second factor comes next.
   // Sending them to a protected route instead would trip ProtectedRoute's
   // partial-session check and sign them straight back out.

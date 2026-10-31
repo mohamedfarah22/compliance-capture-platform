@@ -3,7 +3,7 @@ project_id = "compliance-capture-platform"
 [api]
 enabled = true
 port = 54321
-schemas = ["public", "ttr", "storage", "graphql_public"]
+schemas = ["public", "ttr", "graphql_public"]
 extra_search_path = ["public", "extensions"]
 max_rows = 1000
 
@@ -54,6 +54,11 @@ verify_jwt = true
 verify_jwt = false
 
 [functions.generate-austrac-report]
+verify_jwt = false
+
+# The secret key is not a JWT, so the gateway check is off and the function checks the
+# key itself, as generate-austrac-report does.
+[functions.reconcile-stored-images]
 verify_jwt = false
 
 [functions.approve-batch]
