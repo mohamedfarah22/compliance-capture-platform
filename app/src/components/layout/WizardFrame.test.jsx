@@ -9,9 +9,9 @@ vi.mock('../../context/AuthContext.jsx', () => ({
   useAuth: vi.fn(),
 }))
 
-function renderFrame(props = {}) {
+function renderFrame(props = {}, path = '/') {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[path]}>
       <WizardFrame title="Test Page" {...props}>
         <p>Page content</p>
       </WizardFrame>
@@ -56,6 +56,14 @@ describe('WizardFrame', () => {
     renderFrame()
 
     expect(screen.getByRole('link', { name: 'Reports' })).toBeInTheDocument()
+  })
+
+  it('shows a New transaction link to / instead of Reports on /reports', () => {
+    useAuth.mockReturnValue({ staffMember: { full_name: 'Jane Staff' }, canApproveReports: true, signOut: vi.fn() })
+    renderFrame({}, '/reports')
+
+    expect(screen.getByRole('link', { name: 'New transaction' })).toHaveAttribute('href', '/')
+    expect(screen.queryByRole('link', { name: 'Reports' })).not.toBeInTheDocument()
   })
 
   it('hides the Reports link when canApproveReports is false', () => {
