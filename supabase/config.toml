@@ -31,6 +31,13 @@ additional_redirect_urls = ["http://localhost:3000"]
 jwt_expiry = 3600
 enable_signup = false
 
+[auth.sessions]
+# Ends a session that has made no refresh-token request for this long. Backs up the
+# 10 minute idle sign-out in AuthContext. The hosted projects need the same setting.
+# Check against jwt_expiry (3600): the client only refreshes near expiry, so a limit
+# this short may end sessions of active users at their next refresh (see UAT 3.7).
+inactivity_timeout = "10m"
+
 [auth.mfa]
 max_enrolled_factors = 10
 
