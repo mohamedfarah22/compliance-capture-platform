@@ -60,7 +60,7 @@ On **Add Customers / Parties**, **Individual** tab. Use a customer that has a co
 | 1.2 | Clear First name. Enter **Last name** and **Date of birth** only. Press **Search** | ☐ The customer appears |
 | 1.3 | Clear everything except **First name**. Press **Search** | ☐ No search runs ☐ The message reads *Enter First Name and Last Name, or Last Name and Date of Birth, to search.* — both allowed combinations are named |
 | 1.3a | Enter only **Last name**. Press **Search** | ☐ The same message |
-| 1.8 | Switch to **Company / Business**. Search with a known company's name, its ABN **with spaces** (e.g. `12 345 678 901`) and its suburb or postcode | ☐ The company is found ☐ Repeat with the ABN **without** spaces: found again |
+| 1.8 | Switch to **Company / Business**. (a) Search with only a known company's name. (b) Clear it and search with only its ABN **with spaces** (e.g. `12 345 678 901`). (c) Search with only a suburb | ☐ (a) found ☐ (b) found; repeat without spaces, found again ☐ (c) message: "Enter the Registered Entity Name or ABN / ACN to search." |
 
 (The company tab still needs all three fields; this phase did not change that.)
 
