@@ -7,9 +7,9 @@ describe("safeRedirect", () => {
         expect(safeRedirect("/review-batch/abc?token=xyz")).toBe("/review-batch/abc?token=xyz");
     });
 
-    it("falls back to the wizard start when nothing was requested", () => {
-        expect(safeRedirect(null)).toBe("/start");
-        expect(safeRedirect("")).toBe("/start");
+    it("falls back to the journey picker when nothing was requested", () => {
+        expect(safeRedirect(null)).toBe("/");
+        expect(safeRedirect("")).toBe("/");
     });
 
     it("refuses anything that would leave the app after sign-in", () => {
@@ -21,6 +21,6 @@ describe("safeRedirect", () => {
             "/\t/evil.example",
             "javascript:alert(1)",
             "reports",
-        ].forEach((value) => expect(safeRedirect(value)).toBe("/start"));
+        ].forEach((value) => expect(safeRedirect(value)).toBe("/"));
     });
 });
