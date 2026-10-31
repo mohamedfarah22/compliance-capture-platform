@@ -8,7 +8,9 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "vitest --run"
+    "test": "vitest --run",
+    "format": "prettier --write src",
+    "format:check": "prettier --check src"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.108.2",
@@ -32,6 +34,7 @@
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.5.0",
     "jsdom": "^25.0.1",
+    "prettier": "3.9.10",
     "vite": "^8.0.10",
     "vitest": "^2.1.9"
   }
