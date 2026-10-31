@@ -83,4 +83,4 @@ Formatting in `app/` is enforced by Prettier (config in `app/.prettierrc`).
 
 - Run `npm run format` in `app/` before committing.
 - CI runs `npm run format:check` and fails on unformatted files.
-- `supabase/functions` is not formatted by Prettier.
+- `supabase/functions` is not formatted by Prettier, with one exception: `supabase/functions/_shared/goldRules.js` (the browser imports it) is formatted with `app/.prettierrc` by the same scripts.
