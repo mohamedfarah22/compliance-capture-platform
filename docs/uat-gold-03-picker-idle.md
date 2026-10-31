@@ -20,6 +20,7 @@ This sheet does not re-prove TTR report content. [uat-test-matrix.md](uat-test-m
 - A **Vercel preview deploy** of `gold/03-picker-idle`, with its environment variables pointing at that dev project and `VITE_GOLD_JOURNEY_ENABLED=true` set for **Preview only** (Vercel → Project Settings → Environment Variables). Redeploy after setting it, because Vite reads it at build time.
 - For row 3.4 only: a **second build with the flag off**, either a Vercel preview with `VITE_GOLD_JOURNEY_ENABLED` unset or `false`, or Production once it has this branch. Do not turn the flag on in Production.
 - One **staff** and one **admin** account, both already enrolled in MFA.
+- On the **dev** Supabase project, match `supabase/config.toml`: access token (JWT) expiry **300 seconds**, and session **inactivity timeout 10 minutes** (Authentication → Sessions; it may need a paid plan; if it isn't available, note that on the sheet and skip only that setting).
 - A stopwatch. Rows 3.5 and 3.7 need real waiting time.
 
 **Conventions.**
@@ -60,7 +61,7 @@ This sheet does not re-prove TTR report content. [uat-test-matrix.md](uat-test-m
 - 3.4 shows a Gold card, or `/gold` shows "coming soon": the flag was on in that build. Check the Vercel variable scope and redeploy.
 - 3.5 never signs out, or signs out well before 10 minutes. Check that no other tab of the app was open and active, and that the clock was not paused by the machine sleeping (a woken laptop signs out at once, which is correct).
 - 3.5 signs out but no message shows. Note whether the sign-in page was reached through a refresh: the message lives in memory only.
-- 3.7 signs the active tab out partway through. The Supabase session inactivity limit (`[auth.sessions] inactivity_timeout = "10m"` in `supabase/config.toml`, and the same setting on the hosted project) can end sessions that make no refresh request for 10 minutes, even while the person is busy. Compare the time of sign-out with the time the session was started or last refreshed, and tell the developer before merge.
+- 3.7 signs the active tab out partway through. Check the hosted project's JWT expiry is 300 seconds: with a longer expiry the tab doesn't refresh often enough and the 10 minute session inactivity limit ends the session.
 - 3.6 shows no draft. The draft row was deleted: check `cleanup-stale-drafts` has not been run, and that the same account's reporting entity is being used.
 
 ---
