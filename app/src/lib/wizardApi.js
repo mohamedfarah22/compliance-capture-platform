@@ -113,7 +113,12 @@ export async function migrateNewParties(parties) {
     const unmigrated = parties.filter((p) => !p._migrated);
     if (unmigrated.length === 0) return parties;
 
-    const partyRows = unmigrated.map((p) => partyToDbRow(p, transactionId));
+    // customerId is set only on a party picked from search; the database rejects one that
+    // belongs to another reporting entity, and completion links every party that has none.
+    const partyRows = unmigrated.map((p) => ({
+        ...partyToDbRow(p, transactionId),
+        customer_id: p.customerId || null,
+    }));
     const { data: insertedRows, error: partiesError } = await ttr().from("parties").insert(partyRows).select("id");
     if (partiesError) throw partiesError;
 
@@ -632,7 +637,10 @@ export async function searchIndividualCustomers({ firstName, lastName, dob }) {
     });
     if (error) throw error;
     return (data ?? []).map((r) => ({
-        id: r.party_id,
+        // A customer created by gold has no party, so party_id can be null; customer_id is
+        // the stable identity of a search result.
+        id: r.customer_id ?? r.party_id,
+        customerId: r.customer_id ?? null,
         type: "individual",
         firstName: r.first_name || "",
         middleName: r.middle_name || "",
@@ -642,8 +650,13 @@ export async function searchIndividualCustomers({ firstName, lastName, dob }) {
         phone: r.phone || "",
         email: r.email || "",
         occupation: r.occupation || "",
-        abn: "",
-        businessTradingName: "",
+        // Only a Yes is carried over: a No is stored as no legal form, so Party Details
+        // can't read it back as an answer until the party is complete.
+        legalForm: r.is_sole_trader === true ? "Sole trader" : "",
+        abn: r.abn || "",
+        businessTradingName: r.business_trading_name || "",
+        citizenshipCountryCode: r.citizenship_country_code || "",
+        taxResidencyCountryCode: r.tax_residency_country_code || "",
         aliases: r.aliases || [],
         residentialAddress: {
             street: r.res_street || "",
@@ -652,8 +665,14 @@ export async function searchIndividualCustomers({ firstName, lastName, dob }) {
             postcode: r.res_postcode || "",
             country: r.res_country || "Australia",
         },
-        hasPostalAddress: false,
-        postalAddress: { street: "", suburb: "", state: "", postcode: "", country: "Australia" },
+        hasPostalAddress: r.has_postal_address === true,
+        postalAddress: {
+            street: r.post_street || "",
+            suburb: r.post_suburb || "",
+            state: r.post_state || "",
+            postcode: r.post_postcode || "",
+            country: r.post_country || "Australia",
+        },
         displayName: [r.first_name, r.middle_name, r.last_name].filter(Boolean).join(" "),
         detail: r.date_of_birth
             ? `DOB: ${new Date(r.date_of_birth).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" })}`
@@ -669,7 +688,8 @@ export async function searchCompanyCustomers({ entityName, regIdentifier, suburb
     });
     if (error) throw error;
     return (data ?? []).map((r) => ({
-        id: r.party_id,
+        id: r.customer_id ?? r.party_id,
+        customerId: r.customer_id ?? null,
         type: "company",
         entityName: r.entity_name || "",
         companyTradingName: r.company_trading_name || "",
@@ -691,8 +711,14 @@ export async function searchCompanyCustomers({ entityName, regIdentifier, suburb
             postcode: r.biz_postcode || "",
             country: r.biz_country || "Australia",
         },
-        hasCompanyPostalAddress: false,
-        companyPostalAddress: { street: "", suburb: "", state: "", postcode: "", country: "Australia" },
+        hasCompanyPostalAddress: r.has_company_postal_address === true,
+        companyPostalAddress: {
+            street: r.co_post_street || "",
+            suburb: r.co_post_suburb || "",
+            state: r.co_post_state || "",
+            postcode: r.co_post_postcode || "",
+            country: r.co_post_country || "Australia",
+        },
         displayName: r.entity_name || "",
         detail: [r.reg_identifier ? `ABN/ACN: ${r.reg_identifier}` : null, r.biz_suburb].filter(Boolean).join(" · "),
     }));
