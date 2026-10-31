@@ -5,7 +5,7 @@
 2. One individual TTR still runs end to end, including the camera capture
 3. Admin Reports and a batch still open
 
-This sheet does not re-prove TTR report content. [uat-test-matrix.md](uat-test-matrix.md) covers that, and its TTR smoke rows are re-run in row 5.
+This sheet does not re-prove TTR report content. [uat-test-matrix.md](uat-test-matrix.md) covers that, and its TTR smoke rows are re-run in row 9.
 
 | | |
 |---|---|
@@ -45,8 +45,9 @@ This sheet does not re-prove TTR report content. [uat-test-matrix.md](uat-test-m
 | 2 | On **Add Customers / Parties**, search for an existing customer by last name | ☐ Results appear |
 | 3 | **Create new customer** → Individual: `Fran` `Format`, DOB `03/03/1990`. Fill the remaining screens as normal | ☐ Saves, and every **Continue** works ☐ Labels and helper text read normally, with no missing or doubled spaces |
 | 4 ⚠ | On **ID Verification**, choose a sighted document and capture front and back with the **camera** | ☐ Camera preview appears ☐ Both captured images show |
-| 5 | Continue to **Recipient / Delivery** and on to **Review & Submit**. Check the reporting entity section | ☐ Every screen loads ☐ Legal name, ABN, AUSTRAC account number and address are shown, not `—` |
+| 5 | Continue to **Recipient / Delivery** and on to **Review & Submit**. Check the reporting entity section | ☐ Every screen loads ☐ Legal name, ABN, AUSTRAC account number and address are shown, not `—` ☐ The banner text reads normally, e.g. `Ready to complete — 1 warning to review` or `2 required fields missing`, with spaces around the number (rewrapped by the reformat) |
 | 6 | Complete the transaction | ☐ Completes with no error |
+| 6a ⚠ | Start `UAT-FMT-002` for **Fran Format** and go to **ID Verification**. Then **Exit** and confirm | ☐ The prior verification card reads `Transaction: UAT-FMT-001`, with a space after the colon (this line was rewrapped by the reformat) ☐ Exit deletes the draft |
 
 ## 3 · Admin Reports (admin account)
 
