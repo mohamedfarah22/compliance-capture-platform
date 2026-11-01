@@ -283,13 +283,12 @@ select is((select count(*)::int
     'a search over 10,000 customers finds the customer by surname');
 -- On 10,000 rows a sequential scan (cost ~400) is cheaper than any GIN scan, so the planner
 -- would not choose the index here by itself; at 100,000 rows it does (checked by hand). To prove
--- the name predicate can use idx_customers_name_trgm, switch off the other ways in.
+-- the name predicate can use idx_customers_name_trgm, switch off the other ways in (and leave
+-- out the entity predicate, whose btree index would otherwise compete on this single-entity table).
 set local enable_seqscan = off;
 set local enable_indexscan = off;
 select matches(pg_temp.explain_text(
-        $q$select c.id from public.customers c
-           where c.reporting_entity_id = '33333333-3333-3333-3333-333333333333' and c.customer_type = 'individual'
-             and c.name_search like '%a1b2c%'$q$),
+        $q$select c.id from public.customers c where c.name_search like '%a1b2c%'$q$),
     'Bitmap Index Scan on idx_customers_name_trgm', 'the name predicate can use the trigram index on 10,000 customers');
 select matches(pg_temp.explain_text(
         $q$select c.id from public.customer_aliases a join public.customers c on c.id = a.customer_id
