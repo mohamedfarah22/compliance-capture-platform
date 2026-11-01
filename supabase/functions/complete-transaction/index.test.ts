@@ -59,6 +59,41 @@ Deno.test("a document reference number of exactly 100 characters passes validati
   assert(!errors.some((e) => e.field === "document_number"));
 });
 
+// ─── Reliance on a prior ID: entity comes from the ID record itself ─────────
+
+// Only id_verifications holds a row: a customer-level capture has no transaction to look up.
+// deno-lint-ignore no-explicit-any
+function priorIdvClient(prior: Record<string, unknown>): any {
+  return {
+    from: (table: string) => ({
+      select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: table === "id_verifications" ? prior : null }) }) }),
+    }),
+  };
+}
+
+const RELIANCE_IDV = makeIdv({
+  verification_basis: "relied_on_prior_identification",
+  reliance_reason: "customer_known_to_business",
+  prior_verification_id: "idv-customer",
+  front_image_id: null,
+});
+
+Deno.test("reliance on a customer-level capture (no transaction) in the same entity passes", async () => {
+  const errors: ValidationError[] = [];
+  const prior = { id: "idv-customer", is_complete: true, transaction_id: null, reporting_entity_id: "entity-1" };
+  await validateIdVerifications([RELIANCE_IDV], [INDIVIDUAL_PARTY], [], errors, priorIdvClient(prior), "entity-1");
+
+  assert(!errors.some((e) => e.field === "prior_verification_id"));
+});
+
+Deno.test("reliance on a prior ID from another reporting entity is refused", async () => {
+  const errors: ValidationError[] = [];
+  const prior = { id: "idv-customer", is_complete: true, transaction_id: null, reporting_entity_id: "entity-2" };
+  await validateIdVerifications([RELIANCE_IDV], [INDIVIDUAL_PARTY], [], errors, priorIdvClient(prior), "entity-1");
+
+  assert(errors.some((e) => e.field === "prior_verification_id" && e.message.includes("does not belong")));
+});
+
 // ─── TC-212: transaction date must be on/after the AUSTRAC Date type minimum ─
 
 function makeTx(overrides: Record<string, unknown> = {}) {

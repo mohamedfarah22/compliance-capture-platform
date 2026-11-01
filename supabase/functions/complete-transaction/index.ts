@@ -433,7 +433,7 @@ export async function validateIdVerifications(
       } else {
         const { data: priorIdv } = await schemaClient
           .from("id_verifications")
-          .select("id, is_complete, transaction_id")
+          .select("id, is_complete, reporting_entity_id")
           .eq("id", idv.prior_verification_id as string)
           .single();
 
@@ -441,15 +441,8 @@ export async function validateIdVerifications(
           errors.push({ field: "prior_verification_id", message: "Prior verification record not found", partyId: idvId });
         } else if (!priorIdv.is_complete) {
           errors.push({ field: "prior_verification_id", message: "Prior verification is not complete", partyId: idvId });
-        } else {
-          const { data: priorTx } = await schemaClient
-            .from("transactions")
-            .select("reporting_entity_id")
-            .eq("id", priorIdv.transaction_id)
-            .single();
-          if (!priorTx || priorTx.reporting_entity_id !== reportingEntityId) {
-            errors.push({ field: "prior_verification_id", message: "Prior verification does not belong to this reporting entity", partyId: idvId });
-          }
+        } else if (priorIdv.reporting_entity_id !== reportingEntityId) {
+          errors.push({ field: "prior_verification_id", message: "Prior verification does not belong to this reporting entity", partyId: idvId });
         }
       }
     } else {
