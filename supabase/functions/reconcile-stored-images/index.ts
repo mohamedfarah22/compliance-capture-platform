@@ -28,6 +28,17 @@ import type { StorageOwner, SupabaseSchema } from "../_shared/supersede.ts";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const STORAGE_LIST_LIMIT = 100;
+// Customer-owned ID photos (gold) live under customers/{customer_id}/{verification_id}/…,
+// not in a transaction folder. "customers" is therefore a top-level folder that is not a
+// transaction: without special handling it would be reported as a dangling folder, and its
+// objects (three levels deep, so never seen by the per-transaction listing) would be
+// invisible to the orphan and missing-object checks.
+const CUSTOMERS_FOLDER = "customers";
+// An uploaded customer photo exists for a moment before its row is written (the upload
+// function uploads, then inserts; gold create-customer uploads, then runs its SQL). An
+// unmatched object younger than this is in flight, not an orphan, and must never be deleted.
+const CUSTOMER_OBJECT_GRACE_MS = 60 * 60 * 1000;
+const CUSTOMER_LIST_MAX_DEPTH = 4;
 const DEFAULT_WINDOW_DAYS = 30;
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -90,7 +101,7 @@ export interface StorageLister {
       list: (
         prefix: string,
         options: { limit: number; offset: number },
-      ) => PromiseLike<{ data: { name: string; id?: string | null }[] | null; error: unknown }>;
+      ) => PromiseLike<{ data: { name: string; id?: string | null; created_at?: string | null }[] | null; error: unknown }>;
       remove: (paths: string[]) => PromiseLike<{ error: unknown }>;
     };
   };
@@ -108,6 +119,8 @@ export interface ReconcileDeps {
   // Injected so tests need not stub the whole client surface.
   listFolders?: () => Promise<string[]>;
   listObjects?: (folder: string) => Promise<string[]>;
+  // Every object under customers/. `recent` marks one young enough to be mid-upload.
+  listCustomerObjects?: () => Promise<{ path: string; recent: boolean }[]>;
   loadTransactions?: () => Promise<{ id: string; created_at: string | null }[]>;
   loadImageRows?: () => Promise<{ id: string; object_path: string; superseded_at: string | null }[]>;
   loadDuplicates?: () => Promise<
@@ -155,7 +168,9 @@ export async function reconcile(
   }
 
   // ── Class 4: folders with no transaction. One top-level listing, so always full.
-  const folders = deps.listFolders ? await deps.listFolders() : await listFolders(client);
+  // customers/ is not a transaction folder (see CUSTOMERS_FOLDER); it is swept separately below.
+  const folders = (deps.listFolders ? await deps.listFolders() : await listFolders(client))
+    .filter((f) => f !== CUSTOMERS_FOLDER);
   report.scanned.folders = folders.length;
 
   const transactions = deps.loadTransactions
@@ -192,6 +207,18 @@ export async function reconcile(
       if (!pathToRow.has(path)) report.orphanObjects.paths.push(path);
     }
   }
+
+  // Customer-owned objects: one listing under customers/, every run (their folders are not
+  // tied to a transaction, so there is no created_at to window them by). An object with a
+  // matching stored_images row is valid; one without is an orphan, unless it is still young.
+  const customerObjects = deps.listCustomerObjects
+    ? await deps.listCustomerObjects()
+    : await listCustomerObjects(client);
+  for (const { path, recent } of customerObjects) {
+    report.scanned.objectsInspected++;
+    seenPaths.add(path);
+    if (!pathToRow.has(path) && !recent) report.orphanObjects.paths.push(path);
+  }
   report.orphanObjects.count = report.orphanObjects.paths.length;
 
   // Class 2 — a row whose object is gone. Expected and correct when superseded (that is
@@ -199,6 +226,7 @@ export async function reconcile(
   // image. Reported, never remediated: the image cannot be recreated, and deleting the
   // row would erase the proof a document was sighted.
   const inspected = new Set(inspect);
+  inspected.add(CUSTOMERS_FOLDER); // listed in full above, so its rows can be checked too
   for (const row of imageRows) {
     if (row.superseded_at) continue;
     const folder = row.object_path.split("/")[0];
@@ -311,6 +339,46 @@ async function listObjects(client: StorageLister, folder: string): Promise<strin
     offset += STORAGE_LIST_LIMIT;
   }
   return paths;
+}
+
+// Walks customers/{customer_id}/{verification_id}/ and returns every object. Folders come
+// back with a null id, objects with one. Unlike the per-transaction listing this THROWS on a
+// listing error: a partial list would make the missing-object check report rows as missing
+// and, with apply, is no safer than not running at all.
+async function listCustomerObjects(
+  client: StorageLister,
+): Promise<{ path: string; recent: boolean }[]> {
+  const out: { path: string; recent: boolean }[] = [];
+  const now = Date.now();
+
+  const walk = async (prefix: string, depth: number): Promise<void> => {
+    let offset = 0;
+    while (true) {
+      const { data, error } = await client.storage
+        .from(STORAGE_BUCKET)
+        .list(`${prefix}/`, { limit: STORAGE_LIST_LIMIT, offset });
+      if (error) {
+        console.error("reconcile: customer object listing failed", prefix, error);
+        throw new Error("Cannot reconcile without the customer object listing");
+      }
+      if (!data || data.length === 0) return;
+      for (const entry of data) {
+        const path = `${prefix}/${entry.name}`;
+        if (entry.id) {
+          // No created_at means we cannot tell, so assume the object is still in flight.
+          const created = entry.created_at ? Date.parse(entry.created_at) : NaN;
+          out.push({ path, recent: Number.isNaN(created) || now - created < CUSTOMER_OBJECT_GRACE_MS });
+        } else if (depth < CUSTOMER_LIST_MAX_DEPTH) {
+          await walk(path, depth + 1);
+        }
+      }
+      if (data.length < STORAGE_LIST_LIMIT) return;
+      offset += STORAGE_LIST_LIMIT;
+    }
+  };
+
+  await walk(CUSTOMERS_FOLDER, 1);
+  return out;
 }
 
 function json(body: unknown, status: number): Response {

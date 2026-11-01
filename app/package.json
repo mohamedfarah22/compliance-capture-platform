@@ -9,6 +9,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest --run",
+    "format": "prettier --write src",
+    "format:check": "prettier --check src",
     "uat": "npm run uat:part0 && npm run uat:phase4 && npm run uat:part1",
     "uat:part0": "npx supabase db reset && npx supabase test db && playwright test --project=part0",
     "uat:phase4": "npx supabase db reset && playwright test --project=phase4",
@@ -39,6 +41,7 @@
     "jsdom": "^25.0.1",
     "otpauth": "^9.5.2",
     "postgres": "^4.0.0",
+    "prettier": "3.9.10",
     "vite": "^8.0.10",
     "vitest": "^2.1.9"
   }

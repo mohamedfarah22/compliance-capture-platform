@@ -28,7 +28,7 @@ const CORS_HEADERS = {
 
 type Row = Record<string, unknown>;
 
-Deno.serve(async (req: Request) => {
+export async function handleRequest(req: Request): Promise<Response> {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: CORS_HEADERS });
   }
@@ -69,8 +69,11 @@ Deno.serve(async (req: Request) => {
     return json({ error: "No active staff record for this user" }, 403);
   }
 
-  // RLS (img_select) scopes this to images owned by the caller's entity. Ids the
-  // caller may not see simply do not come back, and so are never signed or logged.
+  // RLS scopes this to images owned by the caller's entity: img_select for images of a
+  // transaction, img_select_customer for a customer's photos (customers/{id}/..., gold).
+  // Ids the caller may not see simply do not come back, and so are never signed or logged.
+  // A customer photo has no transaction, so its access_log row carries transaction_id null;
+  // resource_id is the image and detail its path, which names the customer.
   //
   // Superseded rows are excluded: their storage object was deleted when a re-capture
   // replaced it (see 20260727000001), so signing one would mint a URL for a file that no
@@ -80,7 +83,7 @@ Deno.serve(async (req: Request) => {
   const { data: images, error: imagesError } = await anonClient
     .schema("ttr")
     .from("stored_images")
-    .select("id, object_path, transaction_id")
+    .select("id, object_path, transaction_id, customer_id")
     .in("id", imageIds)
     .is("superseded_at", null);
 
@@ -134,7 +137,11 @@ Deno.serve(async (req: Request) => {
   }
 
   return json({ urls }, 200);
-});
+}
+
+if (import.meta.main) {
+  Deno.serve(handleRequest);
+}
 
 function json(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), {

@@ -4,6 +4,13 @@
 //
 // If client-side direct upload is acceptable, skip this function and have the
 // client upload directly to Supabase Storage, then INSERT into ttr.stored_images.
+//
+// The owner of the image is either a transaction (the TTR wizard: transactionId,
+// personType, personId) or a customer (gold, no TTR: customerId, verificationId). Customer
+// photos go under customers/{customerId}/{verificationId}/{side}-{uuid}.{ext} and the
+// stored_images row is written here with the SERVICE ROLE, not the caller's JWT, so there is
+// no browser insert policy for customer photos. The caller's JWT is used only to prove, under
+// RLS, that the customer belongs to their reporting entity.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -19,7 +26,9 @@ const CORS_HEADERS = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-Deno.serve(async (req: Request) => {
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export async function handleRequest(req: Request): Promise<Response> {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: CORS_HEADERS });
   }
@@ -52,6 +61,16 @@ Deno.serve(async (req: Request) => {
   const personId      = formData.get("personId")      as string | null;
   const side          = formData.get("side")          as string | null; // "front" or "back"
   const file          = formData.get("file")          as File   | null;
+
+  // Customer-owned image (gold). The transaction path below is unchanged.
+  const customerId     = formData.get("customerId")     as string | null;
+  const verificationId = formData.get("verificationId") as string | null;
+  if (customerId) {
+    if (transactionId) return json({ error: "Send either transactionId or customerId, not both" }, 400);
+    return await uploadForCustomer(anonClient, serviceClient, user.id, {
+      customerId, verificationId, side, file,
+    });
+  }
 
   if (!transactionId || !personType || !personId || !side || !file) {
     return json({ error: "Required fields: transactionId, personType, personId, side, file" }, 400);
@@ -149,7 +168,110 @@ Deno.serve(async (req: Request) => {
     objectPath:         img.object_path,
     contentHashSha256:  img.content_hash_sha256,
   }, 201);
-});
+}
+
+if (import.meta.main) {
+  Deno.serve(handleRequest);
+}
+
+// Loosely typed: the real client's generics differ between createClient's default and the
+// instances built above, and this helper only uses from/schema/storage.
+// deno-lint-ignore no-explicit-any
+type Client = any;
+
+// ─── Customer-owned image ─────────────────────────────────────────────────────────────────
+// Path: customers/{customerId}/{verificationId}/{side}-{uuid}.{ext}. Every upload gets a
+// fresh path (the uuid), so unlike the draft-transaction path nothing is ever replaced: an
+// ID photo that belongs to a customer is never overwritten, only superseded by a later
+// capture (see _shared/supersede.ts). verificationId is the id the caller will give the
+// customer-level ttr.id_verifications row that references these photos.
+async function uploadForCustomer(
+  anonClient: Client,
+  serviceClient: Client,
+  staffId: string,
+  input: {
+    customerId: string;
+    verificationId: string | null;
+    side: string | null;
+    file: File | null;
+  },
+): Promise<Response> {
+  const { customerId, verificationId, side, file } = input;
+
+  if (!verificationId || !side || !file) {
+    return json({ error: "Required fields: customerId, verificationId, side, file" }, 400);
+  }
+  if (!UUID_RE.test(customerId) || !UUID_RE.test(verificationId)) {
+    return json({ error: "customerId and verificationId must be UUIDs" }, 400);
+  }
+  if (!["front", "back"].includes(side)) {
+    return json({ error: "side must be 'front' or 'back'" }, 400);
+  }
+  if (!ALLOWED_CONTENT_TYPES.has(file.type)) {
+    return json({ error: "File type must be image/jpeg, image/png, or image/webp" }, 415);
+  }
+  if (file.size > MAX_BYTES) {
+    return json({ error: "File exceeds 10 MiB limit" }, 413);
+  }
+
+  // Entity check, under the caller's own JWT: RLS on public.customers only returns
+  // customers of the caller's reporting entity (and none at all below aal2), so a customer
+  // of another entity is indistinguishable from one that does not exist.
+  const { data: customer, error: customerError } = await anonClient
+    .from("customers")
+    .select("id")
+    .eq("id", customerId)
+    .maybeSingle();
+
+  if (customerError || !customer) return json({ error: "Customer not found" }, 404);
+
+  const imageBytes = await file.arrayBuffer();
+  const hashBuffer = await crypto.subtle.digest("SHA-256", imageBytes);
+  const sha256Hex = arrayBufferToHex(hashBuffer);
+
+  const ext = file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : "jpg";
+  const objectPath = `customers/${customerId}/${verificationId}/${side}-${crypto.randomUUID()}.${ext}`;
+
+  const { error: uploadError } = await serviceClient.storage
+    .from(STORAGE_BUCKET)
+    .upload(objectPath, imageBytes, { contentType: file.type, upsert: false });
+
+  if (uploadError) {
+    console.error("Storage upload failed:", uploadError);
+    return json({ error: "Storage upload failed" }, 500);
+  }
+
+  const { data: img, error: insertError } = await serviceClient
+    .schema("ttr")
+    .from("stored_images")
+    .insert({
+      customer_id:          customerId,
+      storage_bucket:       STORAGE_BUCKET,
+      object_path:          objectPath,
+      content_hash_sha256:  sha256Hex,
+      content_type:         file.type,
+      byte_size:            file.size,
+      captured_by_staff_id: staffId,
+      captured_at:          new Date().toISOString(),
+    })
+    .select("id, object_path, content_hash_sha256")
+    .single();
+
+  if (insertError || !img) {
+    // Safe to remove here, unlike the draft-transaction path: the path is brand new, so
+    // nothing can reference this object, and leaving it would only make an orphan.
+    console.error("stored_images insert failed:", insertError);
+    const { error: removeError } = await serviceClient.storage.from(STORAGE_BUCKET).remove([objectPath]);
+    if (removeError) console.error("orphan removal failed:", removeError);
+    return json({ error: "Failed to record image metadata" }, 500);
+  }
+
+  return json({
+    id:                 img.id,
+    objectPath:         img.object_path,
+    contentHashSha256:  img.content_hash_sha256,
+  }, 201);
+}
 
 function arrayBufferToHex(buffer: ArrayBuffer): string {
   return Array.from(new Uint8Array(buffer))
