@@ -27,10 +27,11 @@ test('R3 — an account that has never enrolled is sent to /mfa with a QR code',
   await expect(page.getByRole('img', { name: 'Scan this QR code with your authenticator app' })).toBeVisible()
 })
 
-test('R4 — scanning and entering the code lands on /start; the issuer is the product name', async () => {
+test('R4 — scanning and entering the code lands on the journey picker at /; the issuer is the product name', async () => {
   expect(new URL(enrolResponse.totp.uri).searchParams.get('issuer')).toBe('Compliance Capture Platform')
   expect(await completeMfa(page, admin)).toBe('enroll')
-  await expect(page.getByRole('heading', { name: 'Start TTR Transaction' })).toBeVisible()
+  await expect(page).toHaveURL(/\/$/)
+  await expect(page.getByRole('heading', { name: 'What would you like to do?' })).toBeVisible()
 })
 
 test('R5 — signing in again asks for a code only, with no re-enrolment', async () => {
@@ -89,7 +90,7 @@ test('R10 — the role check still runs after MFA; a full session survives a har
   await staffPage.goto('/reports')
   await expect(staffPage.getByText('You are not authorised to view this page')).toBeVisible()
 
-  await staffPage.goto('/')
+  await staffPage.goto('/start')
   await staffPage.reload()
   await expect(staffPage.getByRole('heading', { name: 'Start TTR Transaction' })).toBeVisible()
   await staffContext.close()

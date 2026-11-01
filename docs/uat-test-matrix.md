@@ -213,7 +213,7 @@ No transaction data needed for any of these.
 | # | | Do this | Must happen |
 |---|---|---|---|
 | R3 | ✓ | Sign in with an account that has never enrolled | Redirected to `/mfa` with a QR code; the wizard is unreachable |
-| R4 | ✓ | Scan it and enter the code | Lands on `/start`. Authenticator entry reads **"Compliance Capture Platform"**, not `localhost` |
+| R4 | ✓ | Scan it and enter the code | Lands on `/`, the journey picker (since Gold Phase 3; it was `/start`). Authenticator entry reads **"Compliance Capture Platform"**, not `localhost` |
 | R5 | ✓ | Sign out, sign in again | Code entry only — **no QR**, no re-enrolment |
 | R6 | ✓ | Enter `000000` | Rejected, stays on `/mfa` |
 | R7 **⚠ critical** | ✓ | Stop at `/mfa` without entering a code, then type `/reports` (or `/id-verification`, `/customers`) in the address bar | Bounced to the **sign-in screen**, and the session is **ended** — the password must be entered again. Not offered the code entry as a shortcut |

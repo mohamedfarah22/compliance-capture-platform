@@ -13,7 +13,7 @@ test('R27 — a completed transaction’s reference cannot be re-used', async ({
   const page = await context.newPage()
   const ref = page.getByLabel('Transaction reference')
 
-  await page.goto('/')
+  await page.goto('/start')
   await ref.fill('REG-001')
   await ref.blur()
   await expect(page.getByText(COMPLETED_REF_ERROR)).toBeVisible()
@@ -38,7 +38,7 @@ test('R27 — a completed transaction’s reference cannot be re-used', async ({
   await expect(page).toHaveURL(/\/transaction-details$/)
   await expect.poll(() => transactionId('REG-001X')).toBeTruthy()
 
-  await page.goto('/')
+  await page.goto('/start')
   await ref.fill('REG-001X')
   await ref.blur()
   await expect(page.getByText(DRAFT_NOTICE)).toBeVisible()
