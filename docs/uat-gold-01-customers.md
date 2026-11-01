@@ -1,7 +1,7 @@
 # UAT: Shared customer table, backfill and TTR search on customers (Gold Phase 1)
 
 **Purpose:** prove that `gold/01-customers` keeps the TTR journey working while it moves "customers" out of query-time guessing and into a real table:
-1. TTR customer search now reads `public.customers`, and accepts **first + last name, or last name + date of birth** (it used to demand all three)
+1. TTR customer search now reads `public.customers`, and still requires **first name, last name and date of birth** (people can share a name, so the date of birth tells them apart)
 2. Picking a search result links the new TTR party to that customer (`ttr.parties.customer_id`)
 3. Completing a TTR creates the customer if the person is new, or updates the existing one, and records the change in `customer_audit_log`
 4. A returning customer arrives with citizenship, tax residency, sole trader / ABN and postal address already filled in
@@ -56,9 +56,9 @@ On **Add Customers / Parties**, **Individual** tab. Use a customer that has a co
 
 | # | Do this | Expect |
 |---|---|---|
-| 1.1 | Enter **First name** and **Last name** only. Leave Date of birth empty. Press **Search** | ☐ The customer appears in the results |
-| 1.2 | Clear First name. Enter **Last name** and **Date of birth** only. Press **Search** | ☐ The customer appears |
-| 1.3 | Clear everything except **First name**. Press **Search** | ☐ No search runs ☐ The message reads *Enter First Name and Last Name, or Last Name and Date of Birth, to search.* — both allowed combinations are named |
+| 1.1 | Enter **First name**, **Last name** and **Date of birth**. Press **Search** | ☐ The customer appears in the results ☐ The hint under the form reads *Search using First Name, Last Name and Date of Birth.* |
+| 1.2 | Clear Date of birth, leaving **First name** and **Last name**. Press **Search** | ☐ No search runs ☐ The message reads *Enter First Name, Last Name and Date of Birth to search.* |
+| 1.3 | Clear First name. Enter **Last name** and **Date of birth** only. Press **Search** | ☐ No search runs ☐ The same message |
 | 1.3a | Enter only **Last name**. Press **Search** | ☐ The same message |
 | 1.8 | Switch to **Company / Business**. (a) Search with only a known company's name. (b) Clear it and search with only its ABN **with spaces** (e.g. `12 345 678 901`). (c) Search with only a suburb | ☐ (a) found ☐ (b) found; repeat without spaces, found again ☐ (c) message: "Enter the Registered Entity Name or ABN / ACN to search." |
 
@@ -70,14 +70,14 @@ On **Add Customers / Parties**, **Individual** tab. Use a customer that has a co
 |---|---|---|
 | 1.4 ⚠ | Search the customer from row 1.1, **Add to transaction**, fill in the remaining screens as normal and **complete** `UAT-CUS-001`. Then run:<br>`select p.customer_id, c.first_name, c.last_name from ttr.parties p join ttr.transactions t on t.id = p.transaction_id left join public.customers c on c.id = p.customer_id where t.transaction_ref = 'UAT-CUS-001';` | ☐ One row ☐ `customer_id` is not null ☐ It is the customer you picked: `select id from public.customers where first_name = '<First>' and last_name = '<Last>';` returns the same id |
 | 1.5 | Start `UAT-CUS-002`. **Create new customer** → Individual: `Nina` `Newcustomer`, DOB `04/04/1991`, citizenship `AU`, tax residency `AU`, sole trader **No**. Fill the remaining screens and **complete** it. Then run:<br>`select id, source, created_by_staff_id from public.customers where last_name = 'Newcustomer';` | ☐ Exactly one row ☐ `source` is `ttr` ☐ `created_by_staff_id` is your staff id ☐ The party is linked: `select customer_id from ttr.parties p join ttr.transactions t on t.id = p.transaction_id where t.transaction_ref = 'UAT-CUS-002';` returns that same id |
-| 1.6 ⚠ | Start `UAT-CUS-003`. Search **Nina Newcustomer** and add her. On **Party Details** change the **street address** to `99 New Road`, set citizenship to `NZ`, answer sole trader **Yes** with ABN `11223344556`. Fill the remaining screens and **complete** it. Then run:<br>`select res_street, citizenship_country_code, is_sole_trader, abn from public.customers where last_name = 'Newcustomer';`<br>`select changed_at, source, changed_by, changes from public.customer_audit_log where customer_id = (select id from public.customers where last_name = 'Newcustomer') order by changed_at;`<br>`select t.transaction_ref, p.res_street from ttr.parties p join ttr.transactions t on t.id = p.transaction_id where t.transaction_ref in ('UAT-CUS-002','UAT-CUS-003') order by t.transaction_ref;` | ☐ The customer now shows `99 New Road`, `NZ`, sole trader `true` and the ABN ☐ One audit row: `source` = `ttr_completion`, `changed_by` = your staff id, and `changes` holds old → new for each field, for example `"res_street": {"old": "...", "new": "99 New Road"}` ☐ **Earlier party copies are unchanged:** `UAT-CUS-002`'s party still has its original street, `UAT-CUS-003`'s has `99 New Road` ☐ Still one `Newcustomer` customer |
+| 1.6 ⚠ | Start `UAT-CUS-003`. Search **Nina Newcustomer**, DOB `04/04/1991`, and add her. On **Party Details** change the **street address** to `99 New Road`, set citizenship to `NZ`, answer sole trader **Yes** with ABN `11223344556`. Fill the remaining screens and **complete** it. Then run:<br>`select res_street, citizenship_country_code, is_sole_trader, abn from public.customers where last_name = 'Newcustomer';`<br>`select changed_at, source, changed_by, changes from public.customer_audit_log where customer_id = (select id from public.customers where last_name = 'Newcustomer') order by changed_at;`<br>`select t.transaction_ref, p.res_street from ttr.parties p join ttr.transactions t on t.id = p.transaction_id where t.transaction_ref in ('UAT-CUS-002','UAT-CUS-003') order by t.transaction_ref;` | ☐ The customer now shows `99 New Road`, `NZ`, sole trader `true` and the ABN ☐ One audit row: `source` = `ttr_completion`, `changed_by` = your staff id, and `changes` holds old → new for each field, for example `"res_street": {"old": "...", "new": "99 New Road"}` ☐ **Earlier party copies are unchanged:** `UAT-CUS-002`'s party still has its original street, `UAT-CUS-003`'s has `99 New Road` ☐ Still one `Newcustomer` customer |
 | 1.7 | Start `UAT-CUS-004`. **Create new customer** → Individual: `Olive` `Abandoned`, DOB `05/05/1992`. Continue to **Party Details**, then press **Exit** and confirm. Then run:<br>`select count(*) from public.customers where last_name = 'Abandoned';` | ☐ `0`. Abandoning a draft leaves no customer behind ☐ The draft `UAT-CUS-004` is gone |
 
 ## D · Prefill (staff account)
 
 | # | Do this | Expect |
 |---|---|---|
-| 1.9 | Start `UAT-CUS-005`. Search **Nina Newcustomer**, add her, and go to **Party Details** | ☐ **Citizenship** shows `NZ` ☐ **Tax residency** shows the value saved in 1.6 ☐ **Is this person a sole trader?** shows **Yes** with the ABN `11223344556` already in the box ☐ The address shows `99 New Road` ☐ Nothing is locked: each field can still be edited |
+| 1.9 | Start `UAT-CUS-005`. Search **Nina Newcustomer**, DOB `04/04/1991`, add her, and go to **Party Details** | ☐ **Citizenship** shows `NZ` ☐ **Tax residency** shows the value saved in 1.6 ☐ **Is this person a sole trader?** shows **Yes** with the ABN `11223344556` already in the box ☐ The address shows `99 New Road` ☐ Nothing is locked: each field can still be edited |
 
 Press **Exit** and confirm to discard `UAT-CUS-005`.
 
@@ -99,8 +99,8 @@ Use a **password-only** token from the Setup list.
 Finally, run row **1.10** again. ☐ Still `0`.
 
 **What a failure looks like:**
-- **1.1 or 1.2 returns nothing for a person who plainly has TTRs.** The backfill did not run on that data, or search is reading an empty `customers` table. Run 1.10b: a count of `0` means the migration ran before the data was there.
-- **1.3 searches anyway, or shows the old message** *Enter First Name, Last Name and Date of Birth to search.* The preview is serving the old build.
+- **1.1 returns nothing for a person who plainly has TTRs.** The backfill did not run on that data, or search is reading an empty `customers` table. Run 1.10b: a count of `0` means the migration ran before the data was there.
+- **1.2 or 1.3 searches anyway, or shows the message** *Enter First Name and Last Name, or Last Name and Date of Birth, to search.* The preview is serving a build from before the date of birth was required again.
 - **1.4 shows a null `customer_id`.** The picked customer's id was not carried into the new party. Check `migrateNewParties` in DevTools → Network: the `parties` insert body should contain `customer_id`.
 - **1.5 or 1.6 fails at Complete with an error.** Linking runs inside `ttr.complete_transaction`, so a linking failure stops the completion. The message is a generic *Unexpected database error*; the cause is in Supabase → Logs → Postgres.
 - **1.5 creates two `Newcustomer` rows, or 1.6 creates a second one.** The match key (last name, first name, date of birth, ignoring case) did not match. Compare the DOB entered in each TTR.

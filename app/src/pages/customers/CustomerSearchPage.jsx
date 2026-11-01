@@ -83,9 +83,9 @@ const CustomerSearchPage = () => {
             const ln = lastName.trim();
 
             const dob = dateOfBirth.trim();
-            // The hint on this form promises two combinations, and the search accepts both.
-            if (!ln || (!fn && !dob)) {
-                setSearchError("Enter First Name and Last Name, or Last Name and Date of Birth, to search.");
+            // People can share a first and last name, so DOB is required to tell them apart.
+            if (!fn || !ln || !dob) {
+                setSearchError("Enter First Name, Last Name and Date of Birth to search.");
                 setHasSearched(false);
                 setResults([]);
                 return;
@@ -285,7 +285,7 @@ const CustomerSearchPage = () => {
                                     <DatePicker id="dateOfBirth" value={dateOfBirth} onChange={setDateOfBirth} />
                                 </FormField>
                                 <p className={styles.searchHint}>
-                                    Search using First Name + Last Name, or Last Name + DOB.
+                                    Search using First Name, Last Name and Date of Birth.
                                 </p>
                             </>
                         ) : (
