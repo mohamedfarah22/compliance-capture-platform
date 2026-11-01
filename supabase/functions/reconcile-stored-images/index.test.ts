@@ -250,3 +250,118 @@ Deno.test("rejects a caller without the service-role key before touching storage
   assertEquals((await post({})).status, 401);
   assertEquals((await post({ Authorization: "Bearer sb_publishable_not-the-secret" })).status, 401);
 });
+
+// â”€â”€â”€ Customer-owned photos (customers/{customer_id}/â€¦) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+const OLD = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+
+Deno.test("customer objects with a matching row are valid, and customers/ is not a dangling folder", async () => {
+  const state = emptyState();
+  const path = "customers/c-1/v-1/front-aaaa.jpg";
+
+  const report = await reconcile(makeClient(state), makeSchema(state), baseDeps({
+    apply: true,
+    // The bucket's top level now holds "customers" next to the transaction folders.
+    listFolders: () => Promise.resolve(["tx-1", "customers"]),
+    loadTransactions: () => Promise.resolve([{ id: "tx-1", created_at: null }]),
+    listCustomerObjects: () => Promise.resolve([{ path, recent: false }]),
+    loadImageRows: () => Promise.resolve([{ id: "img-c", object_path: path, superseded_at: null }]),
+  }));
+
+  assertEquals(report.orphanObjects.count, 0);
+  assertEquals(report.missingObjects.count, 0);
+  assertEquals(report.danglingFolders.count, 0);
+  assertEquals(report.scanned.folders, 1); // transaction folders only
+  assertEquals(report.scanned.objectsInspected, 1);
+  assertEquals(state.removed, []); // nothing deleted: the object has a row
+});
+
+Deno.test("a customer object with no row is an orphan once past the grace period, never while in flight", async () => {
+  const state = emptyState();
+
+  const report = await reconcile(makeClient(state), makeSchema(state), baseDeps({
+    apply: true,
+    listCustomerObjects: () => Promise.resolve([
+      { path: "customers/c-1/v-1/front-old.jpg", recent: false },
+      { path: "customers/c-1/v-2/front-new.jpg", recent: true }, // uploaded moments ago, row not written yet
+    ]),
+  }));
+
+  assertEquals(report.orphanObjects.paths, ["customers/c-1/v-1/front-old.jpg"]);
+  assertEquals(state.removed, [["customers/c-1/v-1/front-old.jpg"]]);
+});
+
+Deno.test("a customer row whose object is missing is reported; a superseded one is expected", async () => {
+  const state = emptyState();
+
+  const report = await reconcile(makeClient(state), makeSchema(state), baseDeps({
+    apply: true,
+    listCustomerObjects: () => Promise.resolve([]),
+    loadImageRows: () => Promise.resolve([
+      { id: "img-lost", object_path: "customers/c-1/v-1/front-a.jpg", superseded_at: null },
+      { id: "img-old", object_path: "customers/c-1/v-0/front-b.jpg", superseded_at: "2026-10-01T00:00:00Z" },
+    ]),
+  }));
+
+  assertEquals(report.missingObjects.imageIds, ["img-lost"]);
+  assertEquals(state.removed, []);
+  assertEquals(state.updated, []);
+});
+
+Deno.test("the default customer listing walks customers/{customer}/{verification}/ and applies the grace period", async () => {
+  const state = emptyState();
+  const tree: Record<string, { name: string; id: string | null; created_at?: string }[]> = {
+    "customers/": [{ name: "c-1", id: null }],
+    "customers/c-1/": [{ name: "v-1", id: null }],
+    "customers/c-1/v-1/": [
+      { name: "front-a.jpg", id: "o1", created_at: OLD },
+      { name: "back-b.jpg", id: "o2", created_at: new Date().toISOString() },
+    ],
+  };
+  const client = {
+    storage: {
+      from: () => ({
+        list: (prefix: string) => Promise.resolve({ data: tree[prefix] ?? [], error: null }),
+        remove: (paths: string[]) => {
+          state.removed.push(paths);
+          return Promise.resolve({ error: null });
+        },
+      }),
+    },
+    // deno-lint-ignore no-explicit-any
+  } as any as StorageOwner & StorageLister;
+
+  const report = await reconcile(client, makeSchema(state), baseDeps({
+    apply: true,
+    listFolders: () => Promise.resolve(["customers"]),
+    loadImageRows: () => Promise.resolve([
+      { id: "img-a", object_path: "customers/c-1/v-1/front-a.jpg", superseded_at: null },
+      { id: "img-b", object_path: "customers/c-1/v-1/back-b.jpg", superseded_at: null },
+    ]),
+  }));
+
+  assertEquals(report.scanned.objectsInspected, 2);
+  assertEquals(report.orphanObjects.count, 0);
+  assertEquals(report.missingObjects.count, 0); // both rows' objects were found by the walk
+  assertEquals(state.removed, []);
+});
+
+Deno.test("a failed customer listing aborts the run rather than reporting rows as missing", async () => {
+  const state = emptyState();
+  const client = {
+    storage: {
+      from: () => ({
+        list: () => Promise.resolve({ data: null, error: { message: "boom" } }),
+        remove: () => Promise.resolve({ error: null }),
+      }),
+    },
+    // deno-lint-ignore no-explicit-any
+  } as any as StorageOwner & StorageLister;
+
+  await assertRejects(
+    () => reconcile(client, makeSchema(state), baseDeps({ apply: true })),
+    Error,
+    "customer object listing",
+  );
+  assertEquals(state.removed, []);
+});

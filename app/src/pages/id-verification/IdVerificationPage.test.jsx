@@ -329,6 +329,57 @@ describe("IdVerificationPage", () => {
         expect(screen.queryByText("Start camera for front")).not.toBeInTheDocument();
     });
 
+    it("looks up prior IDs by customer_id when the party is linked to a customer", async () => {
+        loadCustomers.mockResolvedValue([{ ...JANE, customerId: "cust-1" }]);
+        renderPage();
+
+        await screen.findByLabelText("Verification method");
+
+        expect(fetchPriorVerifications).toHaveBeenCalledWith(
+            expect.objectContaining({ role: "party", lastName: "Smith", firstName: "Jane", customerId: "cust-1" })
+        );
+    });
+
+    it("looks up by name alone when the party has no customer", async () => {
+        loadCustomers.mockResolvedValue([JANE]);
+        renderPage();
+
+        await screen.findByLabelText("Verification method");
+
+        const person = fetchPriorVerifications.mock.calls[0][0];
+        expect(person.lastName).toBe("Smith");
+        expect(person.customerId ?? null).toBeNull();
+    });
+
+    it("offers a customer-level prior ID (no transaction reference) without a blank 'Ref:'", async () => {
+        const user = userEvent.setup();
+        loadCustomers.mockResolvedValue([{ ...JANE, customerId: "cust-1" }]);
+        fetchPriorVerifications.mockResolvedValue([
+            {
+                id: "prior-gold",
+                document_type: "Driver licence",
+                document_number: "DL777",
+                issuer: "VicRoads",
+                created_at: new Date("2026-01-01").toISOString(),
+                has_expiry: false,
+                expiry_date: null,
+                verified_by_name: "Gold Staff",
+                transaction_ref: null,
+                front_image_id: null,
+                back_image_id: null,
+            },
+        ]);
+        renderPage();
+
+        await screen.findByLabelText("Verification method");
+        await user.selectOptions(screen.getByLabelText("Verification method"), "Relied on prior identification");
+
+        // Eligible, so it is auto-selected and shown in both the picker and the summary card.
+        expect((await screen.findAllByText(/DL777/)).length).toBeGreaterThan(0);
+        expect(screen.queryByText(/Ref:/)).not.toBeInTheDocument();
+        expect(screen.queryByText(/Transaction:/)).not.toBeInTheDocument();
+    });
+
     it("shows the prior verification search picker in reliance mode", async () => {
         const user = userEvent.setup();
         loadCustomers.mockResolvedValue([JANE]);
