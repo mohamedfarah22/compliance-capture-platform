@@ -91,7 +91,7 @@ If Fran isn't in dev, pick another customer the backfill created and use them in
 6. **Party Details:** change only these three things, leaving every other field as it loaded:
    - **Street address** → `99 New Road` (suburb, state, postcode and country stay as they are);
    - **Citizenship country** → New Zealand (**Tax residency country** stays Australia);
-   - **Is this person a sole trader?** → **Yes**, then **ABN** `51824753556` (the ATO's own ABN, so it passes the ABN check).
+   - **Is this person a sole trader?** → **Yes**, then **ABN** `11223344556`.
 
    **Continue**.
 7. **Review / Validate / Submit:** **Complete**.
@@ -107,14 +107,14 @@ If Fran isn't in dev, pick another customer the backfill created and use them in
 |---|---|---|
 | 1.4 ⚠ | Search **Fran Format** (DOB `03/03/1990`), **Add to transaction**, then follow **Sample data for 1.4** above screen by screen and **Complete** `UAT-CUS-001`. Then run:<br>`select p.customer_id, c.first_name, c.last_name from ttr.parties p join ttr.transactions t on t.id = p.transaction_id left join public.customers c on c.id = p.customer_id where t.transaction_ref = 'UAT-CUS-001';` | ☐ One row ☐ `customer_id` is not null ☐ It is the customer you picked: `select id from public.customers where first_name = 'Fran' and last_name = 'Format' and date_of_birth = '1990-03-03';` returns the same id |
 | 1.5 | Do the **Steps for 1.5** above (`UAT-CUS-002`, Nina, acting on her own behalf **Yes**). Then run:<br>`select id, source, created_by_staff_id from public.customers where last_name = 'Newcustomer';` | ☐ Exactly one row ☐ `source` is `ttr` ☐ `created_by_staff_id` is your staff id ☐ The party is linked: `select customer_id from ttr.parties p join ttr.transactions t on t.id = p.transaction_id where t.transaction_ref = 'UAT-CUS-002';` returns that same id |
-| 1.6 ⚠ | Do the **Steps for 1.6** above (`UAT-CUS-003`, Nina returns, **Yes**, three fields changed). Then run:<br>`select res_street, citizenship_country_code, is_sole_trader, abn from public.customers where last_name = 'Newcustomer';`<br>`select changed_at, source, changed_by, changes from public.customer_audit_log where customer_id = (select id from public.customers where last_name = 'Newcustomer') order by changed_at;`<br>`select t.transaction_ref, p.res_street from ttr.parties p join ttr.transactions t on t.id = p.transaction_id where t.transaction_ref in ('UAT-CUS-002','UAT-CUS-003') order by t.transaction_ref;` | ☐ The customer now shows `99 New Road`, citizenship `NZ`, tax residency still `AU`, sole trader `true` and ABN `51824753556` ☐ One audit row: `source` = `ttr_completion`, `changed_by` = your staff id, and `changes` holds old → new for each field, for example `"res_street": {"old": "...", "new": "99 New Road"}` ☐ **Earlier party copies are unchanged:** `UAT-CUS-002`'s party still has `1 Newcustomer St`, `UAT-CUS-003`'s has `99 New Road` ☐ Still one `Newcustomer` customer |
+| 1.6 ⚠ | Do the **Steps for 1.6** above (`UAT-CUS-003`, Nina returns, **Yes**, three fields changed). Then run:<br>`select res_street, citizenship_country_code, is_sole_trader, abn from public.customers where last_name = 'Newcustomer';`<br>`select changed_at, source, changed_by, changes from public.customer_audit_log where customer_id = (select id from public.customers where last_name = 'Newcustomer') order by changed_at;`<br>`select t.transaction_ref, p.res_street from ttr.parties p join ttr.transactions t on t.id = p.transaction_id where t.transaction_ref in ('UAT-CUS-002','UAT-CUS-003') order by t.transaction_ref;` | ☐ The customer now shows `99 New Road`, citizenship `NZ`, tax residency still `AU`, sole trader `true` and ABN `11223344556` ☐ One audit row: `source` = `ttr_completion`, `changed_by` = your staff id, and `changes` holds old → new for each field, for example `"res_street": {"old": "...", "new": "99 New Road"}` ☐ **Earlier party copies are unchanged:** `UAT-CUS-002`'s party still has `1 Newcustomer St`, `UAT-CUS-003`'s has `99 New Road` ☐ Still one `Newcustomer` customer |
 | 1.7 | Do the **Steps for 1.7** above (`UAT-CUS-004`, Olive, **No**, Exit on Party Details). Then run:<br>`select count(*) from public.customers where last_name = 'Abandoned';` | ☐ `0`. Abandoning a draft leaves no customer behind ☐ The draft `UAT-CUS-004` is gone |
 
 ## D · Prefill (staff account)
 
 | # | Do this | Expect |
 |---|---|---|
-| 1.9 | **Start TTR Transaction:** **Sell bullion to customer**, reference `UAT-CUS-005`. On **Add Customers / Parties** search First name `Nina`, Last name `Newcustomer`, Date of birth `04/04/1991`, **Add to transaction**, answer *acting on their own behalf* **No**, **Continue**. On **Transaction & Cash Details** enter AUD `12000`, **Continue**. You are now on **Party Details**: check it without changing anything | ☐ **Citizenship country** shows New Zealand ☐ **Tax residency country** shows Australia ☐ **Is this person a sole trader?** shows **Yes**, with ABN `51824753556` already in the box ☐ **Street address** shows `99 New Road` ☐ Nothing is locked: each field can still be edited |
+| 1.9 | **Start TTR Transaction:** **Sell bullion to customer**, reference `UAT-CUS-005`. On **Add Customers / Parties** search First name `Nina`, Last name `Newcustomer`, Date of birth `04/04/1991`, **Add to transaction**, answer *acting on their own behalf* **No**, **Continue**. On **Transaction & Cash Details** enter AUD `12000`, **Continue**. You are now on **Party Details**: check it without changing anything | ☐ **Citizenship country** shows New Zealand ☐ **Tax residency country** shows Australia ☐ **Is this person a sole trader?** shows **Yes**, with ABN `11223344556` already in the box ☐ **Street address** shows `99 New Road` ☐ Nothing is locked: each field can still be edited |
 
 Press **Exit** and confirm to discard `UAT-CUS-005`.
 
@@ -148,4 +148,4 @@ Finally, run row **1.10** again. ☐ Still `0`.
 
 ## Sign-off
 
-☐ All checks pass · Notes: ______________________________________________
+☑ All checks pass · Notes: ______________________________________________
