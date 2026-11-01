@@ -7,7 +7,7 @@
 4. Staff are signed out after 10 minutes without activity, across all tabs, and an unfinished TTR is cleared from the browser (but not lost: the draft can be reopened by reference)
 5. The login redirect rules from the security hardening work still hold
 
-This sheet does not re-prove TTR report content. [uat-test-matrix.md](uat-test-matrix.md) covers that, and its TTR rows are re-run in row 3.9.
+This sheet does not re-prove TTR report content. [uat-test-matrix.md](uat-test-matrix.md) covers that.
 
 | | |
 |---|---|
@@ -15,57 +15,52 @@ This sheet does not re-prove TTR report content. [uat-test-matrix.md](uat-test-m
 | Build/commit | ________ |
 | Run by / date | ________ |
 
-**Setup.**
-- A **dev** Supabase project, not the client project and not the one CI deploys `main` to. This phase has no migrations, so no `db push` is needed.
-- A **Vercel preview deploy** of `gold/03-picker-idle`, with its environment variables pointing at that dev project and `VITE_GOLD_JOURNEY_ENABLED=true` set for **Preview only** (Vercel → Project Settings → Environment Variables). Redeploy after setting it, because Vite reads it at build time.
-- For row 3.4 only: a **second build with the flag off**, either a Vercel preview with `VITE_GOLD_JOURNEY_ENABLED` unset or `false`, or Production once it has this branch. Do not turn the flag on in Production.
-- One **staff** and one **admin** account, both already enrolled in MFA.
-- On the **dev** Supabase project, match `supabase/config.toml`: access token (JWT) expiry **300 seconds**, and session **inactivity timeout 10 minutes** (Authentication → Sessions; it may need a paid plan; if it isn't available, note that on the sheet and skip only that setting).
-- A stopwatch. Rows 3.5 and 3.7 need real waiting time.
-
-**Conventions.**
-- `<today>` is today's date.
-- Keep DevTools open on the **Console** tab throughout. Any new error fails the row you were on.
-- Steps marked ⚠ are where a regression is most likely.
-
-**Timing.** About 45 minutes, most of it waiting in rows 3.5 and 3.7. Start 3.5 first and do 3.7 in the second window while you wait.
+**Timing.** About 10 minutes. Nothing needs a stopwatch: the 10-minute timer is tested with a fake clock.
 
 ---
 
-## Journey picker and routing
+## A · Automated rows
+
+The `frontend` CI job runs these on every push (`cd app && npm test`).
+
+☐ The `frontend` job is green on this commit
+
+| # | What is proved | Covered by |
+|---|---|---|
+| 3.1 | After both factors a signed-in visitor lands on the journey picker at `/`; staff see the TTR and Gold cards and no Reports card | `app/src/pages/login/LoginPage.test.jsx` ("sends an already fully-authenticated visitor straight through"), `app/src/__tests__/journeyRouting.test.jsx` ("shows the journey picker at /", "is hidden from staff", "shows the Gold card … while the flag is on") |
+| 3.2 ⚠ | The TTR card opens `/start`; **Start New Transaction** goes to `/start`, not the picker; **Exit** goes to `/start` | `journeyRouting.test.jsx` ("opens the transaction start screen from the TTR card"), `TransactionCompletePage.test.jsx` ("starts the next transaction at /start, not the journey picker"), the Exit test in `RecipientDeliveryPage.test.jsx`, `BullionDetailsPage.test.jsx` and `PreciousMetalDetailsPage.test.jsx` |
+| 3.3 | Admins see the Reports card; on Reports the header **New transaction** link goes to `/start` | `journeyRouting.test.jsx` ("is shown to admins"), `WizardFrame.test.jsx` ("shows a New transaction link to /start instead of Reports on /reports") |
+| 3.4 | With the flag off: no Gold card, and `/gold` and `/gold/customers/new` go back to `/` | `journeyRouting.test.jsx` ("hides the Gold card and sends /gold back to the picker while the flag is off") |
+| 3.5 ⚠ | Still signed in at 9:59 of inactivity, signed out at 10:00; the unfinished transaction is removed from session storage; the sign-in page says **"You were signed out after 10 minutes without activity."** | `app/src/context/AuthContext.idle.test.jsx` ("keeps the session at 9:59 … and ends it at 10:00", "clears an unfinished transaction from the browser"), `LoginPage.test.jsx` ("tells the user why they were signed out after sitting idle") |
+| 3.6 ⚠ | The idle sign-out deletes nothing on the server: it calls the same `signOut()` as the Sign out button, which only clears the browser and ends the session | `AuthContext.idle.test.jsx` (the Supabase mock has only `auth`, so any server call would fail the test). Resuming the draft is checked on the preview in P3 below |
+| 3.7 | Activity in another tab keeps every tab signed in; a click, key press or touch restarts the 10 minutes; a hidden tab that comes back after 11 minutes signs out at once | `AuthContext.idle.test.jsx` ("counts activity in another tab", "starts the 10 minutes again", "signs out at once when a hidden tab comes back after 11 minutes") |
+| 3.8 ⚠ | A review link with its token survives sign-in; `//example.com`, `https://…` and `/\…` land on `/` and never leave the app | `app/src/lib/safeRedirect.test.js`, `LoginPage.test.jsx` ("carries the originally requested page through the second factor", "drops a requested page outside the app") |
+| 3.9 | Existing TTR behaviour | the rest of `npm test` and the `functions` CI job. Until the Playwright `uat` job runs on these PRs, also run the sign-in rows and the AUSTRAC smoke rows R24–R26 of [uat-test-matrix.md](uat-test-matrix.md) |
+
+## B · On the preview deploy
+
+What the local tests can't see: the build's environment variables, the hosted project's session settings, and the real camera.
+
+**Setup.**
+- A **Vercel preview deploy** of `gold/03-picker-idle`, pointing at the **dev** Supabase project, with `VITE_GOLD_JOURNEY_ENABLED=true` set for **Preview only**. Redeploy after setting it, because Vite reads it at build time.
+- One **staff** account, enrolled in MFA.
+- DevTools open on the **Console** tab. Any new error fails the row you were on.
 
 | # | Do this | Expect |
 |---|---|---|
-| 3.1 | On the flag-on preview, sign out completely. Sign in as **staff**, enter the MFA code | ☐ Lands on `/`, the journey picker ☐ A **Threshold transaction report (TTR)** card ☐ A **Gold due diligence** card ☐ No **Reports** card |
-| 3.2 ⚠ | Click the TTR card. Complete a TTR end to end (scenario `Sell bullion to customer`, reference `UAT-PICK-001`, one individual customer, ID with the camera). On **Transaction Complete**, click **Start New Transaction** | ☐ The TTR card opens `/start` ☐ The transaction completes ☐ **Start New Transaction** goes to `/start`, **not** the picker. Also check the other ways back to the start: **Exit** on any wizard screen and then **Cancel** on `/start` stay on `/start` |
-| 3.3 | Sign out. Sign in as **admin**, enter the MFA code | ☐ Lands on `/` ☐ A **Reports** card, plus the TTR and Gold cards ☐ The Reports card opens the Reports page ☐ On Reports, the header **New transaction** link goes to `/start` |
-| 3.4 | On the **flag-off build**, sign in and look at `/`. Then type `/gold` and `/gold/customers/new` into the address bar | ☐ No Gold card ☐ Both addresses end up on `/` (the picker) |
-
-## Idle sign-out
-
-| # | Do this | Expect |
-|---|---|---|
-| 3.5 ⚠ | Sign in as staff. Click TTR. On `/start` enter scenario `Sell bullion to customer` and reference `UAT-IDLE-001`, continue to **Add Customers / Parties** and create customer `Ida` `Idle`, DOB `04/04/1990`, and save. Then **leave the tab alone for 10 minutes**: no clicks, keys or touches, and no other tab of this app doing anything either. Watch the screen | ☐ Between 10:00 and about 10:30 after your last action the app goes to the sign-in page ☐ It says **"You were signed out after 10 minutes without activity."** ☐ DevTools → Application → Session Storage has no `ttr.*` entries (no `ttr.customers`, `ttr.transaction`, `ttr.transactionId`) ☐ Using Back does not show Ida's details |
-| 3.6 ⚠ | Sign back in (both factors) and click the TTR card. On `/start` choose the scenario and type `UAT-IDLE-001` in **Transaction reference**, then tab out of the field | ☐ "Existing draft found — fields pre-filled." ☐ **Start Transaction** resumes at **Add Customers / Parties** with `Ida Idle` listed ☐ The draft still lives on the server, so the idle sign-out lost nothing |
-| 3.7 | Sign in. Open the app in **two tabs**. Work in tab A for 12 minutes (click or type at least once every 5 minutes, e.g. move through the wizard screens) and leave tab B untouched on a protected page | ☐ Tab B is **not** signed out ☐ Tab A is not signed out ☐ Then stop touching **both** tabs for 10 minutes: both go to the sign-in page, and the message shows in the tab you are looking at |
-
-## Redirects and regression
-
-| # | Do this | Expect |
-|---|---|---|
-| 3.8 ⚠ | As admin, copy a batch review link (from the approval email or the Reports page): `/review-batch/<id>?token=…`. Sign out, open that link, sign in, enter the code. Then also open `/login?redirect=//example.com` signed out, sign in, enter the code | ☐ The link lands on **that batch's review page** with **Submit** and **Reject** available (security sheet C7) ☐ The `//example.com` address lands on `/`, the picker, and never leaves the app (security sheet A3) |
-| 3.9 | Re-run the TTR rows of [uat-test-matrix.md](uat-test-matrix.md) (the AUSTRAC smoke test, R24–R26, and the sign-in rows) | ☐ All pass as recorded before the change |
+| P1 | Vercel → Project Settings → Environment Variables. Then the dev Supabase project → Authentication → Sessions | ☐ `VITE_GOLD_JOURNEY_ENABLED` is set for **Preview** only, not Production ☐ Access token (JWT) expiry is **300 seconds** ☐ Session inactivity timeout is **10 minutes** (if your plan doesn't offer it, note that here) |
+| P2 ⚠ | Sign in as **staff**, enter the code. Click the TTR card and complete a TTR end to end (scenario `Sell bullion to customer`, reference `UAT-PICK-001`, one individual customer, ID with the camera). Click **Start New Transaction** | ☐ Lands on `/`, with TTR and Gold cards and no Reports card ☐ The camera works and the transaction completes ☐ **Start New Transaction** goes to `/start` |
+| P3 ⚠ | On `/start` enter scenario `Sell bullion to customer` and reference `UAT-IDLE-001`, continue, and create customer `Ida` `Idle`, DOB `04/04/1990`. Click **Sign out**. Sign back in, click the TTR card, choose the scenario, type `UAT-IDLE-001` and tab out | ☐ After signing out, DevTools → Application → Session Storage has no `ttr.*` entries ☐ "Existing draft found — fields pre-filled." ☐ **Start Transaction** resumes at **Add Customers / Parties** with `Ida Idle` listed |
+| P4 | After merge, open Production's `/` | ☐ No Gold card |
 
 **What a failure looks like:**
-- 3.2 lands on the picker after **Start New Transaction**. A link in the TTR flow still points at `/` instead of `/start`.
-- 3.4 shows a Gold card, or `/gold` shows "coming soon": the flag was on in that build. Check the Vercel variable scope and redeploy.
-- 3.5 never signs out, or signs out well before 10 minutes. Check that no other tab of the app was open and active, and that the clock was not paused by the machine sleeping (a woken laptop signs out at once, which is correct).
-- 3.5 signs out but no message shows. Note whether the sign-in page was reached through a refresh: the message lives in memory only.
-- 3.7 signs the active tab out partway through. Check the hosted project's JWT expiry is 300 seconds: with a longer expiry the tab doesn't refresh often enough and the 10 minute session inactivity limit ends the session.
-- 3.6 shows no draft. The draft row was deleted: check `cleanup-stale-drafts` has not been run, and that the same account's reporting entity is being used.
+- **A test in section A fails.** The test name says which behaviour broke. For 3.2, a link in the TTR flow points at `/` instead of `/start`.
+- **P2 shows no Gold card, or P4 shows one.** The flag's Vercel scope is wrong. Fix the scope and redeploy.
+- **P3 shows no draft.** The draft row was deleted: check `cleanup-stale-drafts` has not been run, and that the same account's reporting entity is being used.
+- **Staff are signed out partway through active work on the preview.** Check P1: with a JWT expiry longer than 300 seconds the tab doesn't refresh often enough, and the 10-minute session inactivity limit ends the session.
 
 ---
 
 ## Sign-off
 
-☐ All checks pass · Notes: ______________________________________________
+☐ Section A green on commit ________ · ☐ P1–P3 · ☐ P4 after merge · Notes: ______________________________________________

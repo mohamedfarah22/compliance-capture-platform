@@ -40,6 +40,7 @@ function renderPage() {
     return render(
         <MemoryRouter initialEntries={["/recipient-delivery"]}>
             <Routes>
+                <Route path="/start" element={<h1>Start TTR Transaction</h1>} />
                 <Route path="/id-verification" element={<h1>ID Verification</h1>} />
                 <Route path="/conducting-person" element={<h1>Conducting Person Details</h1>} />
                 <Route path="/recipient-delivery" element={<RecipientDeliveryPage />} />
@@ -343,5 +344,6 @@ describe("RecipientDeliveryPage", () => {
         await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Exit" }));
 
         await waitFor(() => expect(deleteTransaction).toHaveBeenCalled());
+        expect(await screen.findByRole("heading", { name: "Start TTR Transaction" })).toBeInTheDocument();
     });
 });

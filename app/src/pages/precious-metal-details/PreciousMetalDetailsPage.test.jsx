@@ -34,6 +34,7 @@ function renderPage() {
     return render(
         <MemoryRouter initialEntries={["/precious-metal-details"]}>
             <Routes>
+                <Route path="/start" element={<h1>Start TTR Transaction</h1>} />
                 <Route path="/recipient-delivery" element={<h1>Recipient / Delivery</h1>} />
                 <Route path="/precious-metal-details" element={<PreciousMetalDetailsPage />} />
                 <Route path="/review" element={<h1>Review / Validate / Submit</h1>} />
@@ -267,5 +268,6 @@ describe("PreciousMetalDetailsPage", () => {
         await user.click(dialog.querySelector("button:last-of-type"));
 
         await waitFor(() => expect(deleteTransaction).toHaveBeenCalled());
+        expect(await screen.findByRole("heading", { name: "Start TTR Transaction" })).toBeInTheDocument();
     });
 });
