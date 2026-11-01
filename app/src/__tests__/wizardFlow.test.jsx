@@ -246,7 +246,9 @@ describe("wizard integration flow", () => {
         await user.click(screen.getByRole("button", { name: "Continue" }));
 
         // /recipient-delivery -> /bullion-details
-        await screen.findByRole("radio", { name: "Yes" });
+        // Wait for the page title, not just a "Yes" radio: ID Verification has one too ("Is there an
+        // expiry date?"), so on a slow save the click could land on the old page before navigation.
+        expect(await screen.findByRole("heading", { name: "Recipient / Delivery" })).toBeInTheDocument();
         await user.click(screen.getByRole("radio", { name: "Yes" }));
         // The "Select recipient" section only appears once the Yes click's re-render lands —
         // wait for it rather than querying synchronously (see 95a24cf for the same class of
