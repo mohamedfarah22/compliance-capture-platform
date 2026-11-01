@@ -108,6 +108,14 @@ npx supabase db reset && npx supabase test db && (cd app && npm run uat:<phase>)
 
 Hold the lock for one batch of commands, not between edits.
 
+The local edge runtime serves functions from the directory where `npx supabase start` was run, not from your current worktree. `db reset` only reapplies migrations. When a test calls functions your branch adds or changes, run this from your worktree, under the lock:
+
+```
+npx supabase stop && npx supabase start && npx supabase db reset
+```
+
+Then call your functions.
+
 Vitest needs CI's placeholder env:
 `VITE_SUPABASE_URL=https://placeholder.supabase.co VITE_SUPABASE_ANON_KEY=placeholder-anon-key npm test`
 
