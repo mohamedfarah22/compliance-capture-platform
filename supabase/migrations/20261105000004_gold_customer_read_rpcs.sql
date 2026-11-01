@@ -310,35 +310,35 @@ BEGIN
         RETURN NULL;
     END IF;
 
-    IF coalesce(btrim(c.first_name), '') = '' THEN v := v || 'first_name'; END IF;
-    IF coalesce(btrim(c.last_name), '')  = '' THEN v := v || 'last_name'; END IF;
-    IF c.date_of_birth IS NULL THEN v := v || 'date_of_birth'; END IF;
+    IF coalesce(btrim(c.first_name), '') = '' THEN v := array_append(v, 'first_name'); END IF;
+    IF coalesce(btrim(c.last_name), '')  = '' THEN v := array_append(v, 'last_name'); END IF;
+    IF c.date_of_birth IS NULL THEN v := array_append(v, 'date_of_birth'); END IF;
 
-    IF coalesce(btrim(c.res_street), '')   = '' THEN v := v || 'res_street'; END IF;
-    IF coalesce(btrim(c.res_suburb), '')   = '' THEN v := v || 'res_suburb'; END IF;
-    IF c.res_state IS NULL                      THEN v := v || 'res_state'; END IF;
-    IF coalesce(btrim(c.res_postcode), '') = '' THEN v := v || 'res_postcode'; END IF;
-    IF coalesce(btrim(c.res_country), '')  = '' THEN v := v || 'res_country'; END IF;
+    IF coalesce(btrim(c.res_street), '')   = '' THEN v := array_append(v, 'res_street'); END IF;
+    IF coalesce(btrim(c.res_suburb), '')   = '' THEN v := array_append(v, 'res_suburb'); END IF;
+    IF c.res_state IS NULL                      THEN v := array_append(v, 'res_state'); END IF;
+    IF coalesce(btrim(c.res_postcode), '') = '' THEN v := array_append(v, 'res_postcode'); END IF;
+    IF coalesce(btrim(c.res_country), '')  = '' THEN v := array_append(v, 'res_country'); END IF;
 
-    IF coalesce(btrim(c.phone), '')      = '' THEN v := v || 'phone'; END IF;
-    IF coalesce(btrim(c.occupation), '') = '' THEN v := v || 'occupation'; END IF;
-    IF c.gender IS NULL THEN v := v || 'gender'; END IF;
+    IF coalesce(btrim(c.phone), '')      = '' THEN v := array_append(v, 'phone'); END IF;
+    IF coalesce(btrim(c.occupation), '') = '' THEN v := array_append(v, 'occupation'); END IF;
+    IF c.gender IS NULL THEN v := array_append(v, 'gender'); END IF;
 
-    IF coalesce(btrim(c.citizenship_country_code), '')   = '' THEN v := v || 'citizenship_country_code'; END IF;
-    IF coalesce(btrim(c.tax_residency_country_code), '') = '' THEN v := v || 'tax_residency_country_code'; END IF;
+    IF coalesce(btrim(c.citizenship_country_code), '')   = '' THEN v := array_append(v, 'citizenship_country_code'); END IF;
+    IF coalesce(btrim(c.tax_residency_country_code), '') = '' THEN v := array_append(v, 'tax_residency_country_code'); END IF;
 
     IF c.is_sole_trader IS NULL THEN
-        v := v || 'is_sole_trader';
+        v := array_append(v, 'is_sole_trader');
     ELSIF c.is_sole_trader AND coalesce(btrim(c.abn), '') = '' THEN
-        v := v || 'abn';
+        v := array_append(v, 'abn');
     END IF;
 
     IF c.has_postal_address THEN
-        IF coalesce(btrim(c.post_street), '')   = '' THEN v := v || 'post_street'; END IF;
-        IF coalesce(btrim(c.post_suburb), '')   = '' THEN v := v || 'post_suburb'; END IF;
-        IF c.post_state IS NULL                      THEN v := v || 'post_state'; END IF;
-        IF coalesce(btrim(c.post_postcode), '') = '' THEN v := v || 'post_postcode'; END IF;
-        IF coalesce(btrim(c.post_country), '')  = '' THEN v := v || 'post_country'; END IF;
+        IF coalesce(btrim(c.post_street), '')   = '' THEN v := array_append(v, 'post_street'); END IF;
+        IF coalesce(btrim(c.post_suburb), '')   = '' THEN v := array_append(v, 'post_suburb'); END IF;
+        IF c.post_state IS NULL                      THEN v := array_append(v, 'post_state'); END IF;
+        IF coalesce(btrim(c.post_postcode), '') = '' THEN v := array_append(v, 'post_postcode'); END IF;
+        IF coalesce(btrim(c.post_country), '')  = '' THEN v := array_append(v, 'post_country'); END IF;
     END IF;
 
     SELECT x.id_country_code, x.issuer INTO cur
@@ -348,10 +348,10 @@ BEGIN
     LIMIT 1;
 
     IF NOT FOUND THEN
-        v := v || 'id_document';
+        v := array_append(v, 'id_document');
     ELSE
-        IF coalesce(btrim(cur.id_country_code), '') = '' THEN v := v || 'id_country_code'; END IF;
-        IF coalesce(btrim(cur.issuer), '')          = '' THEN v := v || 'id_issuer'; END IF;
+        IF coalesce(btrim(cur.id_country_code), '') = '' THEN v := array_append(v, 'id_country_code'); END IF;
+        IF coalesce(btrim(cur.issuer), '')          = '' THEN v := array_append(v, 'id_issuer'); END IF;
     END IF;
 
     RETURN v;
