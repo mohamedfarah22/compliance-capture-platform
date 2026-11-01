@@ -36,9 +36,9 @@ This sheet does not re-prove TTR report content. [uat-ttr-report-fixes.md](uat-t
 | # | Do this | Expect |
 |---|---|---|
 | A1 | Sign out completely. Sign in with the staff email and password | ☐ Code entry screen (`/mfa`), not the wizard |
-| A2 ⚠ | Enter the code. **Do not refresh** from here until B5 is done | ☐ Lands on `/start` |
-| A3 | Sign out. Open `/login?redirect=//example.com`, sign in, enter the code | ☐ Lands on `/start`. Never leaves the app |
-| A4 | Sign out. Open `/login?redirect=%2F%5Cexample.com`, sign in, enter the code | ☐ Lands on `/start` |
+| A2 ⚠ | Enter the code. **Do not refresh** from here until B5 is done | ☐ Lands on `/` (the journey picker) |
+| A3 | Sign out. Open `/login?redirect=//example.com`, sign in, enter the code | ☐ Lands on `/` (the journey picker). Never leaves the app |
+| A4 | Sign out. Open `/login?redirect=%2F%5Cexample.com`, sign in, enter the code | ☐ Lands on `/` (the journey picker) |
 | A5 | Sign out. Open `/reports` directly, sign in, enter the code | ☐ "You are not authorised to view this page" (staff account) — the requested page survived both steps |
 
 After A5, sign out and back in once more, and again **do not refresh** before B5.

@@ -84,3 +84,12 @@ Formatting in `app/` is enforced by Prettier (config in `app/.prettierrc`).
 - Run `npm run format` in `app/` before committing.
 - CI runs `npm run format:check` and fails on unformatted files.
 - `supabase/functions` is not formatted by Prettier.
+
+## UAT sheets
+
+Each PR has a UAT sheet in `docs/uat-*.md`. Keep the manual part small:
+
+- Give every row an ID (`3.2`, `A7`, …).
+- Prove each row with a test at the lowest layer that can see it: Vitest for UI and rules, Deno for edge functions, pgTAP (`supabase/tests/`) for RLS, constraints, triggers and RPCs. Put the row ID or the row's wording in the test name.
+- See the test fail once (break the code, run it, revert) before trusting it.
+- In the sheet, list the test that covers each row. Keep a manual step only for what local tests can't see (hosted settings, env var scope, a real camera) or for a decision the client signs.

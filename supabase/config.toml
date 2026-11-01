@@ -28,8 +28,16 @@ file_size_limit = "10MiB"
 enabled = true
 site_url = "http://127.0.0.1:3000"
 additional_redirect_urls = ["http://localhost:3000"]
-jwt_expiry = 3600
+# 5 minutes, so open tabs refresh well inside the 10 minute [auth.sessions] limit below.
+jwt_expiry = 300
 enable_signup = false
+
+[auth.sessions]
+# Ends a session that has made no refresh-token request for 10 minutes. Open tabs refresh
+# about every 4 minutes (jwt_expiry = 300), so this only ends sessions whose tab was closed
+# or whose device slept. It backs up the 10 minute idle sign-out in AuthContext.
+# The hosted dev and client projects need the same two settings.
+inactivity_timeout = "10m"
 
 [auth.mfa]
 max_enrolled_factors = 10

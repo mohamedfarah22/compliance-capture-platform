@@ -18,7 +18,7 @@ export const clickContinue = (page) => page.getByRole('button', { name: 'Continu
 // ─── Start ───────────────────────────────────────────────────────────────────
 
 export const startTransaction = async (page, { scenario, ref }) => {
-  await page.goto('/')
+  await page.goto('/start')
   await page.getByRole('radio', { name: scenario }).check()
   await page.getByLabel('Transaction reference').fill(ref)
   await page.getByRole('button', { name: 'Start transaction' }).click()

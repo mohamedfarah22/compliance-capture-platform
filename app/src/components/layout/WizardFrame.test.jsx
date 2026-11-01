@@ -74,7 +74,7 @@ describe("WizardFrame", () => {
         expect(screen.getByRole("link", { name: "Reports" })).toBeInTheDocument();
     });
 
-    it("shows a New transaction link to / instead of Reports on /reports", () => {
+    it("shows a New transaction link to /start instead of Reports on /reports", () => {
         useAuth.mockReturnValue({
             staffMember: { full_name: "Jane Staff" },
             canApproveReports: true,
@@ -82,7 +82,7 @@ describe("WizardFrame", () => {
         });
         renderFrame({}, "/reports");
 
-        expect(screen.getByRole("link", { name: "New transaction" })).toHaveAttribute("href", "/");
+        expect(screen.getByRole("link", { name: "New transaction" })).toHaveAttribute("href", "/start");
         expect(screen.queryByRole("link", { name: "Reports" })).not.toBeInTheDocument();
     });
 

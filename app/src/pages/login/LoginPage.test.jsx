@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, Route, Routes, Navigate, useSearchParams } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useSearchParams } from "react-router-dom";
 import LoginPage from "./LoginPage.jsx";
 import { supabase } from "../../lib/supabase.js";
 import { useAuth } from "../../context/AuthContext.jsx";
@@ -36,8 +36,7 @@ function renderLoginPage(entry = "/login") {
                 <Route path="/login" element={<LoginPage />} />
                 <Route path="/mfa" element={<MfaProbe />} />
                 <Route path="/reports" element={<h1>Reports</h1>} />
-                <Route path="/start" element={<Navigate to="/" replace />} />
-                <Route path="/" element={<h1>Start Transaction</h1>} />
+                <Route path="/" element={<h1>Journey picker</h1>} />
             </Routes>
         </MemoryRouter>
     );
@@ -114,7 +113,7 @@ describe("LoginPage", () => {
         await user.click(screen.getByRole("button", { name: /sign in/i }));
 
         await screen.findByRole("heading", { name: "Two-factor" });
-        // Without this the user would land on /start after MFA, not the page they asked for.
+        // Without this the user would land on the journey picker after MFA, not the page they asked for.
         expect(screen.getByTestId("mfa-redirect")).toHaveTextContent("/reports");
     });
 
@@ -128,7 +127,7 @@ describe("LoginPage", () => {
         await user.click(screen.getByRole("button", { name: /sign in/i }));
 
         await screen.findByRole("heading", { name: "Two-factor" });
-        expect(screen.getByTestId("mfa-redirect")).toHaveTextContent("/start");
+        expect(screen.getByTestId("mfa-redirect")).toHaveTextContent(/^\/$/);
     });
 
     it("sends an already fully-authenticated visitor straight through, not back to the second factor", () => {
@@ -139,7 +138,18 @@ describe("LoginPage", () => {
         });
         renderLoginPage();
 
-        expect(screen.getByRole("heading", { name: "Start Transaction" })).toBeInTheDocument();
+        expect(screen.getByRole("heading", { name: "Journey picker" })).toBeInTheDocument();
+    });
+
+    it("tells the user why they were signed out after sitting idle, and says nothing otherwise", () => {
+        renderLoginPage();
+        expect(screen.queryByText(/without activity/i)).not.toBeInTheDocument();
+        cleanup();
+
+        useAuth.mockReturnValue({ session: null, loading: false, aal: { currentLevel: null }, signedOutForIdle: true });
+        renderLoginPage();
+
+        expect(screen.getByText("You were signed out after 10 minutes without activity.")).toBeInTheDocument();
     });
 
     it("sends a visitor who still owes a second factor to the code entry", () => {
