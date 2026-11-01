@@ -41,6 +41,42 @@ jobs:
       - run: deno task test
         working-directory: supabase/functions
 
+  # docs/uat-test-matrix.md Part 0, Phase 4 and Part 1 / 1C / 2 against a local Supabase stack.
+  uat:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install xmlschema
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      # The exact Postgres both cloud projects run (dev rygjssczdoyvmumxmymc and client
+      # ykerufaergyqvnaycyce). `supabase link` writes this file locally; CI cannot link, so
+      # it is pinned here. Update it when Supabase upgrades those projects.
+      - run: mkdir -p supabase/.temp && echo "17.6.1.127" > supabase/.temp/postgres-version
+      - run: supabase start -x studio,imgproxy,realtime,logflare,vector,supavisor,postgres-meta,mailpit
+      - run: npm ci
+        working-directory: app
+      - run: npx playwright install --with-deps chromium
+        working-directory: app
+      - run: npm run uat
+        working-directory: app
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: app/playwright-report/
+          retention-days: 14
+
   deploy-supabase:
     needs: [frontend, functions]
     if: github.ref == 'refs/heads/main'

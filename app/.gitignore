@@ -40,3 +40,8 @@ Thumbs.db
 *.njsproj
 *.sln
 *.sw?
+
+# Playwright UAT output, and the saved TOTP secrets and sessions of the local test accounts
+test-results/
+playwright-report/
+e2e/.auth/
