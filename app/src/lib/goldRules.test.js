@@ -512,7 +512,7 @@ describe("a completed TTR on the invoice (spec 3.5)", () => {
         purchase_type: "scrap",
         cash_amount: 12000,
         ttr_transaction_id: "t1",
-        ttr_status: "completed",
+        ttr_status: "complete",
     });
     const message =
         "The AUSTRAC report for INV-900 is already finished. Use a new ERP invoice number for this purchase.";

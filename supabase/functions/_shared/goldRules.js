@@ -188,7 +188,7 @@ const roundCents = (n) => Math.round(n * 100) / 100;
  *                   (null until every amount is known; in the single-purchase case the amount may be null = cash, no amount entered)
  *   ttrTypes        types that need a TTR: reportable, and cash above $0 for that type (bank transfer only → no TTR)
  *   alreadyReported a linked part of this purchase's type already has a TTR (ttr_transaction_id)
- *   ttrCompleted    a linked part of this purchase's type has a completed TTR (ttr_status 'completed')
+ *   ttrCompleted    a linked part of this purchase's type has a completed TTR (ttr_status 'complete', the ttr.transaction_status value)
  * With no linked purchases it falls back to the single-purchase rules above.
  */
 export function evaluateCash(d, linked = []) {
@@ -242,7 +242,7 @@ export function evaluateCash(d, linked = []) {
         needsId: reportable || (d.type === "bullion" && amount !== null && amount >= BULLION_ID_THRESHOLD),
         band: amount === null ? null : bandForAmount(d.type, amount),
         alreadyReported: linked.some((t) => t.purchase_type === d.type && !!t.ttr_transaction_id),
-        ttrCompleted: linked.some((t) => t.purchase_type === d.type && t.ttr_status === "completed"),
+        ttrCompleted: linked.some((t) => t.purchase_type === d.type && t.ttr_status === "complete"),
         byType,
         ttrTypes: reportable && byType ? Object.keys(byType).filter((type) => byType[type] > 0) : [],
     };
