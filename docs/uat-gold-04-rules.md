@@ -1,6 +1,6 @@
 # UAT: Gold due diligence rules sign-off
 
-**Purpose:** this is a sign-off table, not a screen test. It is for the client and the compliance officer. Each row is one situation, with the answer the software's rules give. Every row is also an automated test, so what you agree here is what the software will do.
+**Purpose:** this is a sign-off table, not a screen test. It is for the client and the compliance officer. Each row is one situation, with the answer the software's rules give. Every row is also an automated test with the same row number, so what you agree here is what the software will do. The tests are in `app/src/lib/goldRules.signoff.test.js` and run on every change; they fail if the software stops giving a row's answer, or if a row is added or removed here without its test. If you change an answer here, the matching test has to be changed with it.
 
 Please read each row and tick **Agree**, or write what you would expect instead. In particular, please confirm:
 1. the **$10,000** cash line, and the **$5,000** bullion line for needing a current ID;
