@@ -189,12 +189,6 @@ const returningSarah = async (ref) => {
   await w.clickContinue(page)
   await w.fillCash(page, 10500)
   await w.confirmCarriedOver(page, SARAH)
-  // Finding: the postal address is not carried over. search_individual_customers returns
-  // no post_* columns and searchIndividualCustomers sets hasPostalAddress: false, so it is
-  // dropped from the report unless re-entered. Re-entered per "fill in anything blank".
-  // This assertion fails once that is fixed: then assert the carried-over address instead.
-  await expect(page.getByLabel('Postal address is different')).not.toBeChecked()
-  await w.fillPostal(page, SARAH.postal)
 }
 
 test('TX-E2 — reliance on prior identification (TC-209)', async () => {

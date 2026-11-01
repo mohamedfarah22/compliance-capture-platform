@@ -35,8 +35,6 @@ const finishReturning = async (person, amount) => {
   await w.clickContinue(page)
   await w.fillCash(page, amount)
   await w.confirmCarriedOver(page, person)
-  // Not carried over by customer search: see TX-E2 in 01-transactions.
-  if (person.postal) await w.fillPostal(page, person.postal)
   await w.clickContinue(page)
   await w.completeTransaction(page)
 }

@@ -42,7 +42,7 @@ cd app && npm run uat       # db reset → database tests → Part 0 → db rese
 
 **Not reachable while `ITEM_AND_DELIVERY_CAPTURE_ENABLED` is off:** Recipient & Delivery and Bullion / Precious Metal Details do not exist, so nothing checks the item aggregates (`<bui>`/`<buo>`/`<pmi>`/`<pmo>`, deleted items left out per TC-237/TC-245, TX-E's Alloy description and serial number) or TX-H's recipient (DOB unknown, `Dropping off bullion`, delivery method `Other`). TX-H still runs, because TX-K needs Grace's card.
 
-**Open finding (Part 1, TX-E2):** a returning customer's **postal address is not carried over**. `search_individual_customers` returns no `post_*` columns, and `searchIndividualCustomers` sets `hasPostalAddress: false`. Unless staff re-enter it, the address is missing from the report. TX-E2, TX-E3 and TX-L re-enter it ("fill in anything blank identically"). TX-E2 asserts the box arrives unticked, so that assertion fails once the gap is fixed and must then be flipped.
+**Postal address on a returning customer:** an earlier customer search dropped it, so a returning customer's report lost it unless staff re-entered it. Customer search now reads the shared customer record (Gold Phase 1), and TX-E2, TX-E3 and TX-L assert the postal address arrives already filled in.
 
 **Where the automation differs from the text below:**
 - The reason list no longer offers `Other` (finding #16), so R18 step 3, R18 step 6, R20 step 3 and TX-N are asserted without it. K-4 and K-11 are still rejected, but by `chk_idv_new_capture_reason_values`, before the rule their row names: `20260727000004` removed `other` as a reason.

@@ -133,6 +133,12 @@ export const confirmCarriedOver = async (page, person) => {
   await expect(page.getByLabel('Street address')).toHaveValue(person.address.street)
   await expect(page.getByLabel('Occupation or principal activity')).toHaveValue(person.occupation)
   await expect(page.getByLabel('Gender')).toHaveValue(person.gender)
+  if (person.postal) {
+    await expect(page.getByLabel('Postal address is different')).toBeChecked()
+    await expect(page.locator('#postStreet')).toHaveValue(person.postal.street)
+    await expect(page.locator('#postSuburb')).toHaveValue(person.postal.suburb)
+    await expect(page.locator('#postPostcode')).toHaveValue(person.postal.postcode)
+  }
   await page.getByLabel('Is this person a sole trader?').selectOption('No')
 }
 
