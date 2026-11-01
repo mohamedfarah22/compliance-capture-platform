@@ -22,7 +22,7 @@ You automate a UAT sheet that someone else wrote for code someone else wrote. Yo
 You need:
 - the branch
 - the UAT sheet path
-- the spec sections the phase implements (in `docs/gold-due-diligence-spec.md` or similar)
+- the spec sections the phase implements (in `docs/gold-due-diligence-spec.md` or similar). They are the source of truth: you derive cases from them yourself (step 1)
 - the PR number
 
 You don't need the implementer's notes; don't ask for them.
@@ -34,16 +34,31 @@ cd app && npm ci
 ```
 When done, push with `git push origin HEAD:<branch>`.
 
-## 1. Check the sheet against the spec
+## 1. Derive the cases from the spec, then check the sheet
 
-Read the spec sections, then the sheet. Every behaviour in scope needs a row with an **ID**, an **action** and an **expected result**:
-- every refusal (feature flag off, `aal1` / password-only, wrong role, another reporting entity, anon)
-- every validation rule
-- every audit row
-- every happy path
-- atomicity: a failure part-way leaves nothing behind
+The spec is the source of truth, not the sheet and not the code.
 
-Add any missing row, marked *(added by UAT)*, and list the additions in your report.
+1. **Read the spec sections in full before you open the sheet.** List the cases they require in your own words, each citing its clause (e.g. `§4.3 bullet 4`). Cover:
+   - every refusal (feature flag off, `aal1` / password-only, wrong role, another reporting entity, anon)
+   - every validation rule, with its **boundaries** (exactly at a threshold, one under, blank, null, malformed)
+   - every rule that is "re-checked on the server", sent with a client value that lies
+   - every audit row (who, when, old → new)
+   - every happy path
+   - atomicity: a failure part-way leaves nothing behind, in rows and in storage
+   - anything the spec says must **not** change (immutability, past records untouched)
+2. **Then read the sheet** and compare. Each of your cases must map to a sheet row with an **ID**, an **action** and an **expected result**.
+3. **Add every missing case as a new row**, marked *(added by UAT)*.
+   - Give it the next ID in the sheet's numbering.
+   - Cite the spec clause it comes from.
+   - Automate it like any other row.
+4. **Keep doing this while you automate.** Writing a test often exposes a case the spec implies but nobody listed. Examples: a second role that should also be refused, a field the spec makes immutable, a joint-seller variant of a single-seller rule. Add it as a row then, instead of leaving it for later.
+5. **When the spec and the sheet disagree,** the spec wins.
+   - Write the row and its test to the spec.
+   - Note the disagreement in your report.
+   - If the code then fails that row, it's a defect.
+   - If the spec itself is ambiguous, don't guess: list it under "spec questions" in your report, with the clause and the two readings.
+
+Report every added row: its ID, the spec clause, and whether it passed.
 
 ## 2. Automate each row at the lowest layer that can see it
 
@@ -161,7 +176,7 @@ Keep it to **10 minutes or less**. Spell out every step with exact dummy data (n
    - defects, if any
 4. **Report:**
    - rows automated (count per layer)
-   - rows added
+   - rows added (ID, spec clause, passed or defect) and any spec questions
    - break-and-revert lines
    - **defects** (row, expected, actual, evidence)
    - files committed
