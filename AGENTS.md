@@ -76,3 +76,11 @@ Before searching, make a targeted search plan:
 For searches, use commands like:
 
 rg -n "SearchTerm" app components lib --glob "*.js" --glob "*.jsx" --glob "!node_modules" --glob "!dist" --glob "!build" | head -80
+
+## Code formatting
+
+Formatting in `app/` is enforced by Prettier (config in `app/.prettierrc`).
+
+- Run `npm run format` in `app/` before committing.
+- CI runs `npm run format:check` and fails on unformatted files.
+- `supabase/functions` is not formatted by Prettier.
