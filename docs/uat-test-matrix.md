@@ -10,6 +10,48 @@
 >
 > This is the deep reference. It records every case, every finding and the reasoning behind each fix — which is what you want when something breaks, not when deciding whether to ship. The two sheets above cite case numbers from here, so a failure in either leads back to the detail.
 
+## Automated coverage
+
+Part 0 (R1–R27), Phase 4 (F0–F12), Part 1 (TX-A–TX-J), Part 1C (TX-K–TX-O, K-1–K-11) and Part 2 run automatically against the **local** Supabase stack. Each test is named after its case ID, so a failure leads straight back to the entry below.
+
+```
+npx supabase start          # once, from the repo root
+cd app && npm run uat       # db reset → database tests → Part 0 → db reset → Phase 4 → db reset → Part 1, 1C, 2
+```
+
+`npm run uat:part0`, `npm run uat:phase4` and `npm run uat:part1` run one suite. Each starts with `db reset`, so they **destroy local data**. The suite refuses to run unless the database on the local port is this project's, migrated up to the newest file in `supabase/migrations`. It never reads `app/.env.local`. The same run happens on every PR in the `uat` job of `.github/workflows/ci.yml`, and the Playwright report is uploaded when it fails.
+
+| Cases | Where | How |
+|---|---|---|
+| R1 | `npm run uat` | `db reset` must exit cleanly |
+| R2, R16, R17, F4 | `supabase/tests/database/*.test.sql` | pgTAP, via `npx supabase test db` |
+| R3–R10 | `app/e2e/part0/01-mfa.e2e.js` | Playwright. TOTP codes are generated from the secret shown at enrolment |
+| R11–R15 | `app/e2e/part0/02-access-logging.e2e.js` | Playwright plus the SQL from each case |
+| R18–R23 | `app/e2e/part0/03-one-copy-of-id.e2e.js` | Playwright plus the SQL from each case. Chromium's fake camera drives the real capture path |
+| R24–R26 | `app/e2e/part0/04-austrac-smoke.e2e.js` | R25 runs `scripts/validate_ttr_xml.py` (`XMLSchema11` and both negative controls) |
+| R27 | `app/e2e/part0/05-reference-reuse.e2e.js` | Playwright |
+| F0 | `npm run uat:phase4` | Replaced by a second `db reset` |
+| F1–F3, F5–F12 | `app/e2e/phase4/fix-verification.e2e.js` | Playwright plus the SQL from each case |
+| Part 1C Step 0 | `npm run uat:part1` | Replaced by a third `db reset`. Part 1 then runs as Step 0's re-run |
+| TX-A–TX-J, TX-M | `app/e2e/part1/01-transactions.e2e.js` | Playwright plus SQL. TX-M is TX-I's ID step |
+| TX-K, TX-L, TX-N, TX-O | `app/e2e/part1/02-one-copy-of-id.e2e.js` | Playwright plus the SQL from each case |
+| K-1–K-11 | `supabase/tests/database/idv_uniqueness.test.sql` | pgTAP, via `npx supabase test db` |
+| Part 2, Part 1's "What it proves", Part 1C's XML regression | `app/e2e/part1/03-report.e2e.js` | Generates each day's batch, validates it with `scripts/validate_ttr_xml.py` (XSD 1.1), then asserts each row's elements |
+
+**Still manual:** Part 3 (AUSTRAC acceptance). R4 checks the issuer in the enrolment URI rather than what an authenticator app displays.
+
+**Not reachable while `ITEM_AND_DELIVERY_CAPTURE_ENABLED` is off:** Recipient & Delivery and Bullion / Precious Metal Details do not exist, so nothing checks the item aggregates (`<bui>`/`<buo>`/`<pmi>`/`<pmo>`, deleted items left out per TC-237/TC-245, TX-E's Alloy description and serial number) or TX-H's recipient (DOB unknown, `Dropping off bullion`, delivery method `Other`). TX-H still runs, because TX-K needs Grace's card.
+
+**Open finding (Part 1, TX-E2):** a returning customer's **postal address is not carried over**. `search_individual_customers` returns no `post_*` columns, and `searchIndividualCustomers` sets `hasPostalAddress: false`. Unless staff re-enter it, the address is missing from the report. TX-E2, TX-E3 and TX-L re-enter it ("fill in anything blank identically"). TX-E2 asserts the box arrives unticked, so that assertion fails once the gap is fixed and must then be flipped.
+
+**Where the automation differs from the text below:**
+- The reason list no longer offers `Other` (finding #16), so R18 step 3, R18 step 6, R20 step 3 and TX-N are asserted without it. K-4 and K-11 are still rejected, but by `chk_idv_new_capture_reason_values`, before the rule their row names: `20260727000004` removed `other` as a reason.
+- F12 completes its own `different_person` transaction for Barry. F3 cancels its draft, and drafts are outside `find_unsuperseded_duplicates` anyway (#20), so F3's row could not show that the sweep spares another person's images (#15).
+- Part 1 follows the wizard's current order (an individual acting on their own behalf goes Customers → ID Verification → Transaction Details → Party Details). It runs as Part 1C's re-run: TX-B2 and TX-G accept the auto-selected reliance, and TX-I takes TX-M's collision path. TX-B is self-conducted, as its historical note records.
+- A returning customer's "Is this person a sole trader?" comes back blank (a saved No is stored as no legal form), so it is answered again.
+- TX-D answers the express-trust question No. It is required for a Trust now, and the XML is invalid without it (R25's control 2).
+- TX-K enters the document before choosing `Stored copy is unclear`, which is offered only once the number collides, as in R18.
+
 ## Context
 
 The AUSTRAC report generator (`supabase/functions/generate-austrac-report/index.ts`) was fully rewritten against the real TTR-1-0 schema and has 67/67 Deno + 211/211 Vitest automated tests passing at the time of the rewrite. The user then manually exercised the wizard end-to-end (transactions A–H below), which surfaced two further real defects, both since root-caused and fixed:
