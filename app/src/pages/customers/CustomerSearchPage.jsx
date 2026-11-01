@@ -83,6 +83,7 @@ const CustomerSearchPage = () => {
             const ln = lastName.trim();
 
             const dob = dateOfBirth.trim();
+            // People can share a first and last name, so DOB is required to tell them apart.
             if (!fn || !ln || !dob) {
                 setSearchError("Enter First Name, Last Name and Date of Birth to search.");
                 setHasSearched(false);
@@ -105,9 +106,9 @@ const CustomerSearchPage = () => {
             const en = entityName.trim();
             const abn = abnAcn.trim();
 
-            const sub = suburb.trim();
-            if (!en || !abn || !sub) {
-                setSearchError("Enter Entity Name, ABN / ACN and Suburb / Postcode to search.");
+            // The hint on this form promises entity name or ABN / ACN; suburb only narrows the results.
+            if (!en && !abn) {
+                setSearchError("Enter the Registered Entity Name or ABN / ACN to search.");
                 setHasSearched(false);
                 setResults([]);
                 return;
@@ -284,7 +285,7 @@ const CustomerSearchPage = () => {
                                     <DatePicker id="dateOfBirth" value={dateOfBirth} onChange={setDateOfBirth} />
                                 </FormField>
                                 <p className={styles.searchHint}>
-                                    Search using First Name + Last Name, or Last Name + DOB.
+                                    Search using First Name, Last Name and Date of Birth.
                                 </p>
                             </>
                         ) : (

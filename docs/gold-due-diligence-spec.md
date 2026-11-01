@@ -103,7 +103,7 @@ No production data exists yet. The backfill still runs, for dev data and any dat
 
 **TTR after the switch:**
 - `search_individual_customers` / `search_company_customers` read the customer table and return `customer_id`. The returned columns stay the same, so `CustomerSearchPage.jsx` keeps its form.
-- Search accepts what its hint says: first + last name, or last name + DOB. Change the all-three check at `CustomerSearchPage.jsx:79`.
+- Individual search keeps requiring first name + last name + DOB, because people can share a name. Change the hint at `CustomerSearchPage.jsx` to say so.
 - Picking a result copies from the customer into the new party and sets `customer_id` (`migrateNewParties`).
 - **On TTR completion**, `complete-transaction` (service role; the browser can't write customers):
   - links each party that has no `customer_id` to an existing customer by the backfill key, or creates one;
@@ -739,5 +739,5 @@ Each step leaves TTR working.
   11. **TTR drafts:**
       - Exit in a gold-linked TTR → gold shows "Start TTR";
       - `cleanup-stale-drafts` leaves linked drafts alone.
-  12. The TTR journey alone is unchanged: first + last name, or last name + DOB, finds customers, and picking one links `customer_id`.
+  12. The TTR journey alone is unchanged: first name + last name + DOB finds customers, and picking one links `customer_id`.
   13. A Purchases search by name leaves no name in the URL.
