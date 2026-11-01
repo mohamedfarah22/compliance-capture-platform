@@ -46,6 +46,14 @@ max_enrolled_factors = 10
 enroll_enabled = true
 verify_enabled = true
 
+# Local stack only (`supabase start`, and so CI): turns the gold-* functions on, because their
+# GOLD_JOURNEY_ENABLED server secret (_shared/goldAuth.ts) is otherwise unset and every call is
+# refused with 403 gold_disabled. This section is read by the local CLI and never reaches a hosted
+# project; there, set the secret by hand on dev only: `npx supabase secrets set GOLD_JOURNEY_ENABLED=true`.
+# Changing it needs `npx supabase stop && npx supabase start`.
+[edge_runtime.secrets]
+GOLD_JOURNEY_ENABLED = "true"
+
 [functions.complete-transaction]
 verify_jwt = true
 
@@ -70,4 +78,13 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.approve-batch]
+verify_jwt = true
+
+[functions.gold-save-purchase]
+verify_jwt = true
+
+[functions.gold-complete-purchase]
+verify_jwt = true
+
+[functions.get-gold-photo-urls]
 verify_jwt = true
