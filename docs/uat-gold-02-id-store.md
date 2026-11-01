@@ -26,9 +26,9 @@ This sheet does not re-prove TTR report content. [uat-test-matrix.md](uat-test-m
   Then, from the branch:
   ```
   npx supabase db push --linked
-  npx supabase functions deploy upload-id-image get-id-image-urls reconcile-stored-images
+  npx supabase functions deploy upload-id-image get-id-image-urls reconcile-stored-images complete-transaction
   ```
-  `db push` applies five migrations (`20261102000001` to `20261102000005`) and runs the ID backfill once. `complete-transaction` is unchanged: the new linking runs inside the database function it already calls.
+  `db push` applies five migrations (`20261102000001` to `20261102000005`) and runs the ID backfill once. `complete-transaction` now takes the prior ID's entity from `id_verifications.reporting_entity_id` instead of its transaction, because a customer-level capture has none; the new linking runs inside the database function it already calls.
 - A **Vercel preview deploy** of `gold/02-id-store`, with its environment variables pointing at that dev project.
 - One **staff** account, already enrolled in MFA, in entity A. Dev should hold at least one customer with a completed TTR **that has ID photos** (for example `Fran Format` from the earlier sheets). Optional but recommended: one staff account in a **second** entity B, for the cross-entity checks.
 - For rows 2.4–2.8 only:
@@ -111,6 +111,7 @@ Never run this with `"apply": true` on dev just to check: it deletes objects.
 - **2.5 returns the URL but there is no `access_log` row.** Must not happen: the function fails closed. If it does, the deployed function is the old one; redeploy.
 - **2.6 offers nothing for Gina.** The TTR party was not linked to the customer (typed in by hand rather than picked), and the name + DOB fallback needs the **same date of birth** as the customer. Pick her from search.
 - **2.6 shows `Ref:` with nothing after it.** The preview is serving the old build.
+- **2.6a refuses to complete with *Prior verification does not belong to this reporting entity*.** The deployed `complete-transaction` is the old one, which looked the entity up through the prior ID's transaction; redeploy it.
 - **2.8 lists `customers/…` paths under `orphanObjects` or `customers` under `danglingFolders`.** The deployed `reconcile-stored-images` is the old one; redeploy it.
 
 ---
