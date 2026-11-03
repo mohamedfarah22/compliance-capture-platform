@@ -57,7 +57,7 @@ Layers: **E2E** = `app/e2e/gold06/*.e2e.js` (real JWTs at `aal1` and `aal2`, rea
 | 6.8 ⚠ | Ordinary staff cannot edit details: 403 `forbidden`, nothing changes, no audit row | E2E `01-access` |
 | 6.9 | Managers and admins both pass the manager check | E2E `01-access` |
 | 6.10 | Any active staff member may create a customer and update an ID | E2E `01-access` |
-| 6.11 ⚠ | Another business: edit and update-ID answer 404 `customer_not_found` (made-up ids the same), the phone RPC errors `P0002 customer_not_found`; nothing changes | E2E `01-access`; pgTAP (the SQL function refuses an actor from another business) |
+| 6.11 ⚠ | Another business: edit and update-ID answer 404 `customer_not_found` (made-up ids the same), the phone RPC answers HTTP 404 `P0002 customer_not_found` (defect fixed in `9597dbe`); nothing changes | E2E `01-access`; pgTAP (the SQL function refuses an actor from another business) |
 | 6.12 ⚠ | The SQL write functions and `_gold_assert_staff` are not reachable through REST for staff, managers or anon (`42501`) | E2E `01-access`; pgTAP (permission denied, service role allowed) |
 | 6.13 ⚠ | A manager cannot insert, update or delete customers, aliases, audit rows, photo rows or ID captures directly | E2E `01-access`; pgTAP |
 | 6.14 | Customers are readable inside the business and invisible to another business | E2E `01-access`; pgTAP |
@@ -208,7 +208,7 @@ A check constraint that only the dummy values trip makes the database refuse par
 | 6.127 ⚠ | `aal1`: `42501 forbidden`, nothing changes | E2E `06c-phone-refusals` |
 | 6.128 ⚠ | The anon key is refused | E2E `06c-phone-refusals` |
 | 6.129 ⚠ | An inactive staff member: `42501` | E2E `06c-phone-refusals` |
-| 6.130 ⚠ | Another business, a made-up id and a company customer: `P0002 customer_not_found`, HTTP 4xx | E2E `06b-phone-notfound` |
+| 6.130 ⚠ | Another business, a made-up id and a company customer: `P0002 customer_not_found`, HTTP 404 (it was a 500 until the fix in `9597dbe`, migration `20261106000003`) | E2E `06b-phone-notfound` |
 | 6.131 ⚠ | A phone change leaves the past TTR party copy of the number alone | E2E `06-phone-storage` |
 
 ### A8 · Storage, TTR and the rest (spec 1.6, 6.1)
@@ -258,7 +258,7 @@ npx supabase secrets set GOLD_JOURNEY_ENABLED=true
 npx supabase secrets list
 ```
 
-☐ `db push` applies `20261106000001` and `20261106000002` without error (6.149)
+☐ `db push` applies `20261106000001`, `20261106000002` and `20261106000003` without error (6.149)
 ☐ the three functions deploy; in the dashboard each shows **Verify JWT** on (6.149)
 ☐ `secrets list` shows `GOLD_JOURNEY_ENABLED`, and it is there because you just set it (deploying never sets it) (6.150)
 
@@ -350,8 +350,7 @@ The spec does not set these limits. The build chose them; each is proved by a te
 - **A call returns `Function not found`, or an old behaviour, locally.** The local edge runtime serves the directory `supabase start` ran in. Run `npx supabase stop && npx supabase start && npx supabase db reset` from this branch.
 - **`upload_failed` locally.** The `compliance-media` bucket does not exist in a fresh local stack. The Playwright global setup creates it (private).
 - **A `gold_disabled` you did not expect.** The secret is not exactly `true`. Locally check `[edge_runtime.secrets]` in `supabase/config.toml`; on dev, `secrets list`.
-- **A 404 on the phone RPC.** The migration `20261106000002` did not apply, or PostgREST has not reloaded its schema cache: `notify pgrst, 'reload schema';`.
-- **A 500 where the sheet says 4xx on the phone RPC.** `update_customer_phone` raises `P0002` for an unknown customer and PostgREST answers 500 for that code. See the defect noted on rows 6.11 and 6.130 in the PR.
+- **A 404 on the phone RPC for a customer that exists, or a 500 for one that does not.** The migrations `20261106000002` and `20261106000003` did not both apply (the second makes an unknown customer an HTTP 404), or PostgREST has not reloaded its schema cache: `notify pgrst, 'reload schema';`.
 
 ---
 
