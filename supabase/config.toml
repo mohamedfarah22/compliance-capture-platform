@@ -71,3 +71,19 @@ verify_jwt = false
 
 [functions.approve-batch]
 verify_jwt = true
+
+[functions.gold-create-customer]
+verify_jwt = true
+
+[functions.gold-update-customer-id]
+verify_jwt = true
+
+[functions.gold-update-customer]
+verify_jwt = true
+
+# Local stack and CI only: the gold functions refuse every call unless GOLD_JOURNEY_ENABLED is
+# exactly "true" (_shared/goldAuth.ts). This block is read by `supabase start` and
+# `supabase functions serve`, never by `functions deploy`, `db push` or `secrets set`, so it
+# cannot switch gold on in a hosted project. Hosted projects set the secret by hand.
+[edge_runtime.secrets]
+GOLD_JOURNEY_ENABLED = "true"

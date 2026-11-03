@@ -15,8 +15,9 @@ let cached
 // Never from app/.env.local: that file has pointed at both cloud projects, including the client's.
 export const localEnv = () => {
   if (cached) return cached
-  const out = execSync('npx supabase status -o env', {
-    cwd: repoRoot,
+  // Run from app/ so npx finds the pinned supabase devDependency; --workdir points the CLI at this repo's supabase/ folder.
+  const out = execSync('npx supabase status -o env --workdir ' + JSON.stringify(repoRoot), {
+    cwd: path.join(repoRoot, 'app'),
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'ignore'],
   })
