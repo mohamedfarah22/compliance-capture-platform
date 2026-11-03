@@ -385,14 +385,22 @@ test.describe('M · reconcile-stored-images: orphaned goods photos', () => {
 })
 
 test.describe('N · logs', () => {
-  const logs = (sinceSeconds) => {
-    const r = spawnSync('docker', ['logs', '--since', `${sinceSeconds}s`, DOCKER('edge_runtime')], { encoding: 'utf8' })
-    return `${r.stdout}\n${r.stderr}`
+  // docker logs prints the container's stdout and stderr on separate streams, so count lines per stream: a baseline
+  // taken before a call, and only what each stream gained after it.
+  const capture = () => {
+    const r = spawnSync('docker', ['logs', '--since', '1800s', DOCKER('edge_runtime')], { encoding: 'utf8' })
+    return { out: r.stdout.split('\n'), err: r.stderr.split('\n') }
+  }
+  const newSince = (base) => {
+    const now = capture()
+    return [...now.out.slice(base.out.length), ...now.err.slice(base.err.length)].join('\n')
   }
 
   test('7.140 ⚠ — a failed save logs its purchase id and an error code, and none of the customer\'s details', async () => {
     const zelda = await customer({ first: 'Zelda', last: 'Quokka' })
-    const started = Date.now()
+    // Only lines written after this point: earlier tests' logs (the reconcile report lists hundreds of ids, any of
+    // which can contain a short digit run like "0498" by chance) must not be searched for the secrets.
+    const baseline = capture()
     await sql`alter table gold.goods_photos add constraint uat_block check (sort_order < 0) not valid`
     let r
     try {
@@ -411,7 +419,7 @@ test.describe('N · logs', () => {
     let text = ''
     for (let i = 0; i < 10 && !/save failed/.test(text); i++) {
       await new Promise((resolve) => setTimeout(resolve, 1000))
-      text = logs(Math.ceil((Date.now() - started) / 1000) + 5)
+      text = newSince(baseline)
     }
     expect(text).toMatch(/gold-save-purchase: save failed: [0-9a-f-]{36} \S+/)
     for (const secret of ['Zelda', 'Quokka', '0498', '765 432', 'INV-UAT-SECRET', '12345', '12,345']) {
@@ -421,15 +429,14 @@ test.describe('N · logs', () => {
 
   test('7.141 — the three functions write nothing to the log for successful calls', async () => {
     const ruth = await customer()
-    const lines = () => logs(1800).split('\n')
-    const baseline = lines().length
+    const baseline = capture()
     const p = await saved(t1, { customerId: ruth.id })
     const c = await complete(t1, { purchaseId: p, erpInvoiceNo: inv('141') })
     const u = await photoUrls(t1, p)
     expect([c.status, u.status]).toEqual([200, 200])
     await new Promise((resolve) => setTimeout(resolve, 2000))
     // Only the lines written since the baseline (the failed save of 7.140 is earlier in the same log).
-    const text = lines().slice(baseline).join('\n')
+    const text = newSince(baseline)
     // The edge runtime itself prints "serving the request with supabase/functions/<name>" for every call; that is not
     // the function logging. Anything else the three functions would print (console.log or console.error) is.
     const own = text.split(/\r?\n/).filter((l) => l.trim() && !/serving the request with supabase\/functions\//.test(l))
