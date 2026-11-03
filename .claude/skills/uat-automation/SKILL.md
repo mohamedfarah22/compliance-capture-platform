@@ -128,8 +128,8 @@ Record each break in your report, one line per behaviour: `6.38, 6.39, 6.111: ph
 **Re-verifying a fix** (after the implementer fixes a defect you reported):
 1. `git pull --ff-only`, and read the fix.
 2. Break the fix once and see the row fail.
-3. Revert, then run your phase project and the full `npm run uat`.
-4. Mark the defect fixed (with the commit) in the sheet and the PR body.
+3. Revert, then run only your phase project (`npm run uat:<phase>`), plus the Vitest/Deno/pgTAP suite the fix touched. Don't run the full `npm run uat` locally: CI's `uat` job runs the whole chain on your push.
+4. Mark the defect fixed (with the commit) in the sheet and the PR body, push, and wait for CI. If `uat` goes red in another phase's project, that is the regression check doing its job: investigate it as in §6.
 
 ## 4. The shared local stack
 

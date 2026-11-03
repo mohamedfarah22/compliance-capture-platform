@@ -129,7 +129,7 @@ You get a row ID, expected and actual results, and evidence.
 1. `git pull --ff-only` (the UAT agent pushes to your branch).
 2. Fix it in production code, using a new migration for SQL.
 3. Update your own dev tests if they asserted the old behaviour.
-4. Don't edit the UAT agent's tests or sheet. Run its project (`npm run uat:<phase>`) to see the row pass, then the full chain.
+4. Don't edit the UAT agent's tests or sheet. Run its project (`npm run uat:<phase>`) to see the row pass, plus the fast checks for what you touched (`npm test`, lint and format for browser code; `deno task test` or `test db` for functions or SQL). Don't run the full `npm run uat` chain locally for a fix: CI runs it on your push.
 5. Push and report the fix and its commit. The UAT agent re-verifies it independently.
 
 ## For the coordinator
