@@ -30,6 +30,7 @@ export default defineConfig({
     { name: 'gold06', testDir: './e2e/gold06' },
     { name: 'gold07', testDir: './e2e/gold07' },
     { name: 'gold08a', testDir: './e2e/gold08a' },
+    { name: 'gold09a', testDir: './e2e/gold09a' },
   ],
   webServer: {
     command: `npx vite --host 127.0.0.1 --port ${new URL(BASE_URL).port} --strictPort`,
