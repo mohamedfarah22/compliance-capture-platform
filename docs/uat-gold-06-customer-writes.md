@@ -8,7 +8,7 @@
 5. Every function refuses while gold is switched off, without a token, below `aal2`, for inactive staff, for the wrong role and for another business's customers
 6. Nothing a client sends decides who did it or which business it belongs to, and the logs hold no personal data
 
-Screens come in Phase 8, purchases in Phase 7. Everything here is called with `curl` or SQL.
+Screens come in Phase 8, purchases in Phase 7. Nothing in the app calls these functions yet.
 
 | | |
 |---|---|
@@ -16,364 +16,345 @@ Screens come in Phase 8, purchases in Phase 7. Everything here is called with `c
 | Build/commit | ________ |
 | Run by / date | ________ |
 
-**Timing.** About 90 minutes the first time. Do sections A to J in order: later sections reuse the customers made earlier.
+**Timing.** Section A runs by itself (about 2 minutes of tests, plus CI). Section B is about 10 minutes on the dev project. Section C needs the product owner.
 
-Spec references are to [gold-due-diligence-spec.md](gold-due-diligence-spec.md).
+Spec references are to [gold-due-diligence-spec.md](gold-due-diligence-spec.md). The original manual rows 6.1 to 6.153 keep their numbers; rows 6.154 to 6.163 are *(added by UAT)*.
 
 ---
 
-## 0 · Setup
+## A · Automated rows
 
-**Environment.** The **dev** project with `npx supabase db push --linked` and `npx supabase functions deploy gold-create-customer gold-update-customer-id gold-update-customer` done, **or** a local stack started from this branch (`npx supabase stop && npx supabase start && npx supabase db reset`). Locally the flag is already on (`[edge_runtime.secrets]` in `supabase/config.toml`). On dev run `npx supabase secrets set GOLD_JOURNEY_ENABLED=true` first. Create the `compliance-media` bucket as private if the project has none.
+Every row below is proved by an automated test against a freshly reset local stack. The tests create their own staff (two businesses; staff, manager, admin, inactive and password-only sessions with real second-factor tokens), customers and photos, so there is nothing to seed, no tokens to copy and no curl to type.
 
-**Accounts.** Five staff members, each with a password and a TOTP factor enrolled:
+**Local gold switch.** The functions refuse unless the `GOLD_JOURNEY_ENABLED` secret is exactly `true`. Locally `supabase/config.toml` sets it under `[edge_runtime.secrets]`, which only the local CLI (`supabase start`) and the CI `uat` job read, so no setup is needed. It cannot be toggled on the running local stack, so rows 6.1 to 6.3 are proved with the functions' own handlers in Deno.
 
-| Label | Role | Business | Notes |
-|---|---|---|---|
-| `S1` | staff | Entity One | |
-| `M1` | manager | Entity One | |
-| `A1` | admin | Entity One | |
-| `I1` | staff | Entity One | after enrolling, set `is_active = false` in `staff_members` |
-| `X1` | manager | Entity Two | a different `reporting_entity_id` |
-
-**Tokens.** For each account get two access tokens: `<label>_AAL1` from `POST $API/auth/v1/token?grant_type=password` (password only), and `<label>_AAL2` from the same session after `POST $API/auth/v1/factors/{id}/challenge` and `/verify` with a current TOTP code. Also `ANON` (the project's anon key).
-
-**Files** in the working directory:
-- `front.jpg`, `back.jpg`: two different JPEGs under 1 MB. Note `sha256sum front.jpg back.jpg`.
-- `front2.jpg`, `back2.jpg`, `front3.jpg`, `back3.jpg`: more JPEGs, all different (any re-saved copies will do).
-- `big.jpg`: a file of exactly 10,485,760 bytes; `toobig.jpg`: exactly 10,485,761 bytes. Send both as `image/jpeg`.
-- `doc.pdf`: any PDF.
-
-**Shell helpers** (`$API` is the project URL):
+**Run from a worktree.** The local edge runtime serves the functions from the directory where `supabase start` ran. From this branch:
 
 ```
-create() { curl -s -w "\nHTTP %{http_code}\n" -X POST "$API/functions/v1/gold-create-customer" -H "apikey: $ANON" -H "Authorization: Bearer $1" -F "payload=$2" "${@:3}"; }
-updid()  { curl -s -w "\nHTTP %{http_code}\n" -X POST "$API/functions/v1/gold-update-customer-id" -H "apikey: $ANON" -H "Authorization: Bearer $1" -F "payload=$2" "${@:3}"; }
-edit()   { curl -s -w "\nHTTP %{http_code}\n" -X POST "$API/functions/v1/gold-update-customer" -H "apikey: $ANON" -H "Authorization: Bearer $1" -H "Content-Type: application/json" -d "$2"; }
-phone()  { curl -s -w "\nHTTP %{http_code}\n" -X POST "$API/rest/v1/rpc/update_customer_phone" -H "apikey: $ANON" -H "Authorization: Bearer $1" -H "Content-Type: application/json" -d "{\"p_customer_id\":\"$2\",\"p_phone\":\"$3\"}"; }
-FRONT='-F front=@front.jpg;type=image/jpeg'   BACK='-F back=@back.jpg;type=image/jpeg'
+npx supabase stop && npx supabase start && npx supabase db reset
+cd app && npm run uat:gold06                     # Playwright: expect 0 failed
+cd .. && npx supabase test db                    # pgTAP: expect Result: PASS (includes gold06_uat.test.sql)
+cd supabase/functions && deno task test          # Deno: expect 0 failed (includes gold06Flag.test.ts)
 ```
 
-**Payload notation.** `B1[phone="1234567"]` means: take payload `B1` below and change that key (`jq -c '.phone="1234567"' b1.json`). `B1[-phone]` deletes the key. `B1[id.hasExpiry=false]` sets a nested key.
+`npm run uat` (the CI `uat` job) runs `uat:gold06` after the TTR projects.
 
-**`B1`, the base create payload** (Alice):
+☐ CI green on this commit (`frontend`, `functions`, `uat`) · ☐ the three commands above pass locally
 
-```json
-{"firstName":"Alice","middleName":"Q","lastName":"Uatsix","dateOfBirth":"1985-03-14","phone":"0412 345 601",
- "email":"alice.uatsix@example.test","aliases":["Ally Uatsix","A. Uatsix"],
- "residentialAddress":{"street":"10 Test Street","suburb":"Coburg","state":"VIC","postcode":"3058"},
- "id":{"documentType":"Driver licence","documentNumber":"UAT6-DL-100","issuer":"VIC","idCountryCode":"AU","hasExpiry":true,"expiryDate":"2030-06-30"}}
+Layers: **E2E** = `app/e2e/gold06/*.e2e.js` (real JWTs at `aal1` and `aal2`, real storage and database). **pgTAP** = `supabase/tests/gold06_uat.test.sql`. **Deno** = `supabase/functions/_shared/gold06Flag.test.ts`.
+
+### A1 · Access (spec 2.2, 4.5, 6.1)
+
+| # | What is proved | Covered by |
+|---|---|---|
+| 6.1 ⚠ | With the secret unset, or `false`, all three functions answer 403 `gold_disabled` and touch nothing, even for a valid admin token | Deno `gold06Flag.test.ts` ("6.1", "6.2" × 3 functions) |
+| 6.2 ⚠ | Same, for `update-customer-id` and `update-customer` with valid tokens | Deno `gold06Flag.test.ts` ("6.2") |
+| 6.3 ⚠ | `TRUE`, `1`, `True`, ` true`, `yes` and empty are still off; exactly `true` gets past the gate | Deno `gold06Flag.test.ts` ("6.3") |
+| 6.4 ⚠ | No `Authorization` header: 401 from all three functions, nothing stored | E2E `01-access` |
+| 6.5 ⚠ | The anon key as the bearer token is refused (never 2xx) by all three | E2E `01-access` |
+| 6.6 ⚠ | A password-only (`aal1`) token: 403 `mfa_required` from all three | E2E `01-access` |
+| 6.7 ⚠ | An inactive staff member at `aal2`: 403 `forbidden` from all three | E2E `01-access` |
+| 6.8 ⚠ | Ordinary staff cannot edit details: 403 `forbidden`, nothing changes, no audit row | E2E `01-access` |
+| 6.9 | Managers and admins both pass the manager check | E2E `01-access` |
+| 6.10 | Any active staff member may create a customer and update an ID | E2E `01-access` |
+| 6.11 ⚠ | Another business: edit and update-ID answer 404 `customer_not_found` (made-up ids the same), the phone RPC errors `P0002 customer_not_found`; nothing changes | E2E `01-access`; pgTAP (the SQL function refuses an actor from another business) |
+| 6.12 ⚠ | The SQL write functions and `_gold_assert_staff` are not reachable through REST for staff, managers or anon (`42501`) | E2E `01-access`; pgTAP (permission denied, service role allowed) |
+| 6.13 ⚠ | A manager cannot insert, update or delete customers, aliases, audit rows, photo rows or ID captures directly | E2E `01-access`; pgTAP |
+| 6.14 | Customers are readable inside the business and invisible to another business | E2E `01-access`; pgTAP |
+
+### A2 · Create customer (spec 1.6, 4.2, 4.3, 4.5, 5.2)
+
+| # | What is proved | Covered by |
+|---|---|---|
+| 6.15 | Create with front and back photos: 201 with four UUIDs | E2E `02-create` |
+| 6.16 | The customer row: `gold`, `individual`, created by S1 in Entity One, every detail as typed, `res_country` Australia | E2E `02-create` |
+| 6.17 | Aliases saved in order | E2E `02-create` |
+| 6.18 | One customer-level `new_capture` row: no transaction, party or conducting person; every document field; `is_complete` | E2E `02-create` |
+| 6.19 ⚠ | Two photos under `customers/<id>/…`, server-computed SHA-256 and sizes, S1 as capturer, objects in storage | E2E `02-create` |
+| 6.20 | Exactly one `gold_create` audit row, by S1, old null → new, with a sensible time | E2E `02-create` |
+| 6.21 | One create adds 1 customer, 2 images, 2 objects, 1 audit row; no TTR transaction or party | E2E `02-create` |
+| 6.22 ⚠ | Who and which business come from the token; a body that names another staff member, business or `source` is ignored | E2E `02-create` |
+| 6.23 ⚠ | A client-supplied hash is ignored | E2E `02-create` |
+| 6.24 | No middle name, no email, no aliases: nulls and no alias rows | E2E `02-create` |
+| 6.25 | A second ordinary customer is created with its own id | E2E `02-create` |
+| 6.26 ⚠ | Driver licence with the front photo only: 400 `backImage`, nothing stored | E2E `02b-validation` |
+| 6.27 | Driver licence with both photos: 201 | E2E `02b-validation` |
+| 6.28 | Passport, Proof of age card, National identity card, Medicare card, Other government document need no back photo | E2E `02b-validation` |
+| 6.29 | `Other` with a description is stored with it and the sentence "Original Student card sighted in person" | E2E `02b-validation` |
+| 6.30 | `Other` with no description: 400 `id.documentTypeOther` | E2E `02b-validation` |
+| 6.31 | A passport with front and back stores both | E2E `02b-validation` |
+| 6.32 | A passport with no photos: 400 `frontImage` | E2E `02b-validation` |
+| 6.33 | Birth certificate, Electronic verification source, empty type: 400 `id.documentType` | E2E `02b-validation` |
+| 6.34 | `hasExpiry` true with a date stores both | E2E `02b-validation` |
+| 6.35 | `hasExpiry` false with no date: `has_expiry` false, date null | E2E `02b-validation` |
+| 6.36 ⚠ | `hasExpiry` true with a missing, empty, impossible or non-ISO date: 400 `id.expiryDate` | E2E `02b-validation` |
+| 6.37 | `hasExpiry` missing or `"yes"`: 400 `id.hasExpiry` | E2E `02b-validation` |
+| 6.38 ⚠ | Phone of 7 digits: 400 `phone` | E2E `02b-validation` |
+| 6.39 ⚠ | Phone of 7 digits with punctuation: 400 `phone` | E2E `02b-validation` |
+| 6.40 | Empty or missing phone: 400 `phone` | E2E `02b-validation` |
+| 6.41 | Exactly 8 digits accepted | E2E `02b-validation` |
+| 6.42 | 11 digits with punctuation accepted | E2E `02b-validation` |
+| 6.43 | Empty, blank or missing first name: 400 `firstName` | E2E `02b-validation` |
+| 6.44 | Empty or missing last name: 400 `lastName` | E2E `02b-validation` |
+| 6.45 | Missing, impossible or non-ISO date of birth: 400 `dateOfBirth` | E2E `02b-validation` |
+| 6.46 | Missing residential address names all four parts | E2E `02b-validation` |
+| 6.47 | Each bad address part is named (street, suburb, state unknown or empty, postcode of 3 or 5 digits or with letters) | E2E `02b-validation` |
+| 6.48 | A lower-case state is accepted and stored upper case | E2E `02b-validation` |
+| 6.49 | Empty or missing ID number: 400 `id.documentNumber` | E2E `02b-validation` |
+| 6.50 | Empty issuer: 400 `id.issuer` | E2E `02b-validation` |
+| 6.51 | Empty, 3-letter or alphanumeric country code: 400 `id.idCountryCode` | E2E `02b-validation` |
+| 6.52 | A lower-case country code is stored upper case | E2E `02b-validation` |
+| 6.53 | Omitted or blank aliases: accepted, no alias rows | E2E `02b-validation` |
+| 6.54 | Omitted email: accepted, null | E2E `02b-validation` |
+| 6.55 | A JSON body instead of multipart: 400 `invalid_request` | E2E `02b-validation` |
+| 6.56 | A payload that is not JSON: 400 `invalid_request` | E2E `02b-validation` |
+| 6.57 | GET: 405 `method_not_allowed` | E2E `02b-validation` |
+| 6.58 | The CORS preflight without credentials succeeds with `Access-Control-Allow-Origin` (the local gateway answers 200; the handler's own answer is 204 with the allowed headers and no credential check) | E2E `02b-validation`; Deno `gold06Flag.test.ts` ("6.58") |
+
+### A3 · Duplicates and collisions (spec 1.6 "Uniqueness and collisions", 5.2, 6.1)
+
+| # | What is proved | Covered by |
+|---|---|---|
+| 6.59 ⚠ | Alice's licence number on another person: 409 `id_on_file` naming Alice (id, name, date of birth, document type) | E2E `02c-duplicates` |
+| 6.60 ⚠ | The number is compared trimmed and upper-cased | E2E `02c-duplicates` |
+| 6.61 | The same number on a different document type is not a collision | E2E `02c-duplicates` |
+| 6.62 ⚠ | `differentPerson` saves `different_person`, unlinked; Alice's capture is unchanged | E2E `02c-duplicates` |
+| 6.63 | A third person with the same number is also `different_person` | E2E `02c-duplicates` |
+| 6.64 ⚠ | `differentPerson` on a number nobody holds saves a null reason | E2E `02c-duplicates` |
+| 6.65 ⚠ | That number is then a collision for the next person | E2E `02c-duplicates` |
+| 6.66 | Another business may use the same number | E2E `02c-duplicates` |
+| 6.67 ⚠ | Same name and date of birth: 409 `possible_duplicates` (`name_dob`) with the customer's details | E2E `02c-duplicates` |
+| 6.68 | The name match is case-insensitive | E2E `02c-duplicates` |
+| 6.69 ⚠ | The same phone written with `+61`: 409 `possible_duplicates` (`phone`) | E2E `02c-duplicates` |
+| 6.70 | Date of birth one day off: not a duplicate | E2E `02c-duplicates` |
+| 6.71 | A phone differing in the last digit: not a duplicate | E2E `02c-duplicates` |
+| 6.72 ⚠ | `confirmNew` creates a second customer with the same name and date of birth | E2E `02c-duplicates` |
+| 6.73 ⚠ | `confirmNew` does not override an ID collision | E2E `02c-duplicates` |
+| 6.74 | Number, name and date of birth all matching: the ID collision is reported first | E2E `02c-duplicates` |
+| 6.75 ⚠ | Another business's customers are never shown as duplicates | E2E `02c-duplicates` |
+| 6.76 | Refused calls store no photo (object count unchanged) | E2E `02c-duplicates` |
+
+### A4 · Atomic writes (spec 4.5)
+
+A check constraint that only the dummy values trip makes the database refuse part-way through; each test adds and drops its own.
+
+| # | What is proved | Covered by |
+|---|---|---|
+| 6.77 ⚠ | A failed create leaves no customer, alias, image, audit row or object | E2E `03-atomic` |
+| 6.78 | With the fault removed the same call succeeds and the customer exists once | E2E `03-atomic` |
+| 6.79 ⚠ | A failed Update ID adds no capture, image or object | E2E `03-atomic` |
+| 6.80 ⚠ | A failed edit changes none of the fields sent and writes no audit row | E2E `03-atomic` |
+| 6.81 ⚠ | `anon`, `authenticated` and `PUBLIC` hold no execute on the write functions; the service role holds it | pgTAP |
+| 6.82 | A failed create is logged with staff id, customer id and an error code, and none of the personal data | E2E `03-atomic` |
+
+### A5 · Update ID (spec 1.6 "Gold Update ID", 5.2, 6.1)
+
+| # | What is proved | Covered by |
+|---|---|---|
+| 6.83 ⚠ | Renewal with the same number: `id_changed`, linked to the first capture, supersedes its two photos (`superseded` 2) | E2E `04-update-id` |
+| 6.84 ⚠ | Old photos stamped superseded by the new front image, objects deleted, rows kept with hash, capturer and time; the new ones live | E2E `04-update-id` |
+| 6.85 ⚠ | Another person who shares the number keeps both photos | E2E `04b-update-id-refusals` |
+| 6.86 ⚠ | A different document is unlinked, supersedes nothing, adds one photo | E2E `04-update-id` |
+| 6.87 ⚠ | Photo unclear links to the original capture, supersedes the renewal photos but never the passport; earlier stamps are not rewritten | E2E `04-update-id` |
+| 6.88 ⚠ | Renewal with a new number is unlinked and leaves the old number's photos live | E2E `04-update-id` |
+| 6.89 | Photo unclear for a document not on file: 409 `document_not_on_file`, nothing stored | E2E `04b-update-id-refusals` |
+| 6.90 | `different_document` with the customer's own number: 409 `id_on_file` | E2E `04b-update-id-refusals` |
+| 6.91 ⚠ | Another customer's number with any reason: 409 `id_on_file` naming them | E2E `04b-update-id-refusals` |
+| 6.92 | Missing, unknown, empty or stored-value reason: 400 `reason` | E2E `04b-update-id-refusals` |
+| 6.93 | Missing or malformed `customerId`: 400 `customerId` | E2E `04b-update-id-refusals` |
+| 6.94 | Driver licence update: front only is 400 `backImage`; no photos 400 `frontImage` | E2E `04b-update-id-refusals` |
+| 6.95 | Invalid document fields are named at the top level | E2E `04b-update-id-refusals` |
+| 6.96 | A customer id that does not exist: 404, nothing stored | E2E `04b-update-id-refusals` |
+| 6.97 ⚠ | Another business cannot update the ID: 404, rows unchanged | E2E `04b-update-id-refusals` |
+| 6.98 | The current ID is the newest capture | E2E `04-update-id`; pgTAP |
+| 6.99 | Updating an ID writes no customer audit row | E2E `04-update-id` |
+| 6.100 | Every image sits under `customers/<customer>/<its own capture>/` | E2E `04-update-id` |
+
+### A6 · Update customer details (spec 4.2, 4.3, 4.5, 5.2 "Edit rows")
+
+| # | What is proved | Covered by |
+|---|---|---|
+| 6.101 | Manager edit: 200 listing exactly the columns that changed (state unchanged is not listed), `updated_at` moves | E2E `05-edit` |
+| 6.102 | One `gold_edit` audit row by M1 with old → new for exactly those columns | E2E `05-edit` |
+| 6.103 ⚠ | The past TTR party copy is byte-for-byte unchanged and still linked | E2E `05-edit` |
+| 6.104 | ID details are untouched | E2E `05-edit` |
+| 6.105 | An admin may edit; audited as A1 | E2E `05-edit` |
+| 6.106 | Every field kind in one call is saved, normalised (`F`, `NZ`, `AU`) and audited column by column | E2E `05-edit` |
+| 6.107 | Clearing optional fields sets null and audits old → null | E2E `05-edit` |
+| 6.108 | Sending the current values changes nothing and writes no audit row | E2E `05-edit` |
+| 6.109 ⚠ | ID details and ownership keys (document number/type, issuer, source, business, customer type, id, aliases) are 400 naming the key | E2E `05b-edit-refusals` |
+| 6.110 | A valid field mixed with a forbidden one applies neither | E2E `05b-edit-refusals` |
+| 6.111 | Phone of 7 digits, empty or null: 400 `phone` | E2E `05b-edit-refusals` |
+| 6.112 | Phone of 8 digits accepted | E2E `05b-edit-refusals` |
+| 6.113 | A required name cannot be cleared | E2E `05b-edit-refusals` |
+| 6.114 | Future, too-early, impossible or empty date of birth: 400 `dateOfBirth` | E2E `05b-edit-refusals` |
+| 6.115 | Unknown gender, malformed email, 3-letter country: each refused by name | E2E `05b-edit-refusals` |
+| 6.116 | A partial address is refused (the whole address is replaced) | E2E `05b-edit-refusals` |
+| 6.117 | Empty, missing or array `changes`, missing `customerId`, non-JSON body | E2E `05b-edit-refusals` |
+| 6.118 ⚠ | Made-up customer, another business's customer, Entity Two as the caller: 404 | E2E `05b-edit-refusals` |
+| 6.119 | A company customer cannot be edited (404) | E2E `05b-edit-refusals` |
+| 6.120 | A failed edit is logged with ids and an error code only | E2E `05b-edit-refusals` |
+
+### A7 · Change a phone (spec 4.6 `updateCustomerPhone`)
+
+| # | What is proved | Covered by |
+|---|---|---|
+| 6.121 | Staff change a phone: 200 `true`, saved | E2E `06-phone-storage` |
+| 6.122 | A `phone_change` audit row by S1: phone old → new and nothing else | E2E `06-phone-storage` |
+| 6.123 | The same number padded with spaces: `false`, no audit row | E2E `06-phone-storage` |
+| 6.124 ⚠ | Fewer than 8 digits, empty or blank: `22023 invalid_phone` | E2E `06-phone-storage` |
+| 6.125 | Exactly 8 digits and a punctuated number accepted | E2E `06-phone-storage` |
+| 6.126 | Managers and admins may change a phone too | E2E `06-phone-storage` |
+| 6.127 ⚠ | `aal1`: `42501 forbidden`, nothing changes | E2E `06c-phone-refusals` |
+| 6.128 ⚠ | The anon key is refused | E2E `06c-phone-refusals` |
+| 6.129 ⚠ | An inactive staff member: `42501` | E2E `06c-phone-refusals` |
+| 6.130 ⚠ | Another business, a made-up id and a company customer: `P0002 customer_not_found`, HTTP 4xx | E2E `06b-phone-notfound` |
+| 6.131 ⚠ | A phone change leaves the past TTR party copy of the number alone | E2E `06-phone-storage` |
+
+### A8 · Storage, TTR and the rest (spec 1.6, 6.1)
+
+| # | What is proved | Covered by |
+|---|---|---|
+| 6.132 ⚠ | The `compliance-media` bucket is private: a stored photo is not served by a public or anon URL | E2E `06d-ttr-lookups` |
+| 6.133 ⚠ | A licence number gold holds raises the existing collision lookup and prompt in the TTR wizard | E2E `06d-ttr-lookups` (lookup), `07-ttr-wizard` (the wizard's own prompt, real login and second factor) |
+| 6.134 | A number nobody holds raises no prompt | E2E `06d-ttr-lookups`, `07-ttr-wizard` |
+| 6.135 | A gold customer found by name and date of birth brings their gold-captured ID as the prior verification | E2E `06d-ttr-lookups`, `07-ttr-wizard` |
+| 6.136 | No orphan photo is left under `customers/` after failed creates and failed Update IDs (checked directly, not after an hour) | E2E `03-atomic` |
+| 6.137 | Existing TTR behaviour | The same CI run: `npm run uat` (part0, phase4, part1) and `npx supabase test db`; for the AUSTRAC smoke rows R24 to R26 of [uat-test-matrix.md](uat-test-matrix.md) run them by hand until the `uat` job covers them |
+
+### A9 · Rows added by UAT
+
+| # | Spec | What is proved | Covered by |
+|---|---|---|---|
+| 6.154 | §6.1 | An **inactive manager** and an **inactive admin** are refused by `gold-update-customer` (isolates the active check from the role check that 6.7 also trips) | E2E `01-access` |
+| 6.155 | §4.1, §4.2 | The customer audit log is append-only: update and delete are refused for the owner role and for a manager | pgTAP |
+| 6.156 | §1.6 | No client update or delete of customer photo rows or ID captures; the rows are unchanged | pgTAP |
+| 6.157 | §1.6 | Customer photo rows, ID captures and audit rows are readable only inside the business and only at `aal2` | pgTAP |
+| 6.158 | §4.3, §4.6 | A `null` phone to `update_customer_phone` is `22023 invalid_phone` | E2E `06c-phone-refusals` |
+| 6.159 | §1.6 | A renewal typed in lower case with spaces still links to the same document and supersedes its photos | E2E `04b-update-id-refusals` |
+| 6.160 | §4.2, §5.2 | Edit also refuses `createdByStaffId`, `createdAt`, `updatedAt` and company-only fields | E2E `01-access` |
+| 6.161 | §4.5, §6.1 | Update ID ignores a client-supplied staff id, business and hash | E2E `04b-update-id-refusals` |
+| 6.162 | §1.5, §5.2 | Update ID for a company customer is 404 `customer_not_found` (gold writes individuals only) | E2E `01-access` |
+| 6.163 | §6.1 "Logs" | Across the whole run the edge runtime logs hold none of the dummy names, phones, emails or ID numbers (the failures of sections A4 and A6 are in the logs, so the check reads real output) | E2E `98-logs` |
+
+---
+
+## B · Manual test for the user (dev project, about 10 minutes)
+
+Only what a local stack cannot see: deploying, the secret and a real session on hosted dev. Nothing here touches the client project until the last block, after merge.
+
+**Before you start.**
+- Dev project linked (`supabase/.temp/project-ref` is the dev ref; `cat` it to check).
+- This branch checked out, `cd app && npm ci` done.
+- A dev staff account with a manager or admin role and MFA enrolled, and an ordinary staff account with MFA, both in the same business.
+- Two small JPEGs saved as `front.jpg` and `back.jpg`, and `front2.jpg` and `back2.jpg` (any four different images under 1 MB).
+
+**1 · Deploy (3 minutes)**
+
+```
+npx supabase db push --linked
+npx supabase functions deploy gold-create-customer gold-update-customer-id gold-update-customer
+npx supabase secrets set GOLD_JOURNEY_ENABLED=true
+npx supabase secrets list
 ```
 
-**SQL checks** (SQL editor or `psql`; the browser's role cannot run these). Each row says which one and the customer id (`<cid>`) from the response.
+☐ `db push` applies `20261106000001` and `20261106000002` without error (6.149)
+☐ the three functions deploy; in the dashboard each shows **Verify JWT** on (6.149)
+☐ `secrets list` shows `GOLD_JOURNEY_ENABLED`, and it is there because you just set it (deploying never sets it) (6.150)
 
-| Name | Query |
-|---|---|
-| Q1 | `select id, source, customer_type, created_by_staff_id, reporting_entity_id, first_name, middle_name, last_name, date_of_birth, phone, email, res_street, res_suburb, res_state, res_postcode, res_country, updated_at from public.customers where last_name = 'Uatsix' order by created_at;` |
-| Q2 | `select alias, sort_order from public.customer_aliases where customer_id = '<cid>' order by sort_order;` |
-| Q3 | `select id, customer_id, transaction_id, party_id, conducting_person_id, verification_basis, new_capture_reason, prior_verification_id, document_type, document_number, issuer, id_country_code, has_expiry, expiry_date, is_complete, front_image_id, back_image_id, reporting_entity_id, created_at from ttr.id_verifications where customer_id = '<cid>' order by created_at;` |
-| Q4 | `select i.id, i.object_path, i.content_hash_sha256, i.byte_size, i.captured_by_staff_id, i.superseded_at, i.superseded_by_image_id, (select count(*) from storage.objects o where o.bucket_id = i.storage_bucket and o.name = i.object_path) as object_exists from ttr.stored_images i where i.customer_id = '<cid>' order by i.created_at;` |
-| Q5 | `select source, changed_by, changed_at, changes from public.customer_audit_log where customer_id = '<cid>' order by changed_at;` |
-| Q6 | `select (select count(*) from public.customers where last_name = 'Uatsix') as customers, (select count(*) from ttr.stored_images where customer_id in (select id from public.customers where last_name = 'Uatsix')) as images, (select count(*) from storage.objects where bucket_id = 'compliance-media' and name like 'customers/%') as objects, (select count(*) from public.customer_audit_log where customer_id in (select id from public.customers where last_name = 'Uatsix')) as audit_rows;` (the "totals" check: run before and after a refused call; the four numbers must not change) |
+**2 · One real call to each function (5 minutes)**
 
----
+Sign in to the dev app as the **ordinary staff** account (password and MFA code), then in the browser's developer tools copy `access_token` from the `sb-…-auth-token` entry of Local Storage. Set `API` to the dev project URL, `ANON` to its anon key and `TOKEN` to that value. Do the same for the manager account later and call its token `MTOKEN`.
 
-## A · Access: every function refuses what it should (spec 2.2, 4.5, 6.1)
+Create (staff token):
 
-Run these with `Erin` as the target where a customer id is needed: create her first (row 6.24) or use any customer of Entity One. Rows 6.1 to 6.3 change the secret: do them **last** on dev, or skip locally (the unit tests cover the same refusal).
-
-| # | Spec | Action | Expect |
-|---|---|---|---|
-| 6.1 | §2.2 | On dev: `npx supabase secrets unset GOLD_JOURNEY_ENABLED`, wait a minute, then `create "$S1_AAL2" "$(cat b1.json)" $FRONT $BACK` | HTTP **403** `{"error":"gold_disabled"}`. Q6 totals unchanged |
-| 6.2 | §2.2 | Same state: `updid "$S1_AAL2" '{"customerId":"<any uuid>","reason":"renewed"}'` and `edit "$M1_AAL2" '{"customerId":"<any uuid>","changes":{"firstName":"X"}}'` | Both **403** `gold_disabled`, even with valid tokens |
-| 6.3 | §2.2 | Set the secret to `TRUE`, then to `1`, then back to `true` (`secrets set`), repeating the `create` call each time | `TRUE` and `1`: 403 `gold_disabled`. `true`: the call proceeds (a 201, or a 409 if the customer already exists). Only the exact value `true` switches gold on |
-| 6.4 | §6.1 | `create` with no `Authorization` header (`curl -X POST $API/functions/v1/gold-create-customer -H "apikey: $ANON" -F payload=...`) | HTTP **401**. Same for `gold-update-customer-id` and `gold-update-customer` |
-| 6.5 | §6.1 | `create "$ANON" ...` (the anon key as the bearer token) for each of the three functions | HTTP **401** or **403**, never 2xx. Q6 totals unchanged |
-| 6.6 | §6.1 | `create "$S1_AAL1" "$(cat b1.json)" $FRONT $BACK` (password-only token) | HTTP **403** `{"error":"mfa_required"}`. Same for `updid` and `edit` with `M1_AAL1`. Q6 totals unchanged |
-| 6.7 | §6.1 | `create "$I1_AAL2" ...`, `updid "$I1_AAL2" ...`, `edit "$I1_AAL2" ...` with the inactive account | Each **403** `{"error":"forbidden"}`. Q6 totals unchanged |
-| 6.8 | §2.2, §4.5 | `edit "$S1_AAL2" '{"customerId":"<Erin id>","changes":{"firstName":"Nope"}}'` (ordinary staff) | HTTP **403** `forbidden`. Erin's first name is unchanged and Q5 shows no new row |
-| 6.9 | §2.2 | The same call with `M1_AAL2`, then `A1_AAL2` | Both HTTP **200** (managers **and admins** pass). Use `{"firstName":"Erin"}` so nothing changes |
-| 6.10 | §2.2, §4.5 | `create "$S1_AAL2" ...` with a staff token | Allowed (any active staff member): see row 6.15. `updid "$S1_AAL2" ...` is allowed too (row 6.83) |
-| 6.11 | §6.1 | As `X1_AAL2` (another business): `edit "$X1_AAL2" '{"customerId":"<Erin id>","changes":{"firstName":"Nope"}}'`, `updid "$X1_AAL2" '{"customerId":"<Erin id>","reason":"renewed", ...valid Erin document fields...}' $FRONT $BACK`, `phone "$X1_AAL2" <Erin id> "0499 000 000"` | `edit` and `updid`: HTTP **404** `customer_not_found`. `phone`: an error (HTTP 4xx, code `P0002`, message `customer_not_found`). Erin is unchanged; Q6 totals unchanged. A made-up uuid gives the same answer, so nothing reveals that Erin exists |
-| 6.12 | §4.5 | `curl -X POST $API/rest/v1/rpc/gold_create_customer -H "apikey: $ANON" -H "Authorization: Bearer $S1_AAL2" -H "Content-Type: application/json" -d '{}'`, and the same for `gold_update_customer_id`, `gold_update_customer`, `_gold_assert_staff` | Each an error (HTTP 401, 403 or 404, "permission denied" or "not found"), never a result. The write functions are reachable only by the service role |
-| 6.13 | §4.5 | As `M1_AAL2` (REST, `Content-Type: application/json`, `Prefer: return=minimal`): `POST /rest/v1/customers` with `{"reporting_entity_id":"<Entity One id>","customer_type":"individual","source":"gold","first_name":"Direct","last_name":"Uatsix"}`; `POST /rest/v1/customer_aliases`; `POST /rest/v1/customer_audit_log`; `PATCH /rest/v1/customers?id=eq.<Erin id>` with `{"first_name":"Direct"}`; `POST /rest/v1/stored_images` and `POST /rest/v1/id_verifications` with header `Content-Profile: ttr` and a customer-level body | Every one is refused (HTTP 401 or 403, or `permission denied`). No `Direct` row exists, Erin is unchanged. The browser can only read these tables |
-| 6.14 | §4.5 | As `S1_AAL2`: `GET /rest/v1/customers?last_name=eq.Uatsix&select=id,first_name`; as `X1_AAL2` the same | `S1`: Entity One's `Uatsix` customers. `X1`: an empty list |
-
----
-
-## B · Create customer (spec 1.6, 4.2, 4.5, 5.2)
-
-Use `S1_AAL2` unless the row says otherwise.
-
-| # | Spec | Action | Expect |
-|---|---|---|---|
-| 6.15 | §4.5, §5.2 | `create "$S1_AAL2" "$(cat b1.json)" $FRONT $BACK` | HTTP **201** with `customerId`, `verificationId`, `frontImageId`, `backImageId` (all UUIDs). Note `customerId` as `<alice>` |
-| 6.16 | §4.2, §4.5 | Q1 | One `Alice Q Uatsix` row: `source` = `gold`, `customer_type` = `individual`, `created_by_staff_id` = `S1`'s staff id, `reporting_entity_id` = Entity One, DOB `1985-03-14`, phone `0412 345 601`, email, `10 Test Street`, `Coburg`, `VIC`, `3058`, `res_country` = `Australia` |
-| 6.17 | §4.2 | Q2 for `<alice>` | `Ally Uatsix` sort 0, `A. Uatsix` sort 1 |
-| 6.18 | §1.6 | Q3 for `<alice>` | One row: `transaction_id`, `party_id`, `conducting_person_id` all **null**; `customer_id` = `<alice>`; `verification_basis` = `new_capture`; `new_capture_reason` and `prior_verification_id` **null**; `document_type` = `Driver licence`, number `UAT6-DL-100`, `issuer` = `VIC`, `id_country_code` = `AU`, `has_expiry` true, expiry `2030-06-30`; `is_complete` true; both image ids set; `reporting_entity_id` = Entity One |
-| 6.19 | §1.6, §6.1 | Q4 for `<alice>` | Two rows. `object_path` starts `customers/<alice>/`, one `…/front-…jpg`, one `…/back-…jpg`. `content_hash_sha256` equals `sha256sum front.jpg` and `sha256sum back.jpg` respectively. `byte_size` equals each file's size. `captured_by_staff_id` = `S1`. `superseded_at` null. `object_exists` = 1 for both |
-| 6.20 | §4.2 | Q5 for `<alice>` | Exactly **one** row: `source` = `gold_create`, `changed_by` = `S1`, and `changes` holds `{"old": null, "new": …}` for the values saved (`first_name` → `"Alice"`, `phone`, address fields, `aliases` → `["Ally Uatsix","A. Uatsix"]`) |
-| 6.21 | §4.5 | Q6 before and after row 6.15 | Customers +1, images +2, objects +2, audit rows +1. No `ttr.transactions` or `ttr.parties` row was created (`select count(*) from ttr.parties where customer_id = '<alice>'` → 0) |
-| 6.22 | §4.5 | `create "$S1_AAL2" "$(jq -c '.id.documentNumber="UAT6-DL-101" \| .firstName="Alicia" \| .phone="0412 345 611" \| .dateOfBirth="1986-01-01" \| . + {createdByStaffId:"<M1 staff id>", reportingEntityId:"<Entity Two id>", source:"ttr"}' b1.json)" $FRONT $BACK` | **201**. Q1: that customer has `created_by_staff_id` = `S1` (not `M1`), `reporting_entity_id` = Entity One, `source` = `gold`. Nothing the client sends decides who or which business |
-| 6.23 | §4.5, §6.1 | Create with a hostile hash: `jq -c '. + {contentHashSha256:"deadbeef"}'` of a fresh payload (number `UAT6-DL-102`, name `Alma`, phone `0412 345 612`, DOB `1987-02-02`) | **201**. Q4: the stored hash is the real SHA-256 of the file, not `deadbeef`. The server hashes |
-| 6.24 | §5.2 | Create `Erin` (`E1`): `B1[firstName="Erin", middleName="", aliases=[], email="", dateOfBirth="1980-05-05", phone="0412 345 605", id.documentNumber="UAT6-DL-500"]` with front and back | **201**. Q1 shows Erin with no middle name and no email; Q2 empty. Note `<erin>` |
-| 6.25 | §5.2 | `Frank` (`F1`): `B1[firstName="Frank", dateOfBirth="1981-06-06", phone="0412 345 606", id.documentNumber="UAT6-DL-600"]` with front and back | **201**. Note `<frank>` |
-
-### Back photo and expiry follow CCP's per-type rules (spec 1.6, 5.2)
-
-Use fresh names, DOBs and phones for each row so no duplicate prompt interferes: name `T<n> Uatsix`, DOB `1990-01-<n>`, phone `0412 345 7<nn>`, and the document number shown.
-
-| # | Spec | Action | Expect |
-|---|---|---|---|
-| 6.26 | §5.2 | `B1[...]` as a **Driver licence** (`UAT6-DL-710`) with the front photo only | HTTP **400** `{"error":"validation_failed","fields":{"backImage":"…"}}`. Q6 totals unchanged. No object uploaded |
-| 6.27 | §5.2 | A Driver licence (`UAT6-DL-711`) with front and back | **201** |
-| 6.28 | §5.2 | The same document types **without a back photo**, one call each: `Passport` `UAT6-PP-720`, `Proof of age card` `UAT6-PA-721`, `National identity card` `UAT6-NI-722`, `Medicare card` `UAT6-MC-723`, `Other government document` `UAT6-OG-724` | Each **201**, one image row, `back_image_id` null |
-| 6.29 | §5.2 | `Other` (`UAT6-OT-725`, `"documentTypeOther":"Student card"`) with front only | **201**; Q3 `document_type` = `Other`, `document_type_other` = `Student card`, `verification_description` = `Original Student card sighted in person` |
-| 6.30 | §5.2 | `Other` with no `documentTypeOther` | **400**, field `id.documentTypeOther` |
-| 6.31 | §5.2 | A passport with front **and** back | **201**, two image rows (the back is optional where not required) |
-| 6.32 | §5.2 | A passport with no photos at all | **400**, field `frontImage` |
-| 6.33 | §5.2 | `documentType` = `Birth certificate`, then `Electronic verification source`, then `` (empty) | Each **400**, field `id.documentType` |
-| 6.34 | §1.6, §5.2 | `id.hasExpiry=true` with `id.expiryDate` = `2031-01-31` | **201**, Q3 `has_expiry` true, `expiry_date` `2031-01-31` |
-| 6.35 | §1.6, §5.2 | `id.hasExpiry=false` and **no** `expiryDate` | **201**, `has_expiry` false, `expiry_date` null |
-| 6.36 | §1.6, §5.2 | `id.hasExpiry=true` and no `expiryDate`; then `expiryDate` = `""`; then `2031-02-30`; then `31/01/2031` | Each **400**, field `id.expiryDate`. Nothing stored |
-| 6.37 | §1.6, §5.2 | `id.hasExpiry` missing; then the string `"yes"` | Each **400**, field `id.hasExpiry` |
-
-### Required fields and the phone rule (spec 4.3, 5.2)
-
-Each row sends `B1` with one change. Expect HTTP **400** `validation_failed`, the named field in `fields`, and Q6 totals unchanged. Use a fresh `id.documentNumber` each time so the number is never the reason. Rows that expect **201** also need a fresh `firstName`, `dateOfBirth` and (unless the row sets it) `phone`, so the call is not held as a possible duplicate of Alice.
-
-| # | Spec | Change to `B1` | Field expected in `fields` |
-|---|---|---|---|
-| 6.38 | §4.3 | `phone="1234567"` (7 digits) | `phone` |
-| 6.39 | §4.3 | `phone="12-34-56-7"` (7 digits with punctuation) | `phone` |
-| 6.40 | §4.3 | `phone=""`; then remove `phone` | `phone` |
-| 6.41 | §4.3 | `phone="12345678"` (8 digits) | none: **201** (boundary accepted) |
-| 6.42 | §4.3 | `phone="+61 (3) 9123-4567"` (11 digits) | none: **201** |
-| 6.43 | §5.2 | `firstName=""`; `firstName="   "`; remove `firstName` | `firstName` |
-| 6.44 | §5.2 | `lastName=""`; remove `lastName` | `lastName` |
-| 6.45 | §5.2 | Remove `dateOfBirth`; `dateOfBirth="1990-02-30"`; `dateOfBirth="14/03/1985"` | `dateOfBirth` |
-| 6.46 | §5.2 | Remove `residentialAddress` | `residentialAddress.street`, `.suburb`, `.state`, `.postcode` |
-| 6.47 | §5.2 | `residentialAddress.street=""`; `.suburb=""`; `.state="XX"`; `.state=""`; `.postcode="305"`; `.postcode="30580"`; `.postcode="30A8"` | `residentialAddress.street`, `.suburb`, `.state`, `.state`, `.postcode` (×3) respectively |
-| 6.48 | §5.2 | `residentialAddress.state="nt"` | none: **201** (state is case-insensitive) |
-| 6.49 | §1.6 | `id.documentNumber=""`; remove it | `id.documentNumber` |
-| 6.50 | §1.6 | `id.issuer=""` | `id.issuer` |
-| 6.51 | §1.6 | `id.idCountryCode=""`; `"AUS"`; `"A1"` | `id.idCountryCode` |
-| 6.52 | §1.6 | `id.idCountryCode="au"` | none: **201**, stored as `AU` |
-| 6.53 | §5.2 | `aliases` omitted; `aliases=["", "  "]` | none: **201**, Q2 empty (blank aliases are dropped) |
-| 6.54 | §5.2 | `email` omitted | none: **201**, `email` null |
-
-### Request shape (spec 4.5, 6.1)
-
-| # | Spec | Action | Expect |
-|---|---|---|---|
-| 6.55 | §4.5 | `curl -X POST ... -H "Content-Type: application/json" -d "$(cat b1.json)"` to `gold-create-customer` (JSON, not multipart) | HTTP **400** `{"error":"invalid_request"}` |
-| 6.56 | §4.5 | `create "$S1_AAL2" 'not json' $FRONT $BACK` | HTTP **400** `invalid_request` |
-| 6.57 | §4.5 | `curl -X GET $API/functions/v1/gold-create-customer` with a valid `S1_AAL2` token | HTTP **405** `method_not_allowed` |
-| 6.58 | §6.1 | `curl -i -X OPTIONS $API/functions/v1/gold-create-customer -H "Origin: http://localhost:3000" -H "Access-Control-Request-Method: POST"` with no token | HTTP **204** with `Access-Control-Allow-Origin` (the browser's preflight carries no credentials) |
-
----
-
-## C · Duplicates and collisions (spec 1.6 "Uniqueness and collisions", 5.2)
-
-`Alice` (row 6.15) holds Driver licence `UAT6-DL-100`, phone `0412 345 601`, DOB `1985-03-14`. Each refused call must leave Q6 totals unchanged and upload nothing.
-
-| # | Spec | Action | Expect |
-|---|---|---|---|
-| 6.59 | §1.6, §5.2 | Create `Bob` (`B2`): `B1[firstName="Bob", dateOfBirth="1970-07-07", phone="0412 345 602", email="", aliases=[]]` (same Driver licence number `UAT6-DL-100`) with front and back | HTTP **409** `{"error":"id_on_file","owner":{…}}`. `owner.customerId` = `<alice>`, `owner.name` = `Alice Q Uatsix`, `owner.dateOfBirth` = `1985-03-14`, `owner.documentType` = `Driver licence` |
-| 6.60 | §1.6 | `B2[id.documentNumber="uat6-dl-100 "]` (lower case, trailing space) | **409** `id_on_file` for Alice (the number is compared trimmed and upper-cased) |
-| 6.61 | §1.6 | `B2[firstName="Bea", dateOfBirth="1969-06-06", phone="0412 345 672", id.documentType="Passport", id.documentNumber="UAT6-DL-100"]` with front only | **201**. The same number on a different document type is not a collision. Note this customer id as `<bea>` |
-| 6.62 | §1.6, §5.2 | Resend row 6.59 with `differentPerson` true: `B2[+differentPerson=true]` | **201**. Q3 for the new customer (`<bob>`): `new_capture_reason` = `different_person`, `prior_verification_id` null. Q3 for `<alice>` is unchanged |
-| 6.63 | §1.6 | A third person with the same number: `B2[firstName="Cara", dateOfBirth="1971-08-08", phone="0412 345 603", +differentPerson=true]` | **201**, `different_person` again (`<cara>`) |
-| 6.64 | §1.6 | `differentPerson` on a number nobody holds: `B2[id.documentNumber="UAT6-DL-103", firstName="Dora", dateOfBirth="1972-09-09", phone="0412 345 604", +differentPerson=true]` | **201**, and Q3 `new_capture_reason` is **null** (the flag only applies when there is a collision, so a later real collision is still caught) |
-| 6.65 | §1.6 | Creating `Dora`'s number again without the flag: `B2[firstName="Dee", id.documentNumber="UAT6-DL-103", dateOfBirth="1973-10-10", phone="0412 345 608"]` | **409** `id_on_file` naming Dora |
-| 6.66 | §1.6 | As `X1_AAL2` (Entity Two): create `Xena Uatsix` (DOB `1990-01-01`, phone `0412 345 699`) with Driver licence `UAT6-DL-100`, front and back | **201**. The uniqueness is per business: Alice's number is not a collision in Entity Two. Note `<xena>` (Entity Two) |
-| 6.67 | §1.6 | Name + date of birth: `B1[phone="0412 345 650", id.documentNumber="UAT6-DL-150"]` (Alice's name and DOB, new phone and number) | **409** `{"error":"possible_duplicates","duplicates":[…]}`. `duplicates[0]`: `customerId` = `<alice>`, `firstName`, `lastName`, `dateOfBirth`, `phone`, `matchReason` = `name_dob` |
-| 6.68 | §1.6 | The same with `firstName="ALICE"`, `lastName="UATSIX"` | **409** `possible_duplicates` (case-insensitive) |
-| 6.69 | §1.6 | Phone: `B1[firstName="Gina", dateOfBirth="1992-12-12", phone="+61 412 345 601", id.documentNumber="UAT6-DL-151"]` (Alice's phone written with `+61`) | **409** `possible_duplicates`, `matchReason` = `phone`, `customerId` = `<alice>` |
-| 6.70 | §1.6 | Date of birth one day off: `B1[dateOfBirth="1985-03-15", phone="0412 345 651", id.documentNumber="UAT6-DL-152"]` | **201**: not a duplicate (name + the same date of birth is required) |
-| 6.71 | §1.6 | Different phone number differing in the last digit: `B1[firstName="Hal", dateOfBirth="1993-01-13", phone="0412 345 609", id.documentNumber="UAT6-DL-153"]` | **201** |
-| 6.72 | §1.6, §5.2 | Resend row 6.67 with `confirmNew` true: `B1[phone="0412 345 650", id.documentNumber="UAT6-DL-150", +confirmNew=true]` | **201**: a second `Alice Q Uatsix` with the same DOB now exists (no unique key on name + DOB) |
-| 6.73 | §1.6 | `confirmNew` does **not** override an ID collision: `B2[+confirmNew=true]` (Alice's number, no `differentPerson`) | **409** `id_on_file` |
-| 6.74 | §1.6 | When both apply: Alice's name, DOB **and** number, `B1[phone="0412 345 660"]` | **409** `id_on_file` (the number is checked first) |
-| 6.75 | §6.1 | As `X1_AAL2`: create a customer with Alice's exact name, DOB and phone (`B1` with number `UAT6-DL-900`) | **201**, no `possible_duplicates`: another business's customers are never shown |
-| 6.76 | §1.6 | Photos for a refused call: after 6.59, 6.60, 6.67 and 6.73 compare Q6 `objects` with the value before them | Unchanged: refusals happen before any photo is stored |
-
----
-
-## D · Atomic writes (spec 4.5)
-
-**Dev only.** These rows break the database on purpose with a check constraint that only the dummy values trip, then remove it. Run the SQL as the project owner.
-
-| # | Spec | Action | Expect |
-|---|---|---|---|
-| 6.77 | §4.5 | Note Q6. Run `alter table ttr.id_verifications add constraint uat6_block check (document_number <> 'UAT6-FAIL-1') not valid;`. Then `create "$S1_AAL2" "$(jq -c '.id.documentNumber="UAT6-FAIL-1" \| .firstName="Fay" \| .dateOfBirth="1994-04-04" \| .phone="0412 345 640"' b1.json)" $FRONT $BACK` | HTTP **500** `{"error":"create_failed"}`. Q6 again: **all four numbers unchanged**: no customer, alias, image, audit row, and the two photo objects uploaded for the attempt are gone from storage. `select count(*) from public.customers where first_name = 'Fay'` → 0 |
-| 6.78 | §4.5 | Remove the constraint (`alter table ttr.id_verifications drop constraint uat6_block;`). Resend the same call | **201**: the customer exists once. (`Fay` is a normal customer from here) |
-| 6.79 | §4.5 | `alter table ttr.id_verifications add constraint uat6_block2 check (document_number <> 'UAT6-FAIL-2') not valid;`. Update an ID: `updid "$S1_AAL2" '{"customerId":"<frank>","reason":"different_document","documentType":"Passport","documentNumber":"UAT6-FAIL-2","issuer":"Australia","idCountryCode":"AU","hasExpiry":false}' -F front=@front2.jpg\;type=image/jpeg` | HTTP **500** `{"error":"update_failed"}`. Q3 and Q4 for `<frank>` show no new capture and no new image; Q6 `objects` unchanged. Drop the constraint afterwards |
-| 6.80 | §4.5 | `alter table public.customers add constraint uat6_block3 check (last_name <> 'Uatsixblock') not valid;`. `edit "$M1_AAL2" '{"customerId":"<erin>","changes":{"firstName":"Changed","lastName":"Uatsixblock"}}'` | HTTP **500** `update_failed`. Q1: Erin's first name is **still** `Erin` (neither field changed); Q5 has no new row. Drop the constraint |
-| 6.81 | §4.5 | `select * from information_schema.routine_privileges where routine_name in ('gold_create_customer','gold_update_customer_id','gold_update_customer') and grantee in ('anon','authenticated','PUBLIC');` | **No rows**: execute is held by the service role only |
-| 6.82 | §4.5 | In the Edge Function logs (Dashboard → Edge Functions → `gold-create-customer` → Logs, or `docker logs supabase_edge_runtime_*` locally) look for the 6.77 failure | A line `gold-create-customer: save failed` with the staff id, customer id and an error code (such as `23514`). **No name, phone, date of birth or ID number** appears |
-
----
-
-## E · Update ID (spec 1.6 "Gold Update ID", 5.2)
-
-Create two customers first with `S1_AAL2`:
-- **Carol** (`C1`): `B1[firstName="Carol", dateOfBirth="1979-11-02", phone="0412 345 702", email="", aliases=[], id.documentNumber="UAT6-DL-200"]`, front and back. Note `<carol>`.
-- **Dan** (`D1`): `B1[firstName="Dan", dateOfBirth="1968-04-04", phone="0412 345 703", email="", aliases=[], id.documentNumber="UAT6-DL-200", +differentPerson=true]`, front and back (a different person who shares Carol's number). Note `<dan>`.
-
-Update-ID payload `U1`: `{"customerId":"<carol>","reason":"renewed","documentType":"Driver licence","documentNumber":"UAT6-DL-200","issuer":"VIC","idCountryCode":"AU","hasExpiry":true,"expiryDate":"2035-06-30"}`. Send it with `-F front=@front2.jpg;type=image/jpeg -F back=@back2.jpg;type=image/jpeg` unless the row says otherwise.
-
-| # | Spec | Action | Expect |
-|---|---|---|---|
-| 6.83 | §1.6 | Renewal, same number: `updid "$S1_AAL2" "$U1"` + front2/back2 | HTTP **201**, `superseded` = **2**. Q3 for `<carol>`: a second row, `new_capture_reason` = `id_changed`, `prior_verification_id` = the first row's id, `transaction_id`/`party_id`/`conducting_person_id` null, new expiry `2035-06-30` |
-| 6.84 | §1.6 | Q4 for `<carol>` after row 6.83 | Four rows. The **old** two (`front-`/`back-` from creation): `superseded_at` set, `superseded_by_image_id` = the new front image's id, `object_exists` = **0** (the photo is deleted), the row **kept** with its hash, `captured_by_staff_id` and `created_at`. The **new** two: `superseded_at` null, `object_exists` = 1, hashes match `front2.jpg`/`back2.jpg` |
-| 6.85 | §1.6 | Q4 and Q3 for `<dan>` | Dan's two photos are **untouched** (`superseded_at` null, `object_exists` = 1) although he shares Carol's number: only the same person's document is replaced |
-| 6.86 | §1.6 | Different document: `updid "$S1_AAL2" '{"customerId":"<carol>","reason":"different_document","documentType":"Passport","documentNumber":"UAT6-PP-200","issuer":"Australia","idCountryCode":"AU","hasExpiry":true,"expiryDate":"2033-01-31"}' -F front=@front3.jpg\;type=image/jpeg` | **201**, `superseded` = **0**. Q3: a new row with `new_capture_reason` = `different_document`, `prior_verification_id` **null**. Q4: every earlier live photo (the renewal's two) still has `superseded_at` null and `object_exists` = 1; one new photo added |
-| 6.87 | §1.6 | Photo unclear: `updid "$S1_AAL2" "$(jq -c '.reason="photo_unclear"' <<<"$U1")" -F front=@front3.jpg\;type=image/jpeg -F back=@back3.jpg\;type=image/jpeg` | **201**, `superseded` = **2**. Q3: `new_capture_reason` = `stored_copy_unclear`, `prior_verification_id` = the **first** (original) row's id (the capture of this document with no link). Q4: the renewal's two photos are now superseded and deleted; the **passport photo is still live**; the two new photos are live; the originals stay superseded (not stamped again: `superseded_by_image_id` unchanged) |
-| 6.88 | §1.6 | Renewal with a new number: `updid "$S1_AAL2" "$(jq -c '.documentNumber="UAT6-DL-201"' <<<"$U1")"` + front2/back2 | **201**, `superseded` = **0**. Q3: `new_capture_reason` = `id_changed`, `prior_verification_id` **null** (a new number is a new document). Q4: the `UAT6-DL-200` photos remain live |
-| 6.89 | §1.6 | Photo unclear for a document not on file: `updid "$S1_AAL2" "$(jq -c '.reason="photo_unclear" \| .documentNumber="UAT6-DL-999"' <<<"$U1")"` + front2/back2 | HTTP **409** `{"error":"document_not_on_file"}`. Q6 totals unchanged, nothing uploaded |
-| 6.90 | §1.6 | `different_document` with a number the customer already has: `"$(jq -c '.reason="different_document"' <<<"$U1")"` (UAT6-DL-200) | **409** `id_on_file`. Q6 totals unchanged |
-| 6.91 | §1.6, §5.2 | Another customer's number: `"$(jq -c '.documentNumber="UAT6-DL-100"' <<<"$U1")"` for Carol with each of the three reasons in turn (`renewed`, `photo_unclear`, `different_document`) | Each **409** `id_on_file`, `owner.customerId` = `<alice>`, `owner.name` = `Alice Q Uatsix`. Q6 totals unchanged |
-| 6.92 | §1.6 | Reason: missing; `"because"`; `""`; `"id_changed"` (the stored value, not an API reason) | Each **400**, field `reason`. Q6 totals unchanged |
-| 6.93 | §5.2 | `customerId` missing; `"nope"` | **400**, field `customerId` |
-| 6.94 | §5.2 | A Driver licence update with front only; with no photos | Front only: **400** `backImage`. No photos: **400** `frontImage`. Q6 totals unchanged. (A passport update with front only is valid: row 6.86) |
-| 6.95 | §1.6 | Document fields invalid: `documentNumber=""`, `issuer=""`, `idCountryCode="AUS"`, `hasExpiry` missing, `hasExpiry=true` with no `expiryDate`, `documentType="Credit card"` | **400** with `documentNumber`, `issuer`, `idCountryCode`, `hasExpiry`, `expiryDate`, `documentType` named (top-level names here, not `id.…`) |
-| 6.96 | §6.1 | A customer id that does not exist (`00000000-0000-4000-8000-000000000999`) | HTTP **404** `customer_not_found`. Q6 totals unchanged |
-| 6.97 | §6.1 | `X1_AAL2` updating `<carol>` | **404** `customer_not_found` (row 6.11); Carol's rows unchanged |
-| 6.98 | §1.6 | Customer ID current after the sequence: `select * from public.customer_current_id('<carol>')` run as `S1` (REST: `POST /rest/v1/rpc/customer_current_id` with `S1_AAL2`) | The newest capture (`UAT6-DL-201`) is returned: the current ID is the newest `new_capture` |
-| 6.99 | §4.5 | Q5 for `<carol>` after the whole section | Exactly **one** row (`gold_create`). Updating an ID changes no customer column, so it writes no customer audit row; the capture row and the supersede stamps are the record |
-| 6.100 | §6.1 | Storage: `select name from storage.objects where bucket_id = 'compliance-media' and name like 'customers/<carol>/%'` | Every path starts `customers/<carol>/<verification id>/`. Every live image is under its own capture's folder |
-
----
-
-## F · Update customer details, managers and admins (spec 4.5, 5.2 "Edit rows")
-
-Target: `<erin>` (row 6.24). Before starting, save her ID rows: `select md5(string_agg(to_jsonb(v)::text, '|' order by id)) from ttr.id_verifications v where customer_id = '<erin>';` as `<erin-id-hash>`.
-
-**Past TTR copy fixture** (run once as the project owner; `<entity1>` is Entity One's id). It stands in for a completed TTR where Erin appeared:
-
-```sql
-insert into ttr.transactions (id, reporting_entity_id, scenario, transaction_ref, transaction_datetime, designated_service,
-  location_snapshot, staff_member_name, staff_member_email, cash_currency, cash_amount, aud_value, status, completed_at)
-values ('00000000-0000-4000-8000-0000000006a1', '<entity1>', 'bullion_sell', 'UAT6-TX-1', '2026-01-01',
-  'Sale of bullion for physical cash', 'Coburg, VIC', 'Staff', 'staff@example.test', 'AUD', 15000, 15000, 'complete', '2026-01-01');
-insert into ttr.parties (id, transaction_id, party_type, first_name, last_name, date_of_birth, phone, res_street, res_suburb, res_state, res_postcode, customer_id)
-values ('00000000-0000-4000-8000-0000000006a2', '00000000-0000-4000-8000-0000000006a1', 'individual', 'Erin', 'Uatsix',
-  '1980-05-05', '0412 345 605', '10 Test Street', 'Coburg', 'VIC', '3058', '<erin>');
+```
+curl -s -w "\nHTTP %{http_code}\n" -X POST "$API/functions/v1/gold-create-customer" \
+  -H "apikey: $ANON" -H "Authorization: Bearer $TOKEN" \
+  -F 'payload={"firstName":"Lena","middleName":"M","lastName":"Hostedsix","dateOfBirth":"1988-08-08","phone":"0412 000 606","email":"lena.hostedsix@example.test","aliases":["L. Hostedsix"],"residentialAddress":{"street":"6 Dummy Street","suburb":"Coburg","state":"VIC","postcode":"3058"},"id":{"documentType":"Driver licence","documentNumber":"HOSTED6-DL-001","issuer":"VIC","idCountryCode":"AU","hasExpiry":true,"expiryDate":"2030-06-30"}}' \
+  -F "front=@front.jpg;type=image/jpeg" -F "back=@back.jpg;type=image/jpeg"
 ```
 
-Save `select md5(to_jsonb(p)::text) from ttr.parties p where id = '00000000-0000-4000-8000-0000000006a2';` as `<party-hash>`.
+☐ HTTP **201** with `customerId`, `verificationId`, `frontImageId`, `backImageId`. Note `customerId` as `<lena>`.
 
-| # | Spec | Action | Expect |
-|---|---|---|---|
-| 6.101 | §4.5, §5.2 | `edit "$M1_AAL2" '{"customerId":"<erin>","changes":{"firstName":"Erina","residentialAddress":{"street":"22 New Street","suburb":"Brunswick","state":"VIC","postcode":"3056"}}}'` | HTTP **200** `{"customerId":"<erin>","changed":[…]}` listing exactly `first_name`, `res_street`, `res_suburb`, `res_postcode` (the state was `VIC` already, so it is not listed). Q1: Erin now `Erina`, `22 New Street`, `Brunswick`, `3056`; `updated_at` moved on |
-| 6.102 | §4.2 | Q5 for `<erin>` | One new row beside the `gold_create` one: `source` = `gold_edit`, `changed_by` = `M1`'s staff id, `changes` = `{"first_name":{"old":"Erin","new":"Erina"},"res_street":{"old":"10 Test Street","new":"22 New Street"},"res_suburb":{"old":"Coburg","new":"Brunswick"},"res_postcode":{"old":"3058","new":"3056"}}` and **nothing else** |
-| 6.103 | §4.5 | Re-run the party hash query | Equal to `<party-hash>`: the past TTR party copy still says `Erin`, `10 Test Street`, `Coburg`, `3058`, and is still linked to `<erin>` |
-| 6.104 | §5.2 | Re-run the ID hash query | Equal to `<erin-id-hash>`: ID details are untouched |
-| 6.105 | §5.2 | `edit "$A1_AAL2" '{"customerId":"<erin>","changes":{"firstName":"Erin"}}'` | **200**, `changed` = `["first_name"]`. Q5: a row with `changed_by` = `A1`, `first_name` Erina → Erin (admins may edit) |
-| 6.106 | §4.2 | Every field kind in one call as `M1`: `{"customerId":"<erin>","changes":{"middleName":"R","lastName":"Uatsix","dateOfBirth":"1980-05-06","gender":"f","phone":"0412 345 615","email":"erin@example.test","occupation":"Jeweller","citizenshipCountryCode":"nz","taxResidencyCountryCode":"au"}}` | **200**; `changed` = `middle_name`, `date_of_birth`, `gender`, `phone`, `email`, `occupation`, `citizenship_country_code`, `tax_residency_country_code` (`last_name` was already `Uatsix`). Q1: `gender` = `F`, codes `NZ`/`AU`. Q5: one more row with exactly those columns, each `old` → `new` |
-| 6.107 | §4.2 | Clearing optional fields: `changes` = `{"middleName":"","email":"","occupation":"","gender":"","citizenshipCountryCode":""}` | **200**; those columns become null; Q5 shows `old` → `null` for each |
-| 6.108 | §4.2 | Sending the current values: `changes` = `{"firstName":"Erin","lastName":"Uatsix"}` | **200**, `"changed":[]`. Q5: **no** new row |
-| 6.109 | §5.2 | ID details and ownership are refused: `changes` = `{"documentNumber":"UAT6-DL-777"}`; `{"documentType":"Passport"}`; `{"issuer":"NSW"}`; `{"source":"ttr"}`; `{"reportingEntityId":"<entity2>"}`; `{"customerType":"company"}`; `{"id":"<new uuid>"}`; `{"aliases":["X"]}` | Each HTTP **400** `{"error":"validation_failed","fields":{"<that key>":"…"}}`. Q1, Q3 and Q5 unchanged (ID hash still `<erin-id-hash>`) |
-| 6.110 | §5.2 | A mix: `{"firstName":"Ok","documentNumber":"X"}` | **400** naming `documentNumber`; `firstName` is **not** applied (Erin unchanged) |
-| 6.111 | §4.3 | `{"phone":"1234567"}`; `{"phone":""}`; `{"phone":null}` | Each **400**, field `phone`; Erin's phone unchanged |
-| 6.112 | §4.3 | `{"phone":"1234 5678"}` | **200**, `changed` = `["phone"]` |
-| 6.113 | §5.2 | `{"firstName":""}`; `{"lastName":"  "}` | **400** `firstName` / `lastName` (a required name cannot be cleared) |
-| 6.114 | §5.2 | `{"dateOfBirth":"2999-01-01"}`; `{"dateOfBirth":"1899-12-31"}`; `{"dateOfBirth":"1980-13-01"}`; `{"dateOfBirth":""}` | Each **400**, field `dateOfBirth` |
-| 6.115 | §5.2 | `{"gender":"X"}`; `{"email":"erin@"}`; `{"citizenshipCountryCode":"NZL"}` | **400**, fields `gender`, `email`, `citizenshipCountryCode` |
-| 6.116 | §5.2 | `{"residentialAddress":{"street":"1 A St"}}` | **400**, fields `residentialAddress.suburb`, `.state`, `.postcode` (the whole address is replaced, so every part is needed) |
-| 6.117 | §5.2 | `changes` = `{}`; `changes` missing; `changes` = `[]`; `customerId` missing; body that is not JSON | **400** `validation_failed` with field `changes` (or `customerId`); `invalid_request` for a non-JSON body |
-| 6.118 | §6.1 | A made-up customer id; `<xena>` as `M1` (Entity Two's customer); `<erin>` as `X1_AAL2` | Each **404** `customer_not_found` |
-| 6.119 | §5.2 | A **company** customer (no gold screen makes one; run in SQL: `insert into public.customers (reporting_entity_id, customer_type, source, entity_name, reg_identifier) values ('<entity1>','company','ttr','Uatsix Pty Ltd','12345678901') returning id;`) edited as `M1` with `{"firstName":"X"}` | **404** `customer_not_found` (gold edits individuals only) |
-| 6.120 | §6.1 | Logs for 6.101 to 6.119 | IDs and error codes only; none of `Erin`, `Erina`, `Uatsix`, `0412 345`, `1980-05` appears |
+Update ID (staff token), renewing the same licence:
 
----
+```
+curl -s -w "\nHTTP %{http_code}\n" -X POST "$API/functions/v1/gold-update-customer-id" \
+  -H "apikey: $ANON" -H "Authorization: Bearer $TOKEN" \
+  -F 'payload={"customerId":"<lena>","reason":"renewed","documentType":"Driver licence","documentNumber":"HOSTED6-DL-001","issuer":"VIC","idCountryCode":"AU","hasExpiry":true,"expiryDate":"2035-06-30"}' \
+  -F "front=@front2.jpg;type=image/jpeg" -F "back=@back2.jpg;type=image/jpeg"
+```
 
-## G · Change a phone (spec 4.6 `updateCustomerPhone`)
+☐ HTTP **201** with `"superseded":2`
 
-Target: `<frank>` (row 6.25, phone `0412 345 606`). Call with `phone "$TOKEN" "<frank>" "<number>"`. The function is a database RPC called directly by the signed-in user.
+Update details: first with the **staff** token, then with the manager's (`MTOKEN`):
 
-| # | Spec | Action | Expect |
-|---|---|---|---|
-| 6.121 | §4.6 | `phone "$S1_AAL2" <frank> "0488 777 666"` (ordinary staff) | HTTP **200**, body `true`. Q1: Frank's phone is `0488 777 666` |
-| 6.122 | §4.2, §4.6 | Q5 for `<frank>` | A `phone_change` row: `changed_by` = `S1`'s staff id, `changes` = `{"phone":{"old":"0412 345 606","new":"0488 777 666"}}` and nothing else |
-| 6.123 | §4.6 | `phone "$S1_AAL2" <frank> " 0488 777 666 "` (same number, padded) | **200**, body `false`. Q5: no new row |
-| 6.124 | §4.3, §4.6 | `"1234567"`; `"123 4567"`; `"+61 (0) 12-34"`; `""`; `"   "` | Each an error: HTTP **400**, `code` `22023`, `message` `invalid_phone`. Frank's phone unchanged |
-| 6.125 | §4.3, §4.6 | `"12345678"`; then `"(03) 9123 4567"` | Each **200**, body `true` (8 digits is accepted; punctuation does not count) |
-| 6.126 | §4.6 | `phone "$M1_AAL2"` and `phone "$A1_AAL2"` with a valid number | **200**: every active role may change a phone |
-| 6.127 | §6.1 | `phone "$S1_AAL1" <frank> "0499 111 333"` | Error, code `42501`, message `forbidden`. Frank unchanged |
-| 6.128 | §6.1 | `phone "$ANON" <frank> "0499 111 333"` | HTTP 401 or 403 (`permission denied`). Frank unchanged |
-| 6.129 | §6.1 | `phone "$I1_AAL2" <frank> "0499 111 333"` | Error, code `42501`. Frank unchanged |
-| 6.130 | §6.1 | `phone "$X1_AAL2" <frank> "0499 111 333"` (another business); a made-up id as `S1`; a company customer as `S1` | Each an error with `message` `customer_not_found` (code `P0002`). Frank unchanged |
-| 6.131 | §4.5 | A TTR party copy: link a party to Frank as in the fixture above row 6.101 (a second transaction `00000000-0000-4000-8000-0000000006b1` with party `…6b2`, phone `0412 345 606`, `customer_id` = `<frank>`), change his phone with row 6.121, then compare the party's hash | The party copy still has `0412 345 606` |
+```
+curl -s -w "\nHTTP %{http_code}\n" -X POST "$API/functions/v1/gold-update-customer" \
+  -H "apikey: $ANON" -H "Authorization: Bearer <TOKEN or MTOKEN>" -H "Content-Type: application/json" \
+  -d '{"customerId":"<lena>","changes":{"occupation":"Jeweller"}}'
+```
 
----
+☐ with the staff token: HTTP **403** `{"error":"forbidden"}`
+☐ with the manager token: HTTP **200** `{"customerId":"<lena>","changed":["occupation"]}`
 
-## H · Storage, TTR and the rest (spec 1.6, 6.1)
+In the dev SQL editor:
 
-| # | Spec | Action | Expect |
-|---|---|---|---|
-| 6.132 | §6.1 | `curl -s -o /dev/null -w "%{http_code}" "$API/storage/v1/object/public/compliance-media/<an object_path from Q4>"` and the same with the anon key as `Authorization` (`/object/authenticated/…`) | Not 200 (the bucket is private; photos are served only by signed URL) |
-| 6.133 | §1.6 | In the TTR wizard (the existing app, signed in as `S1` at `aal2`): start a TTR, add an individual party, go to ID verification, choose Driver licence and enter number `UAT6-DL-100` | The existing collision prompt appears, naming Alice's gold capture as the owner (open that customer or confirm a different person). A number gold holds is a collision in TTR too |
-| 6.134 | §1.6 | In the same wizard enter a Driver licence number nobody holds, e.g. `UAT6-DL-8888` | No prompt |
-| 6.135 | §1.6 | In the wizard, a party named `Alice Q Uatsix`, DOB `1985-03-14`, with a prior-ID lookup | The gold-captured ID appears as a prior verification for the same person (shared ID store) |
-| 6.136 | §6.1 | Sweep: run `reconcile-stored-images` in dry-run mode (`curl -X POST $API/functions/v1/reconcile-stored-images -H "Authorization: Bearer <secret key>" -d '{}'`), after at least one hour has passed since row 6.77 | No orphan object under `customers/` from the failed attempts of rows 6.77 and 6.79 (they were removed when the save failed) |
-| 6.137 | §4.4 | Existing TTR behaviour | `npx supabase test db` and `cd app && npm run uat` pass; also run R24 to R26 of [uat-test-matrix.md](uat-test-matrix.md) |
+```
+select source from public.customer_audit_log where customer_id = '<lena>' order by changed_at;
+select superseded_at is not null as superseded from ttr.stored_images where customer_id = '<lena>' order by created_at;
+```
+
+☐ the first query lists `gold_create` then `gold_edit`
+☐ the second lists `true, true, false, false` (the two original photos replaced, the two new ones live)
+
+**3 · After merge, on the client project (2 minutes)**
+
+Use a client-project staff session (password and MFA) and the client project's URL and anon key:
+
+```
+curl -s -w "\nHTTP %{http_code}\n" -X POST "$CLIENT_API/functions/v1/gold-create-customer" \
+  -H "apikey: $CLIENT_ANON" -H "Authorization: Bearer $CLIENT_TOKEN" -F 'payload={}'
+npx supabase secrets list --project-ref <client ref>
+```
+
+☐ HTTP **403** `{"error":"gold_disabled"}` (or 404 if the function is not deployed there) (6.152)
+☐ `secrets list` does **not** show `GOLD_JOURNEY_ENABLED` (6.151)
+
+**Clean-up.** None needed: the dummy customer `Lena Hostedsix` can stay on dev (the audit log is append-only, so her rows are not deleted). Never run any of this on the client project except the last block of step 3.
 
 ---
 
-## I · Decisions the spec leaves open (sign off with the product owner)
+## C · Decisions the spec leaves open (sign off with the product owner)
 
-The spec does not set these limits. The build chose them; each row proves the choice and is signed by the client rather than traced to a spec clause.
+The spec does not set these limits. The build chose them; each is proved by a test (shown) and is signed by the client rather than traced to a spec clause.
 
-| # | Decision | Action | Expect |
-|---|---|---|---|
-| 6.138 | Date of birth cannot be in the future, and not before 1900-01-01 (today is the Melbourne date) | `B1[dateOfBirth=<today's Melbourne date>]` with fresh name/number/phone; then `<tomorrow>`; then `1900-01-01`; then `1899-12-31` | **201**; **400** `dateOfBirth`; **201**; **400** |
-| 6.139 | Names, address lines and the issuer: 100 characters at most; ID number 100 at most (AUSTRAC's limit) | `firstName` of 100 `a`s; of 101; `id.documentNumber` of 100 `9`s; of 101 | **201**; **400** `firstName`; **201**; **400** `id.documentNumber` |
-| 6.140 | Email, if given, must look like an address | `email="alice@"`; `email="alice@example.test"` | **400** `email`; accepted |
-| 6.141 | Photos: JPEG, PNG or WebP, not empty, 10 MB at most (the bucket's limit) | Front `doc.pdf`; front `toobig.jpg`; front `big.jpg`; an empty file as front | **400** `frontImage` (×2 for the PDF and toobig; the empty file too); `big.jpg` **201** |
-| 6.142 | The address is Australian (state and territory list, 4-digit postcode); `res_country` is always Australia | `residentialAddress.state="VIC"`, `.postcode="0800"` | **201** (any four digits) |
-| 6.143 | `hasExpiry` false stores no expiry date even if one is sent | `B1[id.hasExpiry=false, id.expiryDate="2031-01-31"]` with fresh name/number/phone | **201**; Q3 `has_expiry` false, `expiry_date` null |
-| 6.144 | `differentPerson` is honoured only when the number really collides (row 6.64) and `confirmNew` never overrides an ID collision (row 6.73) | see rows 6.64 and 6.73 | as there |
-| 6.145 | An ID collision is reported before a name/DOB or phone match (row 6.74) | see row 6.74 | as there |
-| 6.146 | Update ID writes no customer audit row (row 6.99); issuer holds the issuing state or authority (there is no separate state column) | Q3 for any customer | `issuer` = `VIC` as typed |
-| 6.147 | Edit refuses company customers, aliases, postal address, sole-trader and ABN fields in this phase (rows 6.109, 6.119) | see those rows | as there |
-| 6.148 | Update ID has no "different person" option: another customer's number is always `id_on_file` (row 6.91) | see row 6.91 | as there |
+| # | Decision | Covered by |
+|---|---|---|
+| 6.138 | Date of birth cannot be in the future (today is the Melbourne date) or before 1900-01-01 | E2E `02b-validation` |
+| 6.139 | Names, address lines and the issuer: 100 characters at most; ID number 100 at most (AUSTRAC's limit) | E2E `02b-validation` |
+| 6.140 | Email, if given, must look like an address | E2E `02b-validation` |
+| 6.141 | Photos: JPEG, PNG or WebP, not empty, 10 MB at most (the bucket's limit) | E2E `02b-validation` |
+| 6.142 | The address is Australian (state and territory list, 4-digit postcode, `0800` allowed); `res_country` is always Australia | E2E `02b-validation` |
+| 6.143 | `hasExpiry` false stores no expiry date even if one is sent | E2E `02b-validation` |
+| 6.144 | `differentPerson` is honoured only when the number really collides, and `confirmNew` never overrides an ID collision | E2E `02c-duplicates` |
+| 6.145 | An ID collision is reported before a name/DOB or phone match | E2E `02c-duplicates` |
+| 6.146 | Update ID writes no customer audit row; `issuer` holds the issuing state or authority as typed | E2E `04-update-id`, `02b-validation` |
+| 6.147 | Edit refuses company customers, aliases, postal address, sole-trader and ABN fields in this phase | E2E `05b-edit-refusals` |
+| 6.148 | Update ID has no "different person" option: another customer's number is always `id_on_file` | E2E `04b-update-id-refusals` |
 
 ---
-
-## J · Hosted checks (dev project, then client project after merge)
-
-| # | Spec | Do this | Expect |
-|---|---|---|---|
-| 6.149 | §2.2 | `npx supabase db push --linked` then `npx supabase functions deploy gold-create-customer gold-update-customer-id gold-update-customer` against **dev**, with `app/.env.local` and `supabase/.temp/project-ref` pointing at dev | Both succeed. The three functions show in the dashboard with **Verify JWT** on |
-| 6.150 | §2.2 | `npx supabase secrets list` on dev | `GOLD_JOURNEY_ENABLED` is listed only if you set it in step 0. Deploying never sets it |
-| 6.151 | §2.2 | **After merge, on the client project** (use the client ref): `npx supabase secrets list --project-ref <client ref>` | No `GOLD_JOURNEY_ENABLED`. (`supabase/config.toml`'s `[edge_runtime.secrets]` is read only by the local CLI; it is never pushed by `db push` or `functions deploy`) |
-| 6.152 | §2.2 | On the client project: `create "$S1_AAL2"`-style call with a client staff token | HTTP **403** `gold_disabled` (or 404 if the function is not deployed there). The customer tables are untouched |
-| 6.153 | §2.2 | In the repository, `git grep -n GOLD_JOURNEY_ENABLED -- supabase/config.toml .github` | Only `supabase/config.toml` (local) is listed; no workflow or hosted config sets it |
 
 **What a failure looks like:**
-- **A call returns `Function not found` locally.** The local edge runtime serves the directory `supabase start` ran in. Run `npx supabase stop && npx supabase start && npx supabase db reset` from this branch.
-- **`upload_failed` locally.** The `compliance-media` bucket does not exist in a fresh local stack. Create it (private) in Studio or with the service-role key.
+- **A call returns `Function not found`, or an old behaviour, locally.** The local edge runtime serves the directory `supabase start` ran in. Run `npx supabase stop && npx supabase start && npx supabase db reset` from this branch.
+- **`upload_failed` locally.** The `compliance-media` bucket does not exist in a fresh local stack. The Playwright global setup creates it (private).
 - **A `gold_disabled` you did not expect.** The secret is not exactly `true`. Locally check `[edge_runtime.secrets]` in `supabase/config.toml`; on dev, `secrets list`.
 - **A 404 on the phone RPC.** The migration `20261106000002` did not apply, or PostgREST has not reloaded its schema cache: `notify pgrst, 'reload schema';`.
-
----
-
-## Clean-up
-
-Dev only, as the project owner. Remove the dummy data (customers, then the rows that reference them):
-
-```sql
--- the TTR fixtures above row 6.101 and in row 6.131
-delete from ttr.parties where id in ('00000000-0000-4000-8000-0000000006a2', '00000000-0000-4000-8000-0000000006b2');
-delete from ttr.transactions where id in ('00000000-0000-4000-8000-0000000006a1', '00000000-0000-4000-8000-0000000006b1');
-```
-
-Photos of superseded and live captures stay referenced by `stored_images` rows, which the app never deletes. Keep this data on dev, or reset the dev database. Do not run any row of this sheet on the client project.
+- **A 500 where the sheet says 4xx on the phone RPC.** `update_customer_phone` raises `P0002` for an unknown customer and PostgREST answers 500 for that code. See the defect noted on rows 6.11 and 6.130 in the PR.
 
 ---
 
 ## Sign-off
 
-☐ Sections A to H pass on commit ________ · ☐ Section I decisions accepted by ________ · ☐ Section J hosted checks on dev · ☐ the client-project rows of J after merge · Notes: ______________________________________________
+☐ Section A green on commit ________ · ☐ Section B on dev · ☐ the client-project block of B after merge · ☐ Section C decisions accepted by ________ · Notes: ______________________________________________
