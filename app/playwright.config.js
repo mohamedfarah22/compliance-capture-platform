@@ -28,6 +28,7 @@ export default defineConfig({
     { name: 'phase4', testDir: './e2e/phase4' },
     { name: 'part1', testDir: './e2e/part1' },
     { name: 'gold06', testDir: './e2e/gold06' },
+    { name: 'gold07', testDir: './e2e/gold07' },
   ],
   webServer: {
     command: `npx vite --host 127.0.0.1 --port ${new URL(BASE_URL).port} --strictPort`,

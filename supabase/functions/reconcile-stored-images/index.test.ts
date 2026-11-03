@@ -365,3 +365,172 @@ Deno.test("a failed customer listing aborts the run rather than reporting rows a
   );
   assertEquals(state.removed, []);
 });
+
+// ─── gold-goods (goods photos of gold purchases) ─────────────────────────────
+
+const GOLD_PATH = "p-1/goods-1.jpg";
+
+interface GoldState {
+  removed: { bucket: string; paths: string[] }[];
+  listed: string[];
+}
+
+// A client whose storage fake records which bucket each call used, and serves `trees` for gold-goods.
+function goldClient(
+  state: GoldState,
+  trees: Record<string, { name: string; id: string | null; created_at?: string }[]> = {},
+  listError: unknown = null,
+) {
+  return {
+    storage: {
+      from: (bucket: string) => ({
+        list: (prefix: string) => {
+          state.listed.push(`${bucket}:${prefix}`);
+          if (bucket === "gold-goods" && listError) return Promise.resolve({ data: null, error: listError });
+          return Promise.resolve({ data: bucket === "gold-goods" ? (trees[prefix] ?? []) : [], error: null });
+        },
+        remove: (paths: string[]) => {
+          state.removed.push({ bucket, paths });
+          return Promise.resolve({ error: null });
+        },
+      }),
+    },
+    // deno-lint-ignore no-explicit-any
+  } as any as StorageOwner & StorageLister;
+}
+
+const goldState = (): GoldState => ({ removed: [], listed: [] });
+
+Deno.test("gold-goods dry run reports orphan objects and rows with a missing object, and removes nothing", async () => {
+  const state = emptyState();
+  const gs = goldState();
+  const report = await reconcile(goldClient(gs), makeSchema(state), baseDeps({
+    apply: false,
+    loadGoldPhotoRows: () => Promise.resolve([
+      { id: "ph-ok", object_path: GOLD_PATH },
+      { id: "ph-lost", object_path: "p-2/goods-1.jpg" },
+    ]),
+    listGoldObjects: () => Promise.resolve([
+      { path: GOLD_PATH, recent: false },
+      { path: "p-3/goods-1.jpg", recent: false },
+    ]),
+  }));
+
+  assertEquals(report.goldGoods.objectsInspected, 2);
+  assertEquals(report.goldGoods.orphanObjects, { count: 1, paths: ["p-3/goods-1.jpg"], deleted: 0 });
+  assertEquals(report.goldGoods.missingObjects, { count: 1, photoIds: ["ph-lost"] });
+  assertEquals(gs.removed, []);
+});
+
+Deno.test("gold-goods apply removes only orphan objects, from the gold-goods bucket, and never touches a row", async () => {
+  const state = emptyState();
+  const gs = goldState();
+  const report = await reconcile(goldClient(gs), makeSchema(state), baseDeps({
+    apply: true,
+    loadGoldPhotoRows: () => Promise.resolve([
+      { id: "ph-ok", object_path: GOLD_PATH },
+      { id: "ph-lost", object_path: "p-2/goods-1.jpg" },
+    ]),
+    listGoldObjects: () => Promise.resolve([
+      { path: GOLD_PATH, recent: false },
+      { path: "p-3/goods-1.jpg", recent: false },
+      { path: "p-3/goods-2.jpg", recent: false },
+    ]),
+  }));
+
+  assertEquals(gs.removed, [{ bucket: "gold-goods", paths: ["p-3/goods-1.jpg", "p-3/goods-2.jpg"] }]);
+  assertEquals(report.goldGoods.orphanObjects.deleted, 2);
+  assertEquals(report.goldGoods.missingObjects.photoIds, ["ph-lost"], "reported, never remediated");
+  assertEquals(state.updated, []);
+});
+
+Deno.test("a gold-goods object under the grace period is in flight, not an orphan", async () => {
+  const gs = goldState();
+  const report = await reconcile(goldClient(gs), makeSchema(emptyState()), baseDeps({
+    apply: true,
+    loadGoldPhotoRows: () => Promise.resolve([]),
+    listGoldObjects: () => Promise.resolve([{ path: "p-9/goods-1.jpg", recent: true }]),
+  }));
+  assertEquals(report.goldGoods.orphanObjects.count, 0);
+  assertEquals(gs.removed, []);
+});
+
+Deno.test("the default gold-goods listing walks {purchase}/ and applies the grace period", async () => {
+  const gs = goldState();
+  const tree = {
+    "": [{ name: "p-1", id: null }, { name: "p-2", id: null }],
+    "p-1/": [{ name: "goods-1.jpg", id: "o1", created_at: OLD }],
+    "p-2/": [
+      { name: "goods-1.jpg", id: "o2", created_at: OLD },
+      { name: "goods-2.jpg", id: "o3", created_at: new Date().toISOString() },
+    ],
+  };
+  const gold = {
+    from: () => ({
+      select: () => Promise.resolve({ data: [{ id: "ph-1", object_path: "p-1/goods-1.jpg" }], error: null }),
+    }),
+    // deno-lint-ignore no-explicit-any
+  } as any as ReconcileSchema;
+
+  const report = await reconcile(goldClient(gs, tree), makeSchema(emptyState()), baseDeps({ apply: true, gold }));
+
+  assertEquals(report.goldGoods.objectsInspected, 3);
+  assertEquals(report.goldGoods.orphanObjects.paths, ["p-2/goods-1.jpg"], "p-2/goods-2.jpg is young");
+  assertEquals(gs.removed, [{ bucket: "gold-goods", paths: ["p-2/goods-1.jpg"] }]);
+});
+
+Deno.test("a failed gold-goods listing aborts the run, in dry run too", async () => {
+  const gs = goldState();
+  await assertRejects(
+    () =>
+      reconcile(goldClient(gs, {}, { message: "boom" }), makeSchema(emptyState()), baseDeps({
+        apply: false,
+        loadGoldPhotoRows: () => Promise.resolve([{ id: "ph-1", object_path: GOLD_PATH }]),
+      })),
+    Error,
+    "gold-goods listing",
+  );
+  assertEquals(gs.removed, []);
+});
+
+Deno.test("a failed goods_photos load aborts the run rather than calling every object an orphan", async () => {
+  const gs = goldState();
+  const gold = {
+    from: () => ({ select: () => Promise.resolve({ data: null, error: { message: "boom" } }) }),
+    // deno-lint-ignore no-explicit-any
+  } as any as ReconcileSchema;
+  const tree = { "": [{ name: "p-1", id: null }], "p-1/": [{ name: "goods-1.jpg", id: "o", created_at: OLD }] };
+  await assertRejects(
+    () => reconcile(goldClient(gs, tree), makeSchema(emptyState()), baseDeps({ apply: true, gold })),
+    Error,
+    "goods photo metadata",
+  );
+  assertEquals(gs.removed, []);
+  assertEquals(gs.listed.filter((l) => l.startsWith("gold-goods")), [], "the bucket is not even listed");
+});
+
+Deno.test("without a gold schema or loader the gold-goods sweep is skipped and the report shows zeros", async () => {
+  const gs = goldState();
+  const report = await reconcile(goldClient(gs), makeSchema(emptyState()), baseDeps({ apply: true }));
+  assertEquals(report.goldGoods, {
+    objectsInspected: 0,
+    orphanObjects: { count: 0, paths: [], deleted: 0 },
+    missingObjects: { count: 0, photoIds: [] },
+  });
+  assertEquals(gs.listed.filter((l) => l.startsWith("gold-goods")), []);
+});
+
+Deno.test("the ID-image sweep and the gold-goods sweep each remove from their own bucket", async () => {
+  const gs = goldState();
+  await reconcile(goldClient(gs), makeSchema(emptyState()), baseDeps({
+    apply: true,
+    listFolders: () => Promise.resolve(["tx-gone"]),
+    listObjects: () => Promise.resolve(["tx-gone/x.jpg"]),
+    loadGoldPhotoRows: () => Promise.resolve([]),
+    listGoldObjects: () => Promise.resolve([{ path: "p-3/goods-1.jpg", recent: false }]),
+  }));
+  assertEquals(gs.removed.find((r) => r.bucket === "gold-goods")!.paths, ["p-3/goods-1.jpg"]);
+  // (an object in a folder with no transaction is both an orphan and a dangling-folder object: already so before gold)
+  const idImages = new Set(gs.removed.filter((r) => r.bucket === "compliance-media").flatMap((r) => r.paths));
+  assertEquals([...idImages], ["tx-gone/x.jpg"]);
+});
