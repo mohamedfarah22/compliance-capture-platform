@@ -317,8 +317,7 @@ Then `cd app`, `npm run dev`, and use `http://localhost:5173` in place of the pr
 ---
 
 ## Progress note
-Batches done: API rows (A1 to A4), pgTAP, Deno, Vitest, wizard rows (A5 to A7), AUSTRAC rows (A8, A9). See the report for the break-and-revert results.
-
+Batches done: API rows (A1 to A4), pgTAP, Deno, Vitest, wizard rows (A5 to A7), AUSTRAC rows (A8, A9); production breaks in five SQL batches, one edge-function batch (after a runtime restart) and one client batch; expectation flips for the screen and earlier-phase rows. Nothing left to break. The break-and-revert results are in the PR body ("UAT automation (independent)").
 ## Sign-off
 
 ☐ Section A green on commit ________ (D1 to D4 fixed) · ☐ Section B (B1 to B3) · ☐ B4 · Notes: ______________________________________________
