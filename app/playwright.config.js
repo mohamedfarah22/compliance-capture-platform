@@ -29,12 +29,14 @@ export default defineConfig({
     { name: 'part1', testDir: './e2e/part1' },
     { name: 'gold06', testDir: './e2e/gold06' },
     { name: 'gold07', testDir: './e2e/gold07' },
+    { name: 'gold08a', testDir: './e2e/gold08a' },
   ],
   webServer: {
     command: `npx vite --host 127.0.0.1 --port ${new URL(BASE_URL).port} --strictPort`,
     url: BASE_URL,
     reuseExistingServer: false,
     // Process env outranks .env.local in Vite, so the app is pointed at the local stack.
-    env: { VITE_SUPABASE_URL: env.API_URL, VITE_SUPABASE_ANON_KEY: env.ANON_KEY },
+    // The gold screens (gold08a) need the build flag on; the gold edge functions get theirs from config.toml.
+    env: { VITE_SUPABASE_URL: env.API_URL, VITE_SUPABASE_ANON_KEY: env.ANON_KEY, VITE_GOLD_JOURNEY_ENABLED: 'true' },
   },
 })

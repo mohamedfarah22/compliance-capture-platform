@@ -1,0 +1,59 @@
+.field {
+    display: grid;
+    gap: 0.5rem;
+}
+
+.label {
+    font-weight: 600;
+}
+
+.box {
+    display: grid;
+    gap: 0.75rem;
+    border: 1px solid var(--color-border-soft);
+    border-radius: var(--radius-md);
+    background: #f9fafb;
+    padding: 0.75rem;
+}
+
+.boxError {
+    border-color: var(--color-danger);
+}
+
+.preview,
+.empty {
+    height: 10rem;
+    border-radius: var(--radius-sm);
+}
+
+.preview {
+    width: 100%;
+    background: var(--color-surface);
+    object-fit: contain;
+}
+
+.empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px dashed var(--color-border);
+    color: var(--color-muted);
+    font-size: 0.875rem;
+}
+
+.actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+}
+
+.error {
+    margin: 0;
+    color: var(--color-danger);
+    font-size: 0.875rem;
+    font-weight: 600;
+}
+
+.fileInput {
+    display: none;
+}
