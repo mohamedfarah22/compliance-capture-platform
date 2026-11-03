@@ -125,7 +125,9 @@ Test files: **E1** `app/e2e/gold07/01-refusals-and-save.e2e.js` · **E2** `02-ca
 | 7.54 ⚠ | §3.5 | A new scrap part on an invoice whose scrap TTR is complete is refused with the spec's message; a bullion part is not | E3 `7.54 ⚠` |
 | 7.55 | §3.5 | A draft TTR does not block | E3 `7.55` |
 | 7.56 | §3.5 *(added by UAT)* | The completed-TTR block finds the invoice whatever its case or spacing | E3 `7.56` |
-| 7.57 | §4.3 *(added by UAT)* | **Two simultaneous reportable saves on one invoice cannot both succeed.** **DEFECT D1** (see the PR): both succeed. Marked as an expected failure | E3 `7.57` (`test.fail`) |
+| 7.57 | §4.3 *(added by UAT)* | Two simultaneous reportable saves on one invoice cannot both succeed: exactly one 201 and one 422 `errors.erp_invoice_no`, four times over. Found as defect D1; fixed in 0105b69 (advisory lock and re-check in the write functions) | E3 `7.57` |
+| 7.58 | §4.3, §3.3 *(added by UAT)* | The invoice lock itself: with another connection holding the lock and an uncommitted conflicting purchase, a save waits (it does not finish within 4 seconds); after the commit it is refused with `errors.erp_invoice_no` and its uploaded photo is removed | E3 `7.58` |
+| 7.59 | §4.3, §3.3 *(added by UAT)* | The same for a completion: it waits for the lock, then is refused; the purchase gets no invoice | E3 `7.59` |
 
 ### G · Linked parts and totals (§3.4, §4.2)
 
@@ -270,7 +272,7 @@ The local stack cannot see the hosted project's settings, deploys or a real came
 - **Every Playwright call returns `Function not found`.** The local stack was started from another directory. Run `npx supabase stop && npx supabase start && npx supabase db reset` from this branch.
 - **Every call returns `gold_disabled`.** The `GOLD_JOURNEY_ENABLED` secret is missing: see the top of this sheet (local) or B1 (dev).
 - **`save_failed` on a plain save.** The migration did not apply (`select proname from pg_proc where proname = 'save_purchase'`), or `gold` is not exposed through the API (hosted: Project Settings → Data API → Exposed schemas).
-- **7.57 reports "expected to fail but passed".** Defect D1 has been fixed (the duplicate-invoice check is now race-safe): delete its `test.fail(...)` line.
+- **7.57 returns two 201s.** The invoice lock in migration `20261107000002_gold_invoice_lock.sql` is missing or not applied: run `npx supabase db reset`.
 - **7.134 hangs or fails after storage restarts.** The Storage container needs a few seconds to accept requests; the test retries for 90 seconds. Check `docker ps` for `supabase_storage_compliance-capture-platform`.
 - **A signed URL does not open locally.** Replace `http://kong:8000` with `http://127.0.0.1:54321`.
 

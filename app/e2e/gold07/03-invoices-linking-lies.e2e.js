@@ -1,10 +1,12 @@
 // Gold Phase 7 UAT, sections F, G and H of docs/uat-gold-07-purchase-writes.md: duplicate invoices and a completed
 // TTR (3.3, 3.5), linked parts and totals (3.4, 4.2), and values a lying client sends (4.3).
-// Rows 7.56 and 7.73 were added by UAT from spec 3.5 and 4.3.
+// Rows 7.56 to 7.59, 7.67 and 7.73 were added by UAT from spec 3.5 and 4.3.
 import { randomUUID } from 'node:crypto'
 import { expect, test } from '@playwright/test'
+import postgres from 'postgres'
 import { sql } from '../support/db.js'
-import { auditRows, customer, E1, inv, melbourneToday, row, S1, S2, save, snap, token, world } from './support.js'
+import { localEnv } from '../support/env.js'
+import { auditRows, complete, customer, E1, inv, melbourneToday, row, S1, S2, save, saved, snap, token, world } from './support.js'
 
 test.describe.configure({ mode: 'serial' })
 
@@ -121,10 +123,7 @@ test.describe('F · duplicate invoices and a completed TTR', () => {
 
 test.describe('F2 · simultaneous saves', () => {
   test('7.57 (added by UAT, spec 4.3 / 3.3) — two reportable saves racing for one invoice cannot both succeed', async () => {
-    // DEFECT D1 (UAT report): the duplicate-invoice check reads, then writes, with no lock, so both saves pass. The PR
-    // lists this as a known exposure; the spec has no such exception. Marked as an expected failure so CI stays green
-    // while the defect stands; when it is fixed Playwright reports "expected to fail but passed": delete this line.
-    test.fail(true, 'DEFECT D1: two simultaneous reportable saves on one invoice both succeed (spec 4.3)')
+    // Defect D1 (fixed in 0105b69, advisory lock): the check used to read, then write, so both saves passed.
     const gina = await customer({ ready: false, first: 'Gina', last: 'Goldonly' })
     const ruth = await customer()
     const results = []
@@ -138,6 +137,71 @@ test.describe('F2 · simultaneous saves', () => {
     }
     // Spec 4.3: a duplicate invoice blocks a reportable purchase. Exactly one of each pair may be saved.
     expect(results).toEqual(Array(4).fill([201, 422]))
+  })
+})
+
+// 7.58 and 7.59 (added by UAT, spec 4.3 / 3.3): the invoice lock itself, made deterministic. A second database
+// connection takes the same lock the write functions take, and inserts a conflicting purchase it has not committed
+// yet. The function under test must wait for the lock, and once the other transaction commits it must see the
+// committed row and refuse. Without the lock it would finish at once, before the commit, with a 201 / 200.
+const settledAfter = async (promise, ms) => {
+  let done = false
+  promise.then(() => (done = true))
+  await new Promise((resolve) => setTimeout(resolve, ms))
+  return done
+}
+
+const holdInvoice = async (number, other, during) => {
+  const second = postgres(localEnv().DB_URL, { max: 1, idle_timeout: 5, onnotice: () => {} })
+  try {
+    await second.begin(async (tx) => {
+      await tx`select gold._lock_invoice(${E1}, ${number})`
+      await tx`
+        insert into gold.purchases (id, reporting_entity_id, customer_id, main_id_verification_id, purchase_type, cash_band,
+            cash_10k_or_more, erp_invoice_no, sale_date, phone, id_sighted, created_by_staff_id)
+        values (${randomUUID()}, ${E1}, ${other.id}, ${other.verId}, 'scrap', '10k_plus', true, ${number},
+            (now() at time zone 'Australia/Melbourne')::date, '0411 111 111', true, ${S1})`
+      await during()
+    })
+  } finally {
+    await second.end()
+  }
+}
+
+test.describe('F3 · the invoice lock', () => {
+  test('7.58 (added by UAT, spec 4.3 / 3.3) — a save waits for the invoice lock, then refuses the invoice another purchase has just committed', async () => {
+    const ruth = await customer()
+    const gina = await customer({ ready: false, first: 'Gina', last: 'Goldonly' })
+    const number = inv('58')
+    const before = await snap()
+    let pending
+    await holdInvoice(number, gina, async () => {
+      pending = save(t1, { customerId: ruth.id, ...reportable, erpInvoiceNo: number })
+      expect(await settledAfter(pending, 4000), 'the save finished while the invoice lock was held').toBe(false)
+    })
+    const r = await pending
+    expect(r.status, r.text).toBe(422)
+    expect(r.body.errors.erp_invoice_no).toBe(used(number))
+    const after = await snap()
+    expect(after.purchases).toBe(before.purchases + 1) // only the other connection's row
+    expect(after.photos).toBe(before.photos)
+    expect(after.objects).toBe(before.objects) // the photo the save had already uploaded was removed again
+  })
+
+  test('7.59 (added by UAT, spec 4.3 / 3.3) — a completion waits for the invoice lock, then refuses the invoice another purchase has just committed', async () => {
+    const ruth = await customer()
+    const gina = await customer({ ready: false, first: 'Gina', last: 'Goldonly' })
+    const number = inv('59')
+    const p = await saved(t1, { customerId: ruth.id, cashAmount: '10000', ...reportable })
+    let pending
+    await holdInvoice(number, gina, async () => {
+      pending = complete(t1, { purchaseId: p, erpInvoiceNo: number })
+      expect(await settledAfter(pending, 4000), 'the completion finished while the invoice lock was held').toBe(false)
+    })
+    const r = await pending
+    expect(r.status, r.text).toBe(422)
+    expect(r.body.errors.erp_invoice_no).toBe(used(number))
+    expect((await row(p)).erp_invoice_no).toBeNull()
   })
 })
 

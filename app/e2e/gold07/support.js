@@ -104,6 +104,10 @@ export const world = () => {
         values (${l.id}, ${l.entity}, ${l.name}, ${l.email}, 'staff', ${l.active})
         on conflict (id) do update set is_active = ${l.active}, role = 'staff', reporting_entity_id = ${l.entity}`
     }
+    // Playwright restarts the worker after a failed test and this runs again. A user that already has a factor can
+    // only enrol another from an aal2 session, and the TOTP secret of the old one is gone with the old worker, so
+    // start every login from no factors.
+    await sql`delete from auth.mfa_factors where user_id in ${sql(Object.values(LOGINS).map((l) => l.id))}`
     for (const [name, l] of Object.entries(LOGINS)) clients[name] = await login(l.email, { mfa: true })
     clients.t1aal1 = await login(LOGINS.t1.email, { mfa: false })
   })()
