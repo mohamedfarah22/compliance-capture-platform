@@ -276,6 +276,16 @@ Deno.test("database refusals map to their status", async () => {
   }
 });
 
+// Refusals raised inside the write transaction after the invoice lock (migration 20261107000002).
+Deno.test("a duplicate or finished-TTR refusal raised after the invoice lock is a 422 field error", async () => {
+  for (const [code, text] of [["GD001", "already used by another purchase"], ["GD002", "already finished"]] as const) {
+    const s = scenario({ adminErrors: { "gold.complete_purchase": { code } } });
+    const { res, body } = await post(s, { erpInvoiceNo: "INV-RACE" });
+    assertEquals([res.status, body.error, body.blocked], [422, "validation_failed", false]);
+    assert(body.errors.erp_invoice_no.includes(text));
+  }
+});
+
 Deno.test("a failing read is a 500 and writes nothing", async () => {
   const s = scenario({ userErrors: { customer_ttr_ready: { code: "XX000" } } });
   const { res, body } = await post(s);

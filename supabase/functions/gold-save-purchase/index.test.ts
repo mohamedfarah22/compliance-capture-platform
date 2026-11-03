@@ -718,6 +718,17 @@ Deno.test("logs carry IDs and error codes only, never names, phones, invoice num
   }
 });
 
+// Refusals raised inside the write transaction after the invoice lock (migration 20261107000002).
+Deno.test("a duplicate or finished-TTR refusal raised after the invoice lock is the same 422 field error, and cleans up", async () => {
+  for (const [code, text] of [["GD001", "already used by another purchase"], ["GD002", "already finished"]] as const) {
+    const s = scenario({ readiness: ["date_of_birth"], adminErrors: { "gold.save_purchase": { code } } });
+    const { res, body } = await post(s, { cash10k: "true", erpInvoiceNo: "INV-RACE" });
+    assertEquals([res.status, body.error], [422, "validation_failed"]);
+    assert(body.errors.erp_invoice_no.includes(text) && body.errors.erp_invoice_no.includes("INV-RACE"));
+    assertEquals(s.admin.uploads.size, 0, "the uploaded photos are removed");
+  }
+});
+
 Deno.test("a successful save logs nothing", async () => {
   const s = scenario();
   const { logged } = await captureLogs(() => handleRequest(request({}), s.deps));

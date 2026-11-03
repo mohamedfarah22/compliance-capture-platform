@@ -131,3 +131,18 @@ export function linkedFills(linked: Row[], linkedAmounts: Row): Row[] {
 export function parseBool(v: unknown): boolean | undefined {
   return v === "true" || v === true ? true : v === "false" || v === false ? false : undefined;
 }
+
+/**
+ * The field error for a refusal raised inside the write transaction after the invoice lock (migration
+ * 20261107000002): GD001 duplicate invoice on a reportable purchase, GD002 completed TTR. Same wording as the rules
+ * module. Null for any other code.
+ */
+export function invoiceRaceError(code: string, invoice: string): string | null {
+  if (code === "GD001") {
+    return `The ERP invoice number ${invoice} is already used by another purchase. A reportable purchase needs its own invoice number.`;
+  }
+  if (code === "GD002") {
+    return `The AUSTRAC report for ${invoice} is already finished. Use a new ERP invoice number for this purchase.`;
+  }
+  return null;
+}

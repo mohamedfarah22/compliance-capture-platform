@@ -64,6 +64,7 @@ import {
   loadInvoiceContext,
   loadReadiness,
   loadRelianceDays,
+  invoiceRaceError,
   parseBool,
   UUID_RE,
 } from "../_shared/goldPurchaseShared.ts";
@@ -297,6 +298,10 @@ async function savePurchase(ctx: GoldContext, req: Request, deps: Deps): Promise
     const code = String((saveError as Row).code ?? "unknown");
     console.error("gold-save-purchase: save failed:", purchaseId, code);
     await removeUploaded();
+    const invoiceError = invoiceRaceError(code, invoice);
+    if (invoiceError) {
+      return json({ error: "validation_failed", errors: { erp_invoice_no: invoiceError }, warnings: result.warnings, blocked: [] }, 422);
+    }
     return code === "40001" ? json({ error: "linked_part_changed" }, 409) : json({ error: "save_failed" }, 500);
   }
 

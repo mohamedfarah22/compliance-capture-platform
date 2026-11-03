@@ -39,6 +39,7 @@ import { parseAud, validateCompletion } from "../_shared/goldRules.js";
 import {
   codeOf,
   CORS_HEADERS,
+  invoiceRaceError,
   json,
   linkedFills,
   loadCustomers,
@@ -149,6 +150,10 @@ async function completePurchase(ctx: GoldContext, req: Request): Promise<Respons
   if (completeError) {
     const code = String((completeError as Row).code ?? "unknown");
     console.error("gold-complete-purchase: complete failed:", purchase.id, code);
+    const invoiceError = invoiceRaceError(code, invoice);
+    if (invoiceError) {
+      return json({ error: "validation_failed", errors: { erp_invoice_no: invoiceError }, warnings: result.warnings, blocked: false }, 422);
+    }
     if (code === "23001") return json({ error: "already_has_invoice" }, 409);
     if (code === "40001") return json({ error: "linked_part_changed" }, 409);
     if (code === "P0002") return json({ error: "purchase_not_found" }, 404);
