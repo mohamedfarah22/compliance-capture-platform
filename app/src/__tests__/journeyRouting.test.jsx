@@ -86,14 +86,33 @@ describe("journey routing", () => {
             expect(screen.getByRole("heading", { name: PICKER_HEADING })).toBeInTheDocument();
         });
 
-        it("shows the Gold card and a coming-soon page at /gold while the flag is on", () => {
+        it("shows the Gold card and Find customer at /gold while the flag is on", () => {
             flags.goldEnabled = true;
             renderAt("/");
             expect(screen.getByRole("link", { name: /gold due diligence/i })).toHaveAttribute("href", "/gold");
             cleanup();
 
             renderAt("/gold");
-            expect(screen.getByText("Gold due diligence is coming soon.")).toBeInTheDocument();
+            expect(screen.getByRole("heading", { name: "Find customer" })).toBeInTheDocument();
+            expect(screen.getByRole("link", { name: "Switch journey" })).toHaveAttribute("href", "/");
+            expect(screen.getByRole("button", { name: /sign out/i })).toBeInTheDocument();
+        });
+
+        it("sends an unknown /gold path to Find customer while the flag is on", () => {
+            flags.goldEnabled = true;
+            renderAt("/gold/nonsense");
+
+            expect(screen.getByRole("heading", { name: "Find customer" })).toBeInTheDocument();
+        });
+
+        it("opens New customer from Find customer", async () => {
+            flags.goldEnabled = true;
+            const user = userEvent.setup();
+            renderAt("/gold");
+
+            await user.click(screen.getByRole("button", { name: "New customer" }));
+
+            expect(screen.getByRole("heading", { name: "New customer" })).toBeInTheDocument();
         });
     });
 

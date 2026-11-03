@@ -6,7 +6,11 @@ import { GOLD_JOURNEY_ENABLED, ITEM_AND_DELIVERY_CAPTURE_ENABLED } from "./confi
 import ConductingPersonPage from "./pages/conducting-person/ConductingPersonPage.jsx";
 import CustomerSearchPage from "./pages/customers/CustomerSearchPage.jsx";
 import CreateCustomerPage from "./pages/customers/create/CreateCustomerPage.jsx";
-import GoldPlaceholderPage from "./pages/gold/GoldPlaceholderPage.jsx";
+import GoldCustomerFormPage from "./pages/gold/GoldCustomerFormPage.jsx";
+import GoldCustomerPage from "./pages/gold/GoldCustomerPage.jsx";
+import GoldLayout from "./pages/gold/GoldLayout.jsx";
+import GoldSearchPage from "./pages/gold/GoldSearchPage.jsx";
+import { GOLD_ROUTES } from "./pages/gold/shared/index.js";
 import IdVerificationPage from "./pages/id-verification/IdVerificationPage.jsx";
 import JourneyPickerPage from "./pages/journey/JourneyPickerPage.jsx";
 import LoginPage from "./pages/login/LoginPage.jsx";
@@ -22,7 +26,7 @@ import TransactionCompletePage from "./pages/transaction-complete/TransactionCom
 import TransactionDetailsPage from "./pages/transaction-details/TransactionDetailsPage.jsx";
 
 // While the flag is off, typing /gold must not get round the hidden picker card.
-const GoldRoute = () => (GOLD_JOURNEY_ENABLED ? <GoldPlaceholderPage /> : <Navigate to="/" replace />);
+const GoldRoute = () => (GOLD_JOURNEY_ENABLED ? <GoldLayout /> : <Navigate to="/" replace />);
 
 export const AppRoutes = () => {
     return (
@@ -46,13 +50,20 @@ export const AppRoutes = () => {
                 }
             />
             <Route
-                path="/gold/*"
+                path={GOLD_ROUTES.search}
                 element={
                     <ProtectedRoute>
                         <GoldRoute />
                     </ProtectedRoute>
                 }
-            />
+            >
+                <Route index element={<GoldSearchPage />} />
+                <Route path={GOLD_ROUTES.newCustomer} element={<GoldCustomerFormPage mode="create" />} />
+                <Route path={GOLD_ROUTES.customer} element={<GoldCustomerPage />} />
+                <Route path={GOLD_ROUTES.updateId} element={<GoldCustomerFormPage mode="update" />} />
+                <Route path={GOLD_ROUTES.editCustomer} element={<GoldCustomerFormPage mode="edit" />} />
+                <Route path="*" element={<Navigate to={GOLD_ROUTES.search} replace />} />
+            </Route>
             <Route
                 path="/customers"
                 element={
