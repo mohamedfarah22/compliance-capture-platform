@@ -103,7 +103,7 @@ Jane, one purchase, scrap, $12,000 cash, invoice `INV-A1`, both counter question
 | # | Spec | What is proved | Covered by |
 |---|---|---|---|
 | 9.25 ⚠ | §3.4, §4.5 (atomic) | Another TTR already holds the invoice for `precious_metal_buy`; a mixed sale is started from its bullion part: **409 `ttr_reference_in_use`**, and the bullion TTR the call had already begun is **not** left behind; no party, reliance row or link | A3 `9.25 ⚠` |
-| 9.26 ⚠ | §3.2 "idempotent", invoice lock | Two parts of one invoice started at once: while a second connection holds the invoice lock the calls wait, then exactly **one** TTR set exists and both calls return it (and the same without the lock, as a plain race) | A3 `9.26 ⚠` and `9.26 (race)`. **DEFECT D1, both fail** |
+| 9.26 ⚠ | §3.2 "idempotent", invoice lock | Two parts of one invoice started at once: while a second connection holds the invoice lock the calls wait, then exactly **one** TTR set exists and both calls return it (and the same without the lock, as a plain race) | A3 `9.26 ⚠` and `9.26 (race)`. D1 fixed in 26194ae and re-verified |
 | 9.27 | §6.1 | A refusal and a success: the log has one line, with the purchase id and an error code only; no name, phone, ID number, invoice or amount | A3 `9.27` |
 | 9.28 ⚠ | §2 grants | `authenticated` and `anon` cannot execute `gold.start_ttr` or its five helpers (**42501** when called); only `service_role` can | P `9.28` |
 
@@ -135,13 +135,13 @@ Jane, one purchase, scrap, $12,000 cash, invoice `INV-A1`, both counter question
 
 | # | Spec | What is proved | Covered by |
 |---|---|---|---|
-| 9.38 ⚠ | §3.2 `openTransaction` | `/open-ttr/<case A id>` lands on **Transaction Details** ("Step 3") with the invoice as reference, "Buy precious metal from customer", the sale time of the purchase, **and the cash shown as 12000** | A5 `9.38 ⚠`. **DEFECT D2: the cash field is empty** |
-| 9.39 ⚠ | §3.2 Case A, §3.3 | Continue with the cash as shown; Party Details ("Step 4") already complete; Review shows "From gold purchase(s) on invoice …" and Complete / Reportable completes the TTR; the Complete page shows the invoice | A5 `9.39 ⚠`. **DEFECT D2** (Continue is disabled, because the cash is empty); the same flow with the cash typed passes as 9.69 |
+| 9.38 ⚠ | §3.2 `openTransaction` | `/open-ttr/<case A id>` lands on **Transaction Details** ("Step 3") with the invoice as reference, "Buy precious metal from customer", the sale time of the purchase, **and the cash shown as 12000** | A5 `9.38 ⚠`. D2 fixed in 26194ae and re-verified |
+| 9.39 ⚠ | §3.2 Case A, §3.3 | Continue with the cash as shown; Party Details ("Step 4") already complete; Review shows "From gold purchase(s) on invoice …" and Complete / Reportable completes the TTR; the Complete page shows the invoice | A5 `9.39 ⚠`. D2 fixed in 26194ae and re-verified (the same flow with the cash typed is 9.69) |
 | 9.40 ⚠ | §3.2 `IdVerificationPage` | Back from Transaction Details: Jane's reliance row shows "ID sighted and matched to this record at the counter on …"; **no** "I confirm the person presenting today matches these ID images" tick; Continue saves without it. A reliance row on a TTR started in the wizard still shows the tick and refuses Continue without it | A5 `9.40 ⚠` and `9.40 ⚠ (control)` |
 | 9.41 ⚠ | §3.2 Case B | Gina's TTR lands on **Customers** with her added and the "acting on their own behalf" question; Yes goes to ID Verification (copied confirmation shown), Transaction Details, then Party Details, which asks for occupation and gender (and offers the country fields) and refuses Continue until given; the TTR then completes. No goes to Transaction Details, Party Details and Conducting Person. A joint TTR lists both sellers and its path includes Conducting Person | A6 `9.41 ⚠`, `9.41 ⚠ (No)`, `9.41 ⚠ (joint)` |
 | 9.42 ⚠ | §3.2 warning | With one draft active, opening another shows "You have another AUSTRAC report in progress (INV…). It stays saved; reopen it from the TTR start page." and opens nothing; **Open this report** opens the new one; **Cancel** goes to `/start` and the first draft is unchanged. No warning when none is active or the same one is opened | A6 `9.42 ⚠` |
 | 9.43 | §3.2 | A completed TTR id and an unknown id: a message ("already complete" / "could not be found") and a **TTR start** button; the session's active report is unchanged. (With another report active the warning of 9.42 comes first; Open this report then shows the message) | A6 `9.43` and `9.43 (no report active)` |
-| 9.44 ⚠ | §3.4 | The spec's mixed invoice, $6,000 scrap + $6,000 bullion: open and complete the first; the Complete page shows "Another AUSTRAC report for … is waiting" with **Open it**, which opens the second; after the second the notice is gone | A6 `9.44 ⚠`. **DEFECT D3: Continue is disabled below $10,000** |
+| 9.44 ⚠ | §3.4 | The spec's mixed invoice, $6,000 scrap + $6,000 bullion: open and complete the first; the Complete page shows "Another AUSTRAC report for … is waiting" with **Open it**, which opens the second; after the second the notice is gone | A6 `9.44 ⚠`. D3 fixed in 26194ae and re-verified |
 | 9.45 ⚠ | §3.4 Start page | A reference with a completed bullion report: Buy bullion shows "belongs to a completed transaction"; switching to precious metal clears it and starts normally. With a **draft** for the chosen scenario: "Existing draft found — fields pre-filled." | A6 `9.45 ⚠`, `9.45 ⚠ (draft)` |
 | 9.46 | §3.4 `describeSaveError` | A save failing on the per-scenario reference constraint reads "That transaction reference is already in use for this scenario. A reference can be used once for each scenario …" | V2 (the message) and P `9.29` (the 23505) |
 | 9.47 | §3.2 | Open the case A TTR, change nothing else on Transaction Details, Continue: `transaction_datetime` is not shifted by the time zone (equal to the minute; the seconds are dropped, see spec question 1) | A5 `9.47` |
@@ -186,21 +186,21 @@ Batches are made by `generate-austrac-report` from gold-started TTRs that staff 
 | 9.65 | §3.4, §4.3 "for that type" | A completed scrap TTR does not block a bullion part on the same invoice | A4 `9.65` |
 | 9.66 | §3.4 | The mixed-invoice flow of 9.44 with $10,000 + $10,000: the waiting notice shows after the first and is gone after the second | A6 `9.66` |
 | 9.67 | §3.4 `findTransactionByRef` | The same reference with a draft for each scenario reopens the draft of the chosen scenario | A6 `9.67` |
-| 9.68 | §3.4 Start page | Typing the reference first and then choosing Buy bullion keeps bullion and shows the completed message, even when a precious metal draft exists | A6 `9.68`. **DEFECT D4** |
+| 9.68 | §3.4 Start page | Typing the reference first and then choosing Buy bullion keeps bullion and shows the completed message, even when a precious metal draft exists | A6 `9.68`. D4 fixed in 26194ae and re-verified |
 | 9.69 | §3.3 "fully prefilled" | Case A with the cash typed on Transaction Details: Party Details complete, Review shows the gold source, the TTR completes | A5 `9.69` |
-| 9.70 | §3.4 | Both TTRs of the spec's mixed invoice ($6,000 + $6,000) can be completed through `complete-transaction` | A9 `9.70`. **DEFECT D3** |
+| 9.70 | §3.4 | Both TTRs of the spec's mixed invoice ($6,000 + $6,000) can be completed through `complete-transaction` | A9 `9.70`. D3 fixed in 26194ae and re-verified |
 | 9.71 | §3.4, §4.3 "recalculated on the server" | The $10,000 total is worked out from the linked cash whatever the stored flags say: parts written with every flag false, a single $10,000.00 or two of $5,000 start a TTR; $9,999.99 and $5,000 + $4,999.99 are **422 `not_reportable`**. (9.9 and 9.60 start from parts `gold-save-purchase` has flagged, so they prove the flag path; this row proves the server's own total) | A1 `9.71` |
 
 (9.62 was not used.)
 
-### Defects found by this automation
+### Defects found by this automation (all four fixed in 26194ae and re-verified)
 
 | ID | Rows | Expected | Actual |
 |---|---|---|---|
-| D1 | 9.26 | Two parts of one invoice started at the same moment give one TTR; both calls are 200 | One call is **500 `start_failed`**. Postgres log: `deadlock detected`. `gold.start_ttr` locks its own purchase row (`FOR UPDATE`) before taking the invoice lock, then updates every linked part's row to set the link, so two calls for two parts wait on each other's row and lock |
-| D2 | 9.38, 9.39 | Transaction Details shows the TTR's cash (12,000) | The Cash amount field is empty (`TransactionDetailsPage.jsx` starts `cashAmount` at `""` and never reads the draft), so Continue is disabled until staff retype it. `openTransaction` seeds the parties, reference, scenario and time but not the cash |
-| D3 | 9.44, 9.70 | Each TTR of the spec's mixed invoice ($6,000 each, §3.4) can be completed | Transaction Details disables Continue below $10,000, and `complete-transaction` answers 422 `AUD value must be at least $10000` (`TTR_THRESHOLD_AUD`). Neither is changed by this phase |
-| D4 | 9.68 | The scenario the user chose stays chosen | With a reference typed first, the reference field's blur check runs without a scenario and finds the newest report (the precious metal draft); it switches the page to precious metal and shows "Existing draft found" while the user clicked bullion |
+| D1 (fixed in 26194ae) | 9.26 | Two parts of one invoice started at the same moment give one TTR; both calls are 200 | One call is **500 `start_failed`**. Postgres log: `deadlock detected`. `gold.start_ttr` locks its own purchase row (`FOR UPDATE`) before taking the invoice lock, then updates every linked part's row to set the link, so two calls for two parts wait on each other's row and lock |
+| D2 (fixed in 26194ae) | 9.38, 9.39 | Transaction Details shows the TTR's cash (12,000) | The Cash amount field is empty (`TransactionDetailsPage.jsx` starts `cashAmount` at `""` and never reads the draft), so Continue is disabled until staff retype it. `openTransaction` seeds the parties, reference, scenario and time but not the cash |
+| D3 (fixed in 26194ae) | 9.44, 9.70 | Each TTR of the spec's mixed invoice ($6,000 each, §3.4) can be completed | Transaction Details disables Continue below $10,000, and `complete-transaction` answers 422 `AUD value must be at least $10000` (`TTR_THRESHOLD_AUD`). Neither is changed by this phase |
+| D4 (fixed in 26194ae) | 9.68 | The scenario the user chose stays chosen | With a reference typed first, the reference field's blur check runs without a scenario and finds the newest report (the precious metal draft); it switches the page to precious metal and shows "Existing draft found" while the user clicked bullion |
 
 ### Spec questions
 
@@ -292,7 +292,7 @@ Then `cd app`, `npm run dev`, and use `http://localhost:5173` in place of the pr
 **The screens (case B, Lena).** Open `<preview address>/open-ttr/<ttr id>` (signed in as the dev admin). If the browser shows "Another AUSTRAC report is in progress", you have a TTR open from earlier: click **Open this report**.
 1. ☐ A short "Opening AUSTRAC report" page, then **Add Customers / Parties** ("Step 1 of 3"). Under **Selected for this transaction** is **Lena Hostedsix**, and the question **Is Lena Hostedsix acting on their own behalf for this transaction?** is shown.
 2. ☐ Choose **Yes**, press **Continue**: **ID Verification Details & Capture** ("Step 2"). Verification method shows **Relied on prior identification**; the text **ID sighted and matched to this record at the counter on …** is shown; there is **no** "I confirm the person presenting today matches these ID images" tick. Press **Continue**.
-3. ☐ **Transaction & Cash Details** ("Step 3"): Transaction reference **UAT-DEV-0901**, scenario **Buy precious metal from customer**, and the **Cash amount** shows **12000**. (Known defect D2: the field may be empty; type `12000`.) Press **Continue**.
+3. ☐ **Transaction & Cash Details** ("Step 3"): Transaction reference **UAT-DEV-0901**, scenario **Buy precious metal from customer**, and the **Cash amount** shows **12000**. Press **Continue**.
 4. ☐ **Party Details** ("Step 4"): Lena's name, date of birth, phone and address are filled in; **Occupation or principal activity** may be filled; **Gender** is empty and **Continue** is refused until it is chosen (choose **F**, set **Is this person a sole trader?** to **No**, and enter `AU` in the two country boxes if they are empty).
 5. ☐ Press **Exit** at the top, and **Exit** in the "Exit transaction?" box: you land on **Start TTR Transaction** (`/start`), not on "What would you like to do?".
 6. ☐ Dev SQL editor: `select ttr_transaction_id from gold.purchases where id = '<purchase id>';` is now **empty**, and `select count(*) from ttr.transactions where id = '<ttr id>';` is **0** (Exit deleted the draft and cleared the gold link). The purchase row is still there.
@@ -318,6 +318,9 @@ Then `cd app`, `npm run dev`, and use `http://localhost:5173` in place of the pr
 
 ## Progress note
 Batches done: API rows (A1 to A4), pgTAP, Deno, Vitest, wizard rows (A5 to A7), AUSTRAC rows (A8, A9); production breaks in five SQL batches, one edge-function batch (after a runtime restart) and one client batch; expectation flips for the screen and earlier-phase rows. Nothing left to break. The break-and-revert results are in the PR body ("UAT automation (independent)").
+
+Re-verification of D1 to D4 (fix 26194ae): each fix was broken once in one stack run (start_ttr lock order, Transaction Details draft cash, the $10,000 waiver in the client and in complete-transaction, the Start page guard). 9.26, 9.26 (race), 9.38, 9.39, 9.44, 9.68 and 9.70 each failed for their own reason (500 start_failed; empty Cash amount; Continue disabled; Continue disabled at $6,000; bullion not kept; 422 AUD value must be at least $10000). After the revert, uat:gold09a, pgTAP, Deno, Vitest, lint and format:check pass.
+
 ## Sign-off
 
 ☐ Section A green on commit ________ (D1 to D4 fixed) · ☐ Section B (B1 to B3) · ☐ B4 · Notes: ______________________________________________
