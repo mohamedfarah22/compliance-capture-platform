@@ -35,6 +35,14 @@ cd app && npm ci && npx supabase --version   # must print 2.x (the pinned devDep
 ```
 When done, push with `git push origin HEAD:<branch>`.
 
+## Keep your context small
+
+Every step you take re-reads your whole conversation, so anything you print early is paid for again on every later step. In Phase 8a the UAT agent's steps grew to about 400k tokens each.
+- **Find, then read a range.** `grep -n` for the symbol, then read only those lines (`sed -n 'a,bp'`, or Read with offset and limit). Don't `cat` a whole file over about 150 lines, including your own test files.
+- **Long commands** (`npm run uat*`, `db reset`, `test db`, `supabase start`): run them in the foreground with a long timeout (up to 10 minutes) when they fit, otherwise in the background, then wait for the completion notice. Never loop `sleep N; cat <output>` or `tail` to check on them.
+- **Print only what you need from output:** the summary and the failures (`| tail -40`, `grep -E "✘|failed|passed"`), not whole logs.
+- Put independent commands in one call.
+
 ## 1. Derive the cases from the spec, then check the sheet
 
 The spec is the source of truth, not the sheet and not the code.
@@ -137,7 +145,7 @@ For a production break:
 
 Record each break in your report, one line per behaviour: `6.38, 6.39, 6.111: phone minimum 8 → 7 → all three failed (201 ≠ 400)`. List expectation flips as one line of row IDs: `flips: 8a.4, 8a.13, 8a.56 — each failed on its assertion`.
 
-**Re-verifying a fix** (after the implementer fixes a defect you reported):
+**Re-verifying a fix** (after a fixer has pushed a fix for a defect UAT reported). Usually a **fresh agent** does this, not the one that automated the sheet. If that's you: do the setup above, read the defect row in the sheet and its test, and follow these steps. Don't redo §1 or re-read the whole spec.
 1. `git pull --ff-only`, and read the fix.
 2. Break the fix once and see the row fail.
 3. Revert, then run only your phase project (`npm run uat:<phase>`), plus the Vitest/Deno/pgTAP suite the fix touched. Don't run the full `npm run uat` locally: CI's `uat` job runs the whole chain on your push.

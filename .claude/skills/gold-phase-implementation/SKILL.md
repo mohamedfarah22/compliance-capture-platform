@@ -31,6 +31,15 @@ cd app && npm ci && npx supabase --version   # must print 2.x (the pinned devDep
 ```
 Read your spec sections in full, and `AGENTS.md`.
 
+## Keep your context small
+
+Every step you take re-reads your whole conversation, so anything you print early is paid for again on every later step. In Phase 8a each agent's steps grew to about 400k tokens, so even `git status` cost that much.
+- **Find, then read a range.** `grep -n` for the symbol, then read only those lines (`sed -n 'a,bp'`, or Read with offset and limit). Don't `cat` a whole file over about 150 lines.
+- **Read the handover screens once.** Write short notes on the behaviour you need into your scratchpad, then work from the notes.
+- **Long commands** (`npm run uat*`, `db reset`, `test db`, `supabase start`): run them in the foreground with a long timeout (up to 10 minutes) when they fit, otherwise in the background, then wait for the completion notice. Never loop `sleep N; cat <output>` or `tail` to check on them.
+- **Print only what you need from output:** the summary and the failures (`| tail -40`, `grep -E "✘|failed|passed"`), not whole logs.
+- Put independent commands in one call.
+
 ## 1. Reuse before you write
 
 - `_shared/goldAuth.ts`: `requireGoldStaff(req, { minRole })`, the **first** thing every gold function does after the CORS preflight. It checks the flag, the JWT, `aal2`, active staff and the role.
@@ -126,7 +135,8 @@ When another phase is being built at the same time:
 ## 8. When the UAT agent reports a defect
 
 You get a row ID, expected and actual results, and evidence.
-1. `git pull --ff-only` (the UAT agent pushes to your branch).
+Usually a **fresh fixer agent** does this, not the implementer. If that's you: `git fetch origin && git switch -c fix-<row> origin/<branch>`, `cd app && npm ci`, read only the files the defect names, and push with `git push origin HEAD:<branch>` (the branch itself is checked out in the implementer's worktree).
+1. `git pull --ff-only` (the UAT agent pushes to your branch). A fresh fixer skips this.
 2. Fix it in production code, using a new migration for SQL.
 3. Update your own dev tests if they asserted the old behaviour.
 4. Don't edit the UAT agent's tests or sheet. Run its project (`npm run uat:<phase>`) to see the row pass, plus the fast checks for what you touched (`npm test`, lint and format for browser code; `deno task test` or `test db` for functions or SQL). Don't run the full `npm run uat` chain locally for a fix: CI runs it on your push.
@@ -137,6 +147,7 @@ You get a row ID, expected and actual results, and evidence.
 - Run one implementing agent per phase, in its own worktree: Sonnet 5.5, effort high.
 - When it finishes, start a **fresh** agent with the `uat-automation` skill. It gets the branch, the sheet path, the spec sections and the PR number, nothing from the implementer's report.
 - Run **UAT agents one at a time**. They queue on the one local stack, so two at once doesn't save time.
-- Route each defect back to the implementer, then have the UAT agent re-verify.
+- **Send each defect to a fresh fixer agent** (Sonnet 5.5, effort high, own worktree), not by resuming the implementer. A resumed agent re-reads its whole conversation on every step: the 8a one-file fix cost about 3M tokens for 8 steps. The fixer's brief is §8 of this skill, the branch and the defect (row, expected, actual, evidence, suspected file). Batch every defect from one UAT report into one fixer.
+- **Then start a fresh re-verify agent** with `uat-automation` ("Re-verifying a fix"). Give it the branch, the sheet path, the defect IDs and the fix commit. Don't resume the UAT agent that automated the sheet.
 - Never clear the stack lock while an agent might still be running (see `uat-automation` §4).
 - Don't watch CI, and don't keep an agent alive to watch it. The UAT agent reports the run link and stops; the user watches CI and says when it's green or red. Resume the agent only to investigate a red run.
