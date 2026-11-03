@@ -2,7 +2,7 @@
 // aal2 sessions, customers with ID captures on demand, and thin callers for the three purchase functions.
 // Everything is created through the Auth admin API and SQL; no screen is involved (Phase 8 builds the screens).
 import { randomUUID } from 'node:crypto'
-import { createClient } from '@supabase/supabase-js'
+import { AuthClient } from '@supabase/auth-js'
 import { Secret, TOTP } from 'otpauth'
 import { sql } from '../support/db.js'
 import { localEnv } from '../support/env.js'
@@ -50,8 +50,16 @@ const adminCreateUser = async ({ id, email }) => {
   if (!res.ok) throw new Error(`create user ${email}: ${res.status} ${await res.text()}`)
 }
 
-const newClient = () =>
-  createClient(env().API_URL, env().ANON_KEY, { auth: { persistSession: false, autoRefreshToken: false } })
+// The auth client alone: supabase-js also builds a realtime client, which needs a WebSocket that Node 20 (CI) lacks.
+const newClient = () => {
+  const auth = new AuthClient({
+    url: `${env().API_URL}/auth/v1`,
+    headers: { apikey: env().ANON_KEY },
+    persistSession: false,
+    autoRefreshToken: false,
+  })
+  return { auth }
+}
 
 // A password sign-in, then (unless aal1 is wanted) a TOTP enrolment and verification, so the session is aal2.
 const login = async (email, { mfa }) => {
