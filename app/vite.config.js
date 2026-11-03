@@ -4,13 +4,14 @@ import react from "@vitejs/plugin-react";
 
 // The gold rules live outside app/ so the Deno edge functions can import the same file.
 const goldRules = fileURLToPath(new URL("../supabase/functions/_shared/goldRules.js", import.meta.url));
+const ttrDefaults = fileURLToPath(new URL("../supabase/functions/_shared/ttrDefaults.js", import.meta.url));
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 
 // https://vite.dev/config/
 export default defineConfig({
     plugins: [react()],
     resolve: {
-        alias: { "@gold-rules": goldRules },
+        alias: { "@gold-rules": goldRules, "@ttr-defaults": ttrDefaults },
     },
     server: {
         // Let the dev server serve goldRules.js from outside app/.

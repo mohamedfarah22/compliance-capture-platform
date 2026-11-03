@@ -6,6 +6,8 @@ import ReviewSubmitPage from "./ReviewSubmitPage.jsx";
 import { wizardStorageKeys } from "../../components/wizardStorage.js";
 import {
     completeTransaction,
+    countGoldPurchases,
+    getTransactionId,
     loadBullionItems,
     loadConductingPerson,
     loadCustomers,
@@ -18,6 +20,8 @@ import { useAuth } from "../../context/AuthContext.jsx";
 
 vi.mock("../../lib/wizardApi.js", () => ({
     completeTransaction: vi.fn(),
+    countGoldPurchases: vi.fn(),
+    getTransactionId: vi.fn(),
     loadBullionItems: vi.fn(),
     loadConductingPerson: vi.fn(),
     loadCustomers: vi.fn(),
@@ -108,6 +112,22 @@ describe("ReviewSubmitPage", () => {
             signOut: vi.fn(),
         });
         completeTransaction.mockResolvedValue({ ok: true, completedAt: "2026-07-04T00:00:00Z" });
+        getTransactionId.mockReturnValue("tx-1");
+        countGoldPurchases.mockResolvedValue(0);
+    });
+
+    it("says where a gold-started report came from (spec 3.2), and says nothing for a wizard-started one", async () => {
+        seedCompleteMocks();
+        countGoldPurchases.mockResolvedValue(2);
+        renderPage();
+        expect(await screen.findByText("From gold purchase(s) on invoice INV-1")).toBeInTheDocument();
+        expect(countGoldPurchases).toHaveBeenCalledWith("tx-1");
+
+        cleanup();
+        countGoldPurchases.mockResolvedValue(0);
+        renderPage();
+        await screen.findByText("This transaction is ready to be completed.");
+        expect(screen.queryByText(/From gold purchase/)).not.toBeInTheDocument();
     });
 
     afterEach(() => {

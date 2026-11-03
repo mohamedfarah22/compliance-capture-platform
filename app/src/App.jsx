@@ -11,7 +11,9 @@ import GoldCustomerPage from "./pages/gold/GoldCustomerPage.jsx";
 import GoldLayout from "./pages/gold/GoldLayout.jsx";
 import GoldSearchPage from "./pages/gold/GoldSearchPage.jsx";
 import { GOLD_ROUTES } from "./pages/gold/shared/index.js";
+import { OPEN_TTR_ROUTE } from "./lib/ttrRoutes.js";
 import IdVerificationPage from "./pages/id-verification/IdVerificationPage.jsx";
+import OpenTtrPage from "./pages/open-ttr/OpenTtrPage.jsx";
 import JourneyPickerPage from "./pages/journey/JourneyPickerPage.jsx";
 import LoginPage from "./pages/login/LoginPage.jsx";
 import MfaGatePage from "./pages/mfa/MfaGatePage.jsx";
@@ -38,6 +40,14 @@ export const AppRoutes = () => {
                 element={
                     <ProtectedRoute>
                         <JourneyPickerPage />
+                    </ProtectedRoute>
+                }
+            />
+            <Route
+                path={OPEN_TTR_ROUTE}
+                element={
+                    <ProtectedRoute>
+                        <OpenTtrPage />
                     </ProtectedRoute>
                 }
             />

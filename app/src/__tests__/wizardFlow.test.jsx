@@ -21,6 +21,10 @@ vi.mock("../config/featureFlags.js", () => ({
 vi.mock("../lib/wizardApi.js", () => ({
     clearTransactionId: vi.fn(),
     completeTransaction: vi.fn(),
+    // Plain functions (not vi.fn) so restoreAllMocks cannot blank them.
+    countGoldPurchases: () => Promise.resolve(0),
+    findWaitingReport: () => Promise.resolve(null),
+    toDbScenario: (serviceType, scenario) => (scenario ? `${serviceType}_${scenario}` : null),
     deleteTransaction: vi.fn(),
     describeSaveError: vi.fn((err) => err?.message || "Failed to save. Please try again."),
     fetchPriorVerifications: vi.fn(),

@@ -7,6 +7,8 @@ import { useAuth } from "../../context/AuthContext.jsx";
 import { ITEM_AND_DELIVERY_CAPTURE_ENABLED } from "../../config/featureFlags.js";
 import {
     completeTransaction,
+    countGoldPurchases,
+    getTransactionId,
     loadBullionItems,
     loadConductingPerson,
     loadCustomers,
@@ -48,6 +50,13 @@ const ReviewSubmitPage = () => {
     const [issues, setIssues] = useState([]);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [submitError, setSubmitError] = useState("");
+    const [goldPurchaseCount, setGoldPurchaseCount] = useState(0);
+
+    // A TTR started from gold records which purchases it came from (spec 3.2).
+    useEffect(() => {
+        const id = getTransactionId();
+        if (id) countGoldPurchases(id).then(setGoldPurchaseCount);
+    }, []);
 
     useEffect(() => {
         const init = async () => {
@@ -237,6 +246,10 @@ const ReviewSubmitPage = () => {
                         <CheckCircle2 size={20} style={{ flexShrink: 0, marginTop: 1 }} aria-hidden="true" />
                         <p className={styles.bannerTitle}>This transaction is ready to be completed.</p>
                     </div>
+                )}
+
+                {goldPurchaseCount > 0 && (
+                    <p className={styles.bannerSub}>From gold purchase(s) on invoice {txn.transactionRef}</p>
                 )}
 
                 {submitError && (

@@ -11,6 +11,8 @@ vi.mock("../../lib/wizardApi.js", () => ({
     deleteTransaction: vi.fn(),
     findTransactionByRef: vi.fn(),
     loadCustomers: vi.fn(),
+    // A plain function (not vi.fn) so restoreAllMocks cannot blank it.
+    toDbScenario: (serviceType, scenario) => (scenario ? `${serviceType}_${scenario}` : null),
 }));
 
 vi.mock("../../context/AuthContext.jsx", () => ({
@@ -218,6 +220,46 @@ describe("StartTransactionPage", () => {
             await user.type(screen.getByLabelText(/transaction reference/i), "2");
 
             await waitFor(() => expect(screen.queryByText(blockedMessage)).not.toBeInTheDocument());
+        });
+    });
+
+    // Spec 3.4: a reference is unique per scenario, so the same invoice can carry a bullion and a precious metal report.
+    describe("reference check includes the scenario", () => {
+        it("looks the reference up for the chosen scenario on submit", async () => {
+            const user = userEvent.setup();
+            renderPage();
+
+            await user.click(screen.getByRole("radio", { name: /sell bullion to customer/i }));
+            await user.type(screen.getByLabelText(/transaction reference/i), "INV-900");
+            await user.click(screen.getByRole("button", { name: /start transaction/i }));
+
+            await waitFor(() => expect(findTransactionByRef).toHaveBeenCalledWith("INV-900", "bullion_sell"));
+        });
+
+        it("re-checks when the scenario changes, so a reference taken for the other scenario is not reported", async () => {
+            const user = userEvent.setup();
+            findTransactionByRef.mockImplementation(async (ref, scenario) =>
+                scenario === "bullion_sell"
+                    ? {
+                          scenario: "sell",
+                          serviceType: "bullion",
+                          transactionRef: ref,
+                          dateTime: "",
+                          status: "complete",
+                      }
+                    : null
+            );
+            renderPage();
+
+            await user.type(screen.getByLabelText(/transaction reference/i), "INV-900");
+            await user.click(screen.getByRole("radio", { name: /sell bullion to customer/i }));
+            expect(await screen.findByText(/belongs to a completed transaction/i)).toBeInTheDocument();
+
+            await user.click(screen.getByRole("radio", { name: /buy bullion from customer/i }));
+            await waitFor(() =>
+                expect(screen.queryByText(/belongs to a completed transaction/i)).not.toBeInTheDocument()
+            );
+            expect(findTransactionByRef).toHaveBeenLastCalledWith("INV-900", "bullion_buy");
         });
     });
 

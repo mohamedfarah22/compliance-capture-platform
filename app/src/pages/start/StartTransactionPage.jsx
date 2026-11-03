@@ -7,7 +7,7 @@ import TextInput from "../../components/ui/TextInput.jsx";
 import WizardFrame from "../../components/layout/WizardFrame.jsx";
 import { wizardStorageKeys, writeWizardData } from "../../components/wizardStorage.js";
 import { MAX_TRN_LENGTH } from "../../lib/austrac.js";
-import { deleteTransaction, findTransactionByRef, loadCustomers } from "../../lib/wizardApi.js";
+import { deleteTransaction, findTransactionByRef, loadCustomers, toDbScenario } from "../../lib/wizardApi.js";
 import styles from "./StartTransactionPage.module.css";
 
 // A completed transaction can't be reopened and has no read-only viewer, so re-using its ref
@@ -44,11 +44,12 @@ const StartTransactionPage = () => {
         return Object.keys(newErrors).length === 0;
     };
 
-    const handleRefBlur = async () => {
-        const ref = transactionRef.trim();
+    // A reference is unique per scenario, so once a scenario is chosen the check looks for that scenario's report.
+    // Before one is chosen it finds the newest report with the reference, as it always did.
+    const checkRef = async (ref, forServiceType, forScenario) => {
         if (!ref) return;
         try {
-            const existing = await findTransactionByRef(ref);
+            const existing = await findTransactionByRef(ref, toDbScenario(forServiceType, forScenario));
             if (existing?.status === "complete") {
                 setDraftNotice("");
                 setErrors((prev) => ({ ...prev, transactionRef: COMPLETED_REF_ERROR }));
@@ -65,9 +66,16 @@ const StartTransactionPage = () => {
         }
     };
 
+    const handleRefBlur = () => checkRef(transactionRef.trim(), serviceType, scenario);
+
     const handleScenarioChoice = (nextServiceType, nextScenario) => {
         setServiceType(nextServiceType);
         setScenario(nextScenario);
+        // The same reference can be free for this scenario and taken for the other (a mixed gold invoice).
+        if (transactionRef.trim()) {
+            setErrors((prev) => ({ ...prev, transactionRef: undefined }));
+            checkRef(transactionRef.trim(), nextServiceType, nextScenario);
+        }
     };
 
     const handleStartTransaction = async (event) => {
@@ -76,7 +84,7 @@ const StartTransactionPage = () => {
 
         setSaving(true);
         try {
-            const existing = await findTransactionByRef(transactionRef.trim());
+            const existing = await findTransactionByRef(transactionRef.trim(), toDbScenario(serviceType, scenario));
             if (existing?.status === "complete") {
                 setErrors((prev) => ({ ...prev, transactionRef: COMPLETED_REF_ERROR }));
                 return;
