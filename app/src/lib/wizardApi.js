@@ -162,8 +162,9 @@ export async function loadTransaction() {
 // transaction apart from an unused ref, since uq_tx_ref_per_entity blocks re-using either.
 // A reference is unique per scenario (a mixed gold invoice has two reports on one reference), so pass the
 // scenario (database code, see toDbScenario) to find the right one. Without it, the newest report with that
-// ref is returned.
-export async function findTransactionByRef(transactionRef, scenario) {
+// ref is returned. A draft found becomes the session's active transaction unless adopt is false (the Start page's
+// look-ahead before a scenario is chosen: it must not leave another scenario's draft active).
+export async function findTransactionByRef(transactionRef, scenario, { adopt = true } = {}) {
     let query = ttr().from("transactions").select("*").eq("transaction_ref", transactionRef);
     if (scenario) query = query.eq("scenario", scenario);
     const { data, error } = await query.order("created_at", { ascending: false }).limit(1).maybeSingle();
@@ -171,7 +172,7 @@ export async function findTransactionByRef(transactionRef, scenario) {
     if (!data) return null;
     // A completed transaction must never become the session's active transaction — it can't be
     // updated or deleted (trg_lock_completed), so adopting its id would wedge the wizard.
-    if (data.status === "draft") setTransactionId(data.id);
+    if (adopt && data.status === "draft") setTransactionId(data.id);
     return dbRowToTransaction(data);
 }
 
@@ -253,6 +254,22 @@ export async function countGoldPurchases(transactionId) {
         .select("id", { count: "exact", head: true })
         .eq("ttr_transaction_id", transactionId);
     return error ? 0 : (count ?? 0);
+}
+
+// What a gold-started draft carries for Transaction Details: its saved cash, and the cash its gold sale was paid
+// across all types (gold.ttr_linked_cash, the figure complete-transaction re-checks). null when no gold purchase
+// is linked to the draft (a wizard-started report) or gold can't be read, so the plain $10,000 rule applies.
+export async function loadGoldDraft(transactionId) {
+    const { data: linkedCash, error } = await supabase.schema("gold").rpc("ttr_linked_cash", { p_ttr: transactionId });
+    if (error || linkedCash === null || linkedCash === undefined) return null;
+    const { data: row, error: rowError } = await ttr()
+        .from("transactions")
+        .select("cash_amount, cash_currency")
+        .eq("id", transactionId)
+        .maybeSingle();
+    const cashAmount =
+        !rowError && row?.cash_currency === "AUD" && row.cash_amount != null ? String(row.cash_amount) : "";
+    return { linkedCash: Number(linkedCash), cashAmount };
 }
 
 // Another draft report on the same reference (the other half of a mixed invoice), or null.

@@ -98,6 +98,18 @@ export async function handleRequest(req: Request): Promise<Response> {
     .eq("id", tx.reporting_entity_id as string)
     .single();
 
+  // 4c. A report linked to gold purchases is exempt from the $10,000-per-report check when the sale's linked cash,
+  // across all types on the invoice, reaches $10,000 (spec 3.4: $6,000 scrap + $6,000 bullion gives two reports of
+  // $6,000). Worked out here from the gold links, never from a client value; only asked when it can matter.
+  let goldLinkedCash: number | null = null;
+  if (typeof tx.aud_value === "number" && tx.aud_value < TTR_THRESHOLD_AUD) {
+    const { data: linked } = await serviceClient.schema("gold").rpc("_ttr_linked_cash", {
+      p_entity: tx.reporting_entity_id,
+      p_ttr: transactionId,
+    });
+    if (linked !== null && linked !== undefined && Number.isFinite(Number(linked))) goldLinkedCash = Number(linked);
+  }
+
   // 5. Load all child records via service client to avoid RLS permission gaps during validation
   const [
     { data: parties },
@@ -118,7 +130,7 @@ export async function handleRequest(req: Request): Promise<Response> {
   // 6. Validate — collect all errors before returning
   const errors: ValidationError[] = [];
 
-  validateTransaction(tx, entity, errors);
+  validateTransaction(tx, entity, errors, goldLinkedCash);
   validateParties(parties ?? [], errors);
   validateConductingPersons(conductingPersons ?? [], errors);
   await validateIdVerifications(
@@ -281,8 +293,13 @@ export function validateTransaction(
   tx: Record<string, unknown>,
   entity: Record<string, unknown> | null,
   errors: ValidationError[],
+  goldLinkedCash: number | null = null,
 ) {
-  if (typeof tx.aud_value !== "number" || tx.aud_value < TTR_THRESHOLD_AUD) {
+  // goldLinkedCash: the sale's same-day linked cash across all types when gold purchases are linked to this report,
+  // else null. At $10,000 or more it waives the per-report threshold (the amount must still be above $0).
+  const exemptByGoldSale = goldLinkedCash !== null && goldLinkedCash >= TTR_THRESHOLD_AUD &&
+    typeof tx.aud_value === "number" && tx.aud_value > 0;
+  if (typeof tx.aud_value !== "number" || (tx.aud_value < TTR_THRESHOLD_AUD && !exemptByGoldSale)) {
     errors.push({ field: "aud_value", message: `AUD value must be at least $${TTR_THRESHOLD_AUD}` });
   }
   if (!tx.transaction_datetime) {

@@ -23,6 +23,8 @@ interface Stub {
   writes: string[];
   rpcResponse: { status: number; body: unknown };
   parties: Record<string, unknown>[];
+  audValue: number;
+  linkedCash: number | null; // what gold._ttr_linked_cash answers; null = no gold purchase is linked
 }
 
 function validParty(overrides: Record<string, unknown> = {}) {
@@ -62,6 +64,8 @@ function makeStub(overrides: Partial<Stub> = {}): Stub {
     writes: [],
     rpcResponse: { status: 204, body: null },
     parties: [validParty()],
+    audValue: 15000,
+    linkedCash: null,
     ...overrides,
   };
 }
@@ -90,6 +94,7 @@ function installFetch(stub: Stub): () => void {
     if (path.startsWith("/rest/v1/rpc/")) {
       const name = path.split("/").pop()!;
       stub.rpcCalls.push({ name, body: JSON.parse(String(init?.body ?? "{}")) });
+      if (name === "_ttr_linked_cash") return jsonResponse(stub.linkedCash);
       return jsonResponse(stub.rpcResponse.body, stub.rpcResponse.status);
     }
     if (method !== "GET") {
@@ -104,7 +109,7 @@ function installFetch(stub: Stub): () => void {
         id: TX_ID,
         status: "draft",
         scenario: "bullion_sell",
-        aud_value: 15000,
+        aud_value: stub.audValue,
         transaction_datetime: "2026-07-04T00:00:00Z",
         transaction_ref: "INV-1",
         designated_service: "Sale of bullion for physical cash",
@@ -196,6 +201,47 @@ Deno.test({
       assertEquals(res.status, 422);
       assert(body.errors.some((e: { field: string }) => e.field === "date_of_birth"));
       assertEquals(stub.rpcCalls, []);
+    } finally {
+      restore();
+    }
+  },
+});
+
+Deno.test({
+  name: "a $6,000 report linked to gold purchases whose sale reached $10,000 completes (spec 3.4), using the server's own figure",
+  ...OPTS,
+  fn: async () => {
+    const stub = makeStub({ audValue: 6000, linkedCash: 12000 });
+    const restore = installFetch(stub);
+    try {
+      const res = await handleRequest(completeRequest());
+      const body = await res.json();
+
+      assertEquals(res.status, 200);
+      assertEquals(body.completed, true);
+      assertEquals(stub.rpcCalls[0], {
+        name: "_ttr_linked_cash",
+        body: { p_entity: "entity-1", p_ttr: TX_ID },
+      });
+    } finally {
+      restore();
+    }
+  },
+});
+
+Deno.test({
+  name: "a $6,000 report with no gold purchase linked is still refused at the $10,000 rule",
+  ...OPTS,
+  fn: async () => {
+    const stub = makeStub({ audValue: 6000, linkedCash: null });
+    const restore = installFetch(stub);
+    try {
+      const res = await handleRequest(completeRequest());
+      const body = await res.json();
+
+      assertEquals(res.status, 422);
+      assert(body.errors.some((e: { field: string }) => e.field === "aud_value"));
+      assert(!stub.rpcCalls.some((c) => c.name === "complete_transaction"));
     } finally {
       restore();
     }

@@ -36,6 +36,7 @@ vi.mock("../lib/wizardApi.js", () => ({
     loadBullionItems: vi.fn(),
     loadConductingPerson: vi.fn(),
     loadCustomers: vi.fn(),
+    loadGoldDraft: () => Promise.resolve(null),
     loadIdVerifications: vi.fn(),
     loadPreciousMetalItems: vi.fn(),
     loadRecipientDelivery: vi.fn(),

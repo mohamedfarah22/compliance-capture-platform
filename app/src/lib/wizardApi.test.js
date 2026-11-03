@@ -802,6 +802,15 @@ describe("wizardApi", () => {
             expect(window.sessionStorage.getItem("ttr.transactionId")).toBe("tx-9");
         });
 
+        it("does not adopt the draft when asked not to (the Start page's look-ahead before a scenario is chosen)", async () => {
+            fromMock.mockReturnValue(makeBuilder({ data: rowFor("draft"), error: null }));
+
+            const result = await findTransactionByRef("INV-9", null, { adopt: false });
+
+            expect(result).toMatchObject({ transactionRef: "INV-9", status: "draft" });
+            expect(window.sessionStorage.getItem("ttr.transactionId")).toBeNull();
+        });
+
         it("returns null for an unused reference", async () => {
             fromMock.mockReturnValue(makeBuilder({ data: null, error: null }));
 

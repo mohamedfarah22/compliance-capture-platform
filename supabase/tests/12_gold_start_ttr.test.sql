@@ -128,7 +128,7 @@ create function pg_temp.start_as(p_purchase uuid, p_entity uuid default '1111111
         'service_role')
 $$;
 
-select plan(63);
+select plan(71);
 
 -- ─── Grants ──────────────────────────────────────────────────────────────────────────────
 select is((select bool_and(has_function_privilege('service_role', f, 'execute')) from unnest(array[
@@ -340,6 +340,30 @@ where transaction_id = (select id from ttr.transactions where transaction_ref = 
 select is((select counter_confirmed_at from ttr.id_verifications
            where transaction_id = (select id from ttr.transactions where transaction_ref = 'INV-B1')), null::timestamptz,
     'switching away from reliance clears the counter confirmation');
+
+-- ─── gold.ttr_linked_cash: the sale's cash across all types (the $10,000-per-report exemption, spec 3.4) ───────
+select pg_temp.mk_p('mxS', 'cA', 'capA', 'scrap',   'under_10k', false, 6000, 'INV-MX');
+select pg_temp.mk_p('mxB', 'cA', 'capA', 'bullion', '5k_to_10k', false, 6000, 'INV-MX');
+select is(jsonb_array_length(pg_temp.start_as(pg_temp.u('mxS')) -> 0 -> 'r'), 2, 'a $6,000 + $6,000 invoice starts two TTRs');
+select is((select cash_amount from ttr.transactions where id = (select ttr_transaction_id from gold.purchases where id = pg_temp.u('mxS'))), 6000.00,
+    'each TTR keeps its own type''s cash');
+select is(gold._ttr_linked_cash('11111111-1111-1111-1111-111111111111',
+        (select ttr_transaction_id from gold.purchases where id = pg_temp.u('mxS'))), 12000.00,
+    'the scrap TTR''s linked cash is the whole sale: 6,000 + 6,000');
+select is(gold._ttr_linked_cash('11111111-1111-1111-1111-111111111111',
+        (select ttr_transaction_id from gold.purchases where id = pg_temp.u('mxB'))), 12000.00,
+    'and so is the bullion TTR''s');
+select is(gold._ttr_linked_cash('22222222-2222-2222-2222-222222222222',
+        (select ttr_transaction_id from gold.purchases where id = pg_temp.u('mxS'))), null::numeric,
+    'another business gets nothing for it');
+select is(gold._ttr_linked_cash('11111111-1111-1111-1111-111111111111', pg_temp.u('no-such-ttr')), null::numeric,
+    'a TTR no gold purchase points at (a wizard-started report) gets NULL, so the plain $10,000 rule applies');
+select is(pg_temp.q_as('a1111111-1111-1111-1111-111111111111', 'aal2', format('select gold.ttr_linked_cash(%L) as v',
+        (select ttr_transaction_id from gold.purchases where id = pg_temp.u('mxB')))) -> 0 ->> 'v', '12000.00',
+    'a staff member at aal2 reads it for their own business');
+select is(pg_temp.q_as('a2222222-2222-2222-2222-222222222222', 'aal2', format('select gold.ttr_linked_cash(%L) as v',
+        (select ttr_transaction_id from gold.purchases where id = pg_temp.u('mxB')))) -> 0 -> 'v', 'null'::jsonb,
+    'staff of another business read NULL');
 
 select * from finish();
 rollback;

@@ -499,3 +499,36 @@ Deno.test("a failed lookup is swallowed so completion is never rolled back by cl
   assertEquals(state.removed, []);
   assertEquals(state.updated, []);
 });
+
+// ─── Gold sale exemption (spec 3.4): $6,000 + $6,000 on one invoice ─────────
+
+Deno.test("an amount under $10,000 is refused when no gold purchase is linked", () => {
+  const errors: ValidationError[] = [];
+  validateTransaction(makeTx({ aud_value: 6000 }), VALID_ENTITY, errors, null);
+
+  assert(errors.some((e) => e.field === "aud_value"));
+});
+
+Deno.test("an amount under $10,000 is refused when the gold sale's linked cash is also under $10,000", () => {
+  const errors: ValidationError[] = [];
+  validateTransaction(makeTx({ aud_value: 6000 }), VALID_ENTITY, errors, 9999.99);
+
+  assert(errors.some((e) => e.field === "aud_value"));
+});
+
+Deno.test("an amount under $10,000 passes when the gold sale's linked cash across all types reaches $10,000", () => {
+  const errors: ValidationError[] = [];
+  validateTransaction(makeTx({ aud_value: 6000 }), VALID_ENTITY, errors, 12000);
+
+  assert(!errors.some((e) => e.field === "aud_value"));
+});
+
+Deno.test("the gold exemption never lets a zero or missing amount through", () => {
+  const zero: ValidationError[] = [];
+  validateTransaction(makeTx({ aud_value: 0 }), VALID_ENTITY, zero, 12000);
+  assert(zero.some((e) => e.field === "aud_value"));
+
+  const missing: ValidationError[] = [];
+  validateTransaction(makeTx({ aud_value: null }), VALID_ENTITY, missing, 12000);
+  assert(missing.some((e) => e.field === "aud_value"));
+});

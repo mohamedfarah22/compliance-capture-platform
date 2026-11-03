@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Button from "../../components/ui/Button.jsx";
 import ChoiceCard from "../../components/ui/ChoiceCard.jsx";
@@ -32,6 +32,8 @@ const StartTransactionPage = () => {
     const [errors, setErrors] = useState({});
     const [saving, setSaving] = useState(false);
     const [draftNotice, setDraftNotice] = useState("");
+    // The scenario as it is now, for a look-up that finishes after the staff member has chosen one.
+    const chosenRef = useRef({ serviceType: "bullion", scenario: "" });
 
     const validateForm = () => {
         const newErrors = {};
@@ -49,11 +51,26 @@ const StartTransactionPage = () => {
     const checkRef = async (ref, forServiceType, forScenario) => {
         if (!ref) return;
         try {
-            const existing = await findTransactionByRef(ref, toDbScenario(forServiceType, forScenario));
+            const dbScenario = toDbScenario(forServiceType, forScenario);
+            const existing = forScenario
+                ? await findTransactionByRef(ref, dbScenario)
+                : await findTransactionByRef(ref, dbScenario, { adopt: false });
+            // Typed before a scenario was chosen: if one was chosen while this ran, the report found is only
+            // used when it is that scenario's. Otherwise the scenario's own check (handleScenarioChoice) decides.
+            const chosen = chosenRef.current;
+            if (
+                !forScenario &&
+                chosen.scenario &&
+                existing &&
+                (existing.scenario !== chosen.scenario || (existing.serviceType || "bullion") !== chosen.serviceType)
+            ) {
+                return;
+            }
             if (existing?.status === "complete") {
                 setDraftNotice("");
                 setErrors((prev) => ({ ...prev, transactionRef: COMPLETED_REF_ERROR }));
             } else if (existing) {
+                chosenRef.current = { serviceType: existing.serviceType || "bullion", scenario: existing.scenario };
                 setScenario(existing.scenario);
                 setServiceType(existing.serviceType || "bullion");
                 setDateTime(existing.dateTime);
@@ -69,6 +86,7 @@ const StartTransactionPage = () => {
     const handleRefBlur = () => checkRef(transactionRef.trim(), serviceType, scenario);
 
     const handleScenarioChoice = (nextServiceType, nextScenario) => {
+        chosenRef.current = { serviceType: nextServiceType, scenario: nextScenario };
         setServiceType(nextServiceType);
         setScenario(nextScenario);
         // The same reference can be free for this scenario and taken for the other (a mixed gold invoice).
@@ -125,6 +143,7 @@ const StartTransactionPage = () => {
     const handleCancel = async () => {
         if (!window.confirm("Cancel transaction creation? Any entered data will be lost.")) return;
         await deleteTransaction();
+        chosenRef.current = { serviceType: "bullion", scenario: "" };
         setScenario("");
         setServiceType("bullion");
         setTransactionRef("");
