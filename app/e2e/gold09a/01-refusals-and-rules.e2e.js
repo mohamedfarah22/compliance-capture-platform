@@ -1,6 +1,6 @@
 // Gold Phase 9a UAT, sections A and B of docs/uat-gold-09a-ttr-handoff.md: who may call gold-start-ttr (9.2 to 9.7)
 // and the rules the server works out again whatever the client says (9.8 to 9.11). 9.1 (flag off) is a Deno test.
-// Rows 9.59 to 9.61 were added by UAT from spec 3.2, 3.4 and 4.3.
+// Rows 9.59 to 9.61 and 9.71 were added by UAT from spec 3.2, 3.4 and 4.3.
 import { expect, test } from '@playwright/test'
 import { randomUUID } from 'node:crypto'
 import { sql } from '../support/db.js'
@@ -212,6 +212,38 @@ test.describe('Added by UAT', () => {
     for (const p of [a, b]) {
       const r = await startTtr(t1, { purchaseId: p.body.purchaseId })
       expect([r.status, r.body.error]).toEqual([422, 'not_reportable'])
+    }
+    expect(await ttrSnap()).toEqual(before)
+  })
+
+  test('9.71 (added by UAT, spec 3.4 and 4.3 "recalculated on the server") — the $10,000 total is worked out from the linked cash, whatever the stored flags say', async () => {
+    const c = await customer()
+    const part = (number, amount) => {
+      const id = randomUUID()
+      return sql`
+        insert into gold.purchases (id, reporting_entity_id, customer_id, main_id_verification_id, purchase_type, cash_band,
+            cash_10k_or_more, cash_amount, erp_invoice_no, sale_date, phone, id_sighted, created_by_staff_id)
+        values (${id}, ${E1}, ${c.id}, ${c.verId}, 'scrap', 'under_10k', false, ${amount}, ${number},
+            (now() at time zone 'Australia/Melbourne')::date, '0411 111 111', true, ${S1})
+        returning id`.then(([r]) => r.id)
+    }
+    const started = async (...amounts) => {
+      const number = inv('71')
+      const ids = []
+      for (const a of amounts) ids.push(await part(number, a))
+      return startTtr(t1, { purchaseId: ids[0] })
+    }
+    // Written directly, with every flag false: gold-save-purchase would have flagged the part that reaches $10,000.
+    const single = await started(10000)
+    expect(single.status, single.text).toBe(200)
+    expect(await txRow(single.body.ttrs[0].id)).toMatchObject({ cash_amount: 10000 })
+    const two = await started(5000, 5000)
+    expect(two.status, two.text).toBe(200)
+    expect(await txRow(two.body.ttrs[0].id)).toMatchObject({ cash_amount: 10000 })
+    const before = await ttrSnap()
+    for (const amounts of [[9999.99], [5000, 4999.99]]) {
+      const r = await started(...amounts)
+      expect([r.status, r.body.error], amounts.join('+')).toEqual([422, 'not_reportable'])
     }
     expect(await ttrSnap()).toEqual(before)
   })

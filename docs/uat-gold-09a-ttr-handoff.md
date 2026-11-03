@@ -189,6 +189,7 @@ Batches are made by `generate-austrac-report` from gold-started TTRs that staff 
 | 9.68 | §3.4 Start page | Typing the reference first and then choosing Buy bullion keeps bullion and shows the completed message, even when a precious metal draft exists | A6 `9.68`. **DEFECT D4** |
 | 9.69 | §3.3 "fully prefilled" | Case A with the cash typed on Transaction Details: Party Details complete, Review shows the gold source, the TTR completes | A5 `9.69` |
 | 9.70 | §3.4 | Both TTRs of the spec's mixed invoice ($6,000 + $6,000) can be completed through `complete-transaction` | A9 `9.70`. **DEFECT D3** |
+| 9.71 | §3.4, §4.3 "recalculated on the server" | The $10,000 total is worked out from the linked cash whatever the stored flags say: parts written with every flag false, a single $10,000.00 or two of $5,000 start a TTR; $9,999.99 and $5,000 + $4,999.99 are **422 `not_reportable`**. (9.9 and 9.60 start from parts `gold-save-purchase` has flagged, so they prove the flag path; this row proves the server's own total) | A1 `9.71` |
 
 (9.62 was not used.)
 

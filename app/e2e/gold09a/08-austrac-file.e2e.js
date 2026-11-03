@@ -144,8 +144,8 @@ test.describe('K · AUSTRAC file', () => {
   test("9.54 — the single-type report's customer, address and occupation come from Jane's copied party, and the transaction date is the purchase's", async () => {
     const x = blocks['INV-S1'][0]
     expect(x).toContain(`<fullName>Jane ${made.jane.last}</fullName>`)
-    expect(x).toContain('<occupation>Jeweller</occupation>')
-    expect(x).toMatch(/<streetAddress>[^<]*1 Test St/)
+    expect(x).toContain('<occupationBusinessActivity>Jeweller</occupationBusinessActivity>')
+    expect(x).toContain('<addr>1 Test St</addr>')
     expect(x).toContain('<suburb>Coburg</suburb>')
     expect(x).toContain('<state>VIC</state>')
     expect(x).toContain('<postcode>3058</postcode>')
