@@ -19,6 +19,7 @@ const GoldCustomerPage = () => {
     const location = useLocation();
     const { staffMember, reportingEntity } = useAuth();
     const changePhoneRef = useRef(null);
+    const wasEditingPhoneRef = useRef(false);
 
     // The last customer loaded: { id, customer, images }. customer is null when that id was not found.
     const [loaded, setLoaded] = useState(null);
@@ -60,6 +61,12 @@ const GoldCustomerPage = () => {
         return () => clearTimeout(timer);
     }, [notice]);
 
+    // When the phone editor closes, the Change button is back in the DOM: put the focus on it. Not on first mount.
+    useEffect(() => {
+        if (wasEditingPhoneRef.current && !isEditingPhone) changePhoneRef.current?.focus();
+        wasEditingPhoneRef.current = isEditingPhone;
+    }, [isEditingPhone]);
+
     if (loaded?.id !== customerId) return <p className={styles.message}>Loading…</p>;
     const { customer, images } = loaded;
     if (!customer) {
@@ -79,7 +86,6 @@ const GoldCustomerPage = () => {
     const closePhoneEditor = () => {
         setIsEditingPhone(false);
         setPhoneError("");
-        setTimeout(() => changePhoneRef.current?.focus());
     };
 
     const handleSavePhone = async () => {
