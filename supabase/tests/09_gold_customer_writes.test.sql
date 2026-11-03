@@ -157,7 +157,7 @@ returns jsonb language sql as $$
         p_entity, p_staff, pg_temp.u('c_' || p_customer), p_changes))
 $$;
 
-select plan(97);
+select plan(98);
 
 -- ═══ Grants ═══════════════════════════════════════════════════════════════════════════════════
 select is((select count(*)::int from pg_proc p join pg_namespace n on n.oid = p.pronamespace
@@ -465,10 +465,14 @@ select is(pg_temp.q_as(null, 'aal2',
 select is(pg_temp.q_as('a1111111-1111-1111-1111-111111111114', 'aal2',
         format($$select public.update_customer_phone(%L, '0499 111 333')$$, pg_temp.u('c_one')))->>'sqlstate', '42501', 'an inactive staff member is refused');
 select is(pg_temp.q_as('a2222222-2222-2222-2222-222222222222', 'aal2',
-        format($$select public.update_customer_phone(%L, '0499 111 333')$$, pg_temp.u('c_one')))->>'error', 'customer_not_found',
-    'another entity''s staff cannot change this customer''s phone');
-select is(pg_temp.q_as('a1111111-1111-1111-1111-111111111111', 'aal2',
-        format($$select public.update_customer_phone(%L, '0499 111 333')$$, pg_temp.u('c_co')))->>'error', 'customer_not_found',
+        format($$select public.update_customer_phone(%L, '0499 111 333')$$, pg_temp.u('c_one')))->>'sqlstate', 'PGRST',
+    'another entity''s staff cannot change this customer''s phone (a PostgREST custom error, so HTTP 404 not 500)');
+select is((pg_temp.q_as('a2222222-2222-2222-2222-222222222222', 'aal2',
+        format($$select public.update_customer_phone(%L, '0499 111 333')$$, pg_temp.u('c_one')))->>'error')::jsonb,
+    '{"code":"P0002","message":"customer_not_found","details":null,"hint":null}'::jsonb,
+    'and the body is code P0002, message customer_not_found');
+select is((pg_temp.q_as('a1111111-1111-1111-1111-111111111111', 'aal2',
+        format($$select public.update_customer_phone(%L, '0499 111 333')$$, pg_temp.u('c_co')))->>'error')::jsonb->>'message', 'customer_not_found',
     'a company customer is refused');
 select is(pg_temp.q_as('a1111111-1111-1111-1111-111111111111', 'aal2',
         format($$select public.update_customer_phone(%L, '(03) 9123 4567') as changed$$, pg_temp.u('c_one')))->0->>'changed', 'true',
