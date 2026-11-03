@@ -27,6 +27,7 @@ export default defineConfig({
     { name: 'part0', testDir: './e2e/part0' },
     { name: 'phase4', testDir: './e2e/phase4' },
     { name: 'part1', testDir: './e2e/part1' },
+    { name: 'gold06', testDir: './e2e/gold06' },
     { name: 'gold07', testDir: './e2e/gold07' },
   ],
   webServer: {

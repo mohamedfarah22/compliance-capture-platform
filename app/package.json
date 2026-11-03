@@ -11,10 +11,11 @@
     "test": "vitest --run",
     "format": "prettier --write src ../supabase/functions/_shared/goldRules.js --config .prettierrc",
     "format:check": "prettier --check src ../supabase/functions/_shared/goldRules.js --config .prettierrc",
-    "uat": "npm run uat:part0 && npm run uat:phase4 && npm run uat:part1 && npm run uat:gold07",
+    "uat": "npm run uat:part0 && npm run uat:phase4 && npm run uat:part1 && npm run uat:gold06 && npm run uat:gold07",
     "uat:part0": "npx supabase db reset && npx supabase test db && playwright test --project=part0",
     "uat:phase4": "npx supabase db reset && playwright test --project=phase4",
     "uat:part1": "npx supabase db reset && playwright test --project=part1",
+    "uat:gold06": "npx supabase db reset && playwright test --project=gold06",
     "uat:gold07": "npx supabase db reset && playwright test --project=gold07"
   },
   "dependencies": {
