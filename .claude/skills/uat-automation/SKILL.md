@@ -113,6 +113,18 @@ Otherwise write your own.
 
 Every test must be seen failing once, but one break may cover all the rows that prove the same behaviour.
 
+**Choose the cheaper check where it is enough:**
+
+| Row | Check |
+|---|---|
+| A server rule **this phase adds or changes**: refusal, server re-check, audit row, atomicity, concurrency, immutability | **Production break** (steps below) |
+| A rule the **screen enforces itself**: validation, a boundary, a client-side refusal, an image size limit, a role gate in the page | **Production break** |
+| A plain screen check: text shows, a link goes to the right page, a prefill, a label, a focus move, layout | **Expectation flip**: change the expected value in the test (text, URL, count, status), see it fail on that assertion, revert |
+| Behaviour from **code this phase didn't change** (an earlier phase's function, RPC, RLS or trigger) | **Expectation flip**. Never break earlier phases' code: their own UAT already proved it, and an edge-function break costs a runtime restart |
+
+An expectation flip needs no `db reset`. Run the one test directly, under the lock: `npx playwright test --project=<phase> -g "<row id>"`.
+
+For a production break:
 1. Make the smallest production change that should violate the behaviour: flip a comparison, drop a check, grant a role, delete a trigger line.
 2. Run its tests and confirm each fails **with a message about that row's behaviour**. A setup error doesn't count.
 3. Revert with `git checkout -- <file>`, re-run, and confirm they pass.
@@ -123,7 +135,7 @@ Every test must be seen failing once, but one break may cover all the rows that 
 - Never re-run a batch that already gave a clear result.
 - After each batch, commit your test changes locally and add one line to a progress note at the bottom of the sheet (batches done, breaks left). A stall or rate limit then loses nothing, and a resume starts where you stopped.
 
-Record each break in your report, one line per behaviour: `6.38, 6.39, 6.111: phone minimum 8 → 7 → all three failed (201 ≠ 400)`.
+Record each break in your report, one line per behaviour: `6.38, 6.39, 6.111: phone minimum 8 → 7 → all three failed (201 ≠ 400)`. List expectation flips as one line of row IDs: `flips: 8a.4, 8a.13, 8a.56 — each failed on its assertion`.
 
 **Re-verifying a fix** (after the implementer fixes a defect you reported):
 1. `git pull --ff-only`, and read the fix.
