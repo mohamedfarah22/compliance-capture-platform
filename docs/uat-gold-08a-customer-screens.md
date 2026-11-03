@@ -35,11 +35,11 @@ Run from this worktree's `app/`: after `supabase start` from another worktree th
 
 **Where a row differs from the sheet's first wording** (expectation unchanged): the camera dialog's buttons are "Cancel" and "Take photo" (the sheet said "Close", 8a.38); the three reasons on Update ID read "Renewed: same document, new expiry date", "The customer presented a different document" and "The stored photo is unclear" (8a.39). A third letter cannot be typed in a country box (it stops at 2 characters), so 8a.24 checks `A` and `1A` as refused and `AUS` as capped to `AU`.
 
-**Defects found by UAT (their tests stay red until fixed)**
+**Defects found by UAT (a defect's test stays red until it is fixed)**
 
 | ID | Row | Expected | Actual | Cause and a fix that makes the test pass |
 |---|---|---|---|---|
-| D1 | 8a.53 | After saving a new phone with Enter, "the focus returns to Change" | Focus stays on the page body (nothing focused) | `GoldCustomerPage.jsx` `closePhoneEditor` runs `setTimeout(() => changePhoneRef.current?.focus())` straight after `setIsEditingPhone(false)` inside an async handler. React has not yet re-rendered the "Change" button, so `changePhoneRef.current` is `null`. The Escape path works (a discrete event flushes first). UAT checked that `setTimeout(..., 100)` makes the test pass, then reverted it. A robust fix: focus in a `useEffect` that runs when `isEditingPhone` turns false. Test: `app/e2e/gold08a/07-customer-page.e2e.js` › "8a.53 — after saving a new phone with Enter the focus returns to "Change"" |
+| D1 **fixed in aa01de9** | 8a.53 | After saving a new phone with Enter, "the focus returns to Change" | Focus stays on the page body (nothing focused) | `GoldCustomerPage.jsx` `closePhoneEditor` runs `setTimeout(() => changePhoneRef.current?.focus())` straight after `setIsEditingPhone(false)` inside an async handler. React has not yet re-rendered the "Change" button, so `changePhoneRef.current` is `null`. The Escape path works (a discrete event flushes first). UAT checked that `setTimeout(..., 100)` makes the test pass, then reverted it. A robust fix: focus in a `useEffect` that runs when `isEditingPhone` turns false. Test: `app/e2e/gold08a/07-customer-page.e2e.js` › "8a.53 — after saving a new phone with Enter the focus returns to "Change"" |
 
 Rows 8a.1 to 8a.59 are the implementer's; **8a.60 was added by UAT** from §4.5 (the camera path must always hand on a JPEG of at most 1600 px).
 
@@ -235,4 +235,4 @@ Create one Postman request:
 
 ---
 
-**Progress note (UAT automation).** Batch 1 done: all 60 Playwright tests and the Vitest rows written and green except D1. Batch 2 done: break-and-revert for every row (client, shared rules, database functions and edge functions). Breaks left: none. Re-verify D1 after the fix (skill section 3).
+**Progress note (UAT automation).** Batch 1 done: all 60 Playwright tests and the Vitest rows written and green except D1. Batch 2 done: break-and-revert for every row (client, shared rules, database functions and edge functions). Breaks left: none. D1 re-verified after aa01de9: the focus effect was disabled, the focus test failed (`Received: inactive`), reverted, then all 60 `gold08a` tests, Vitest (649), lint and `format:check` passed.
