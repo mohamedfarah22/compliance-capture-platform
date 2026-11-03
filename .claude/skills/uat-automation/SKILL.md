@@ -141,7 +141,7 @@ Record each break in your report, one line per behaviour: `6.38, 6.39, 6.111: ph
 1. `git pull --ff-only`, and read the fix.
 2. Break the fix once and see the row fail.
 3. Revert, then run only your phase project (`npm run uat:<phase>`), plus the Vitest/Deno/pgTAP suite the fix touched. Don't run the full `npm run uat` locally: CI's `uat` job runs the whole chain on your push.
-4. Mark the defect fixed (with the commit) in the sheet and the PR body, push, and wait for CI. If `uat` goes red in another phase's project, that is the regression check doing its job: investigate it as in §6.
+4. Mark the defect fixed (with the commit) in the sheet and the PR body, push, and report the CI run as in §6 step 5 without waiting for it. If CI's `uat` then goes red in another phase's project, you'll be resumed to investigate: that is the regression check doing its job.
 
 ## 4. The shared local stack
 
@@ -240,12 +240,12 @@ Spell out every step with exact dummy data (names, DOBs, document numbers, amoun
    - rows added by UAT
    - the manual section's length
    - defects, if any
-5. **CI.** Wait for `gh pr checks <n>`.
-   - If `uat` fails in **part0** on R11/R18/R24/R27, stuck on `/id-verification`, that's known issue #20 (a StrictMode double load). Re-run the failed job once (`gh run rerun <id> --failed`) before investigating, and say so in your report.
+5. **CI. Don't wait for it.** Watching CI re-reads your whole context on every check. After your push, get the run's ID and URL once (`gh run list --branch <branch> --limit 1`), put them in your report, and stop. The user watches CI. If it goes red in a way the local runs didn't show, you'll be resumed with the failing job's log to investigate.
+   - Put this in the report for the user: if `uat` fails in **part0** on R11/R18/R24/R27, stuck on `/id-verification`, that's known issue #20 (a StrictMode double load). Re-run the failed job once (`gh run rerun <id> --failed`) before investigating.
 6. **Report**, concisely:
    - rows automated (count per layer)
    - rows added (ID, spec clause, passed or defect) and any spec questions
    - break-and-revert lines
    - **defects** (row, expected, actual, evidence)
    - files committed
-   - the final CI status
+   - the CI run ID and URL for your last push (not its result)

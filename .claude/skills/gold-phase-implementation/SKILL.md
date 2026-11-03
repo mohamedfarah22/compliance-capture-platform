@@ -139,3 +139,4 @@ You get a row ID, expected and actual results, and evidence.
 - Run **UAT agents one at a time**. They queue on the one local stack, so two at once doesn't save time.
 - Route each defect back to the implementer, then have the UAT agent re-verify.
 - Never clear the stack lock while an agent might still be running (see `uat-automation` §4).
+- Don't watch CI, and don't keep an agent alive to watch it. The UAT agent reports the run link and stops; the user watches CI and says when it's green or red. Resume the agent only to investigate a red run.
