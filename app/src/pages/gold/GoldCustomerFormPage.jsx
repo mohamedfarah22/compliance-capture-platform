@@ -348,6 +348,9 @@ const GoldCustomerFormPage = ({ mode = "create" }) => {
                     {label}
                 </label>
             ))}
+            {["renewed", "photo_unclear"].includes(form.reason) ? (
+                <p className={styles.hint}>The old photos of this document are replaced when the new ones are saved.</p>
+            ) : null}
             {errors.reason ? <p className={styles.error}>{errors.reason}</p> : null}
         </fieldset>
     );
@@ -362,8 +365,8 @@ const GoldCustomerFormPage = ({ mode = "create" }) => {
                     helperText: "The licence number, not the card number.",
                     onBlur: checkIdOwner,
                 })}
-                {renderText("issuer", "Issuing state or authority", {
-                    helperText: "For example VIC for a Victorian driver licence.",
+                {renderText("issuer", "Issuer", {
+                    helperText: "The state or authority that issued it, for example VIC for a Victorian licence.",
                 })}
                 {renderText("idCountryCode", "Country of issue", { helperText: COUNTRY_HINT, maxLength: 2 })}
                 <FormField error={errors.hasExpiry ?? ""}>

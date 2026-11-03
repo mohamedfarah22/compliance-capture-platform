@@ -95,7 +95,7 @@ const fillPerson = async (user) => {
 
 const fillId = async (user) => {
     await user.type(screen.getByLabelText("ID number"), "012345678");
-    await user.type(screen.getByLabelText("Issuing state or authority"), "VIC");
+    await user.type(screen.getByLabelText("Issuer"), "VIC");
     await user.click(screen.getByRole("radio", { name: "Yes" }));
     await user.type(screen.getByLabelText("ID expiry date"), "01/01/2099");
     await uploadFront(user);
@@ -133,7 +133,7 @@ describe("GoldCustomerFormPage: create", () => {
             "Postcode",
             "ID type",
             "ID number",
-            "Issuing state or authority",
+            "Issuer",
             "Country of issue",
         ]) {
             expect(screen.getByLabelText(label)).toBeInTheDocument();
@@ -439,6 +439,9 @@ describe("GoldCustomerFormPage: update ID", () => {
 
         await user.click(screen.getByRole("radio", { name: /Renewed/ }));
         expect(screen.getByLabelText("ID number")).toHaveValue("012345678");
+        expect(screen.getByText(/old photos of this document are replaced/)).toBeInTheDocument();
+        await user.click(screen.getByRole("radio", { name: /different document/ }));
+        expect(screen.queryByText(/old photos of this document are replaced/)).not.toBeInTheDocument();
     });
 
     it("records a renewal: same number, new expiry, new photos", async () => {
@@ -485,7 +488,7 @@ describe("GoldCustomerFormPage: update ID", () => {
         await user.click(await screen.findByRole("radio", { name: /different document/ }));
 
         expect(screen.getByLabelText("ID number")).toHaveValue("");
-        expect(screen.getByLabelText("Issuing state or authority")).toHaveValue("");
+        expect(screen.getByLabelText("Issuer")).toHaveValue("");
     });
 
     it("shows the server's answer when the document is not on file", async () => {
@@ -510,7 +513,7 @@ describe("GoldCustomerFormPage: update ID", () => {
         open();
         await user.click(await screen.findByRole("radio", { name: /different document/ }));
         await user.type(screen.getByLabelText("ID number"), "PA1");
-        await user.type(screen.getByLabelText("Issuing state or authority"), "AU");
+        await user.type(screen.getByLabelText("Issuer"), "AU");
         await user.click(screen.getByRole("radio", { name: "No" }));
         await uploadFront(user);
         await uploadBack(user);
@@ -532,7 +535,7 @@ describe("GoldCustomerFormPage: update ID", () => {
         expect(screen.queryByRole("radio", { name: /Renewed/ })).not.toBeInTheDocument();
 
         await user.type(screen.getByLabelText("ID number"), "PA1");
-        await user.type(screen.getByLabelText("Issuing state or authority"), "AU");
+        await user.type(screen.getByLabelText("Issuer"), "AU");
         await user.click(screen.getByRole("radio", { name: "No" }));
         await uploadFront(user);
         await uploadBack(user);
