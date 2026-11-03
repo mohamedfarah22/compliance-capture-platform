@@ -58,7 +58,7 @@ jobs:
       - run: pip install xmlschema
       - uses: supabase/setup-cli@v1
         with:
-          version: latest
+          version: 2.122.1
       # The exact Postgres both cloud projects run (dev rygjssczdoyvmumxmymc and client
       # ykerufaergyqvnaycyce). `supabase link` writes this file locally; CI cannot link, so
       # it is pinned here. Update it when Supabase upgrades those projects.
