@@ -43,6 +43,7 @@
     "otpauth": "^9.5.2",
     "postgres": "^4.0.0",
     "prettier": "3.9.10",
+    "supabase": "^2.122.1",
     "vite": "^8.0.10",
     "vitest": "^2.1.9"
   }
