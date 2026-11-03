@@ -210,6 +210,8 @@ test.describe('L · audit and the browser\'s read-only access', () => {
       sale_date: '2026-01-01',
       phone: '0412 345 678',
       id_sighted: true,
+      id_expired_at_time: false,
+      id_outside_window_at_time: false,
       created_by_staff_id: S1,
     }
     const photoRow = {
@@ -232,8 +234,8 @@ test.describe('L · audit and the browser\'s read-only access', () => {
         {
           p_entity: E1,
           p_staff: S1,
-          p_purchase: { ...purchaseRow, id: randomUUID() },
-          p_photos: [{ object_path: 'x/goods-1.jpg', content_hash_sha256: 'h', byte_size: 1 }],
+          p_purchase: purchaseRow,
+          p_photos: [{ object_path: `${newId}/goods-1.jpg`, content_hash_sha256: 'h', byte_size: 1 }],
           p_fills: [],
         },
       ],
