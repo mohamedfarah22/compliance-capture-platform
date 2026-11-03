@@ -313,7 +313,7 @@ test('8a.30 — the same name and date of birth as a customer on file raises a p
   expect(await byLastName(last)).toHaveLength(2)
 })
 
-test('8a.31 — the same phone (any format) as another customer raises the prompt; under 8 digits cannot match', async () => {
+test('8a.31 — the same phone (any format) as another customer raises the prompt; under 8 digits (7 is the boundary) cannot match', async () => {
   const last = `Dupphone${uniq()}`
   const rest = `4${digits(2)}${digits(6)}`
   const existing = await seed({ first: 'Pia', last, phone: `0${rest}` })
@@ -330,7 +330,7 @@ test('8a.31 — the same phone (any format) as another customer raises the promp
   void existing
 
   await page.goto('/gold/customers/new')
-  await fillAll(person({ phone: '0412 34' }))
+  await fillAll(person({ phone: '0412 345' }))
   await expect(page.getByText('This may be an existing customer')).toHaveCount(0)
   await create()
   await expect(errorOf('Phone')).toHaveText('Phone number looks too short.')
