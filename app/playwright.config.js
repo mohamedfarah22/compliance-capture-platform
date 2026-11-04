@@ -30,6 +30,7 @@ export default defineConfig({
     { name: 'gold06', testDir: './e2e/gold06' },
     { name: 'gold07', testDir: './e2e/gold07' },
     { name: 'gold08a', testDir: './e2e/gold08a' },
+    { name: 'gold08b', testDir: './e2e/gold08b' },
     { name: 'gold09a', testDir: './e2e/gold09a' },
   ],
   webServer: {
