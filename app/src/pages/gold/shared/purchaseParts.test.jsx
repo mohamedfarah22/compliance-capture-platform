@@ -49,6 +49,13 @@ describe("PurchaseTags", () => {
         cleanup();
         expect(tags({ cash_10k_or_more: true, ttr_status: "complete" })).toEqual(["Scrap", "AUSTRAC"]);
     });
+
+    it("treats an unflagged part linked to a TTR as reportable (earlier part of a mixed invoice)", () => {
+        cleanup();
+        expect(tags({ cash_10k_or_more: false, ttr_status: "draft" })).toEqual(["Scrap", "AUSTRAC pending"]);
+        cleanup();
+        expect(tags({ cash_10k_or_more: false, ttr_status: "complete" })).toEqual(["Scrap", "AUSTRAC"]);
+    });
 });
 
 describe("DueLine", () => {

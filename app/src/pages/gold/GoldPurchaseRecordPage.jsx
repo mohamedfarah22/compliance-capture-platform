@@ -16,6 +16,7 @@ import {
     GOLD_ROUTES,
     Lightbox,
     PurchaseTags,
+    isAustracReportable,
     formatAud,
     formatDate,
     formatDateTime,
@@ -173,7 +174,7 @@ const GoldPurchaseRecordPage = () => {
                     {purchase.erp_invoice_no ? `ERP invoice ${purchase.erp_invoice_no}` : "No ERP invoice number yet"}
                 </p>
                 {renderAustrac()}
-                {isIncomplete && purchase.cash_10k_or_more ? <DueLine purchase={purchase} /> : null}
+                {isIncomplete && isAustracReportable(tagged) ? <DueLine purchase={purchase} /> : null}
 
                 <dl className={styles.details}>
                     <Item label="Recorded">{formatDateTime(purchase.created_at)}</Item>

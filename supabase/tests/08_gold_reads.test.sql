@@ -229,7 +229,7 @@ select pg_temp.mk_purchase('X1', pg_temp.u('cX'), pg_temp.u('capX'), '22222222-2
 select pg_temp.mk_purchase('X2', pg_temp.u('cX'), pg_temp.u('capX'), '22222222-2222-2222-2222-222222222222', pg_temp.s2(),
     p_date => '2026-10-05', p_created => '2026-10-05 12:10');
 
-select plan(119);
+select plan(126);
 
 -- ═══ customer_current_id ═══════════════════════════════════════════════════════════════════
 select is(pg_temp.scalar_as(pg_temp.s1(), 'aal2', format('(select verification_id from public.customer_current_id(%L))', pg_temp.u('cA'))),
@@ -536,6 +536,25 @@ select is((select count(*)::int from pg_proc p join pg_namespace n on n.oid = p.
              and (has_function_privilege('anon', p.oid, 'execute') or not has_function_privilege('authenticated', p.oid, 'execute')
                   or not has_function_privilege('service_role', p.oid, 'execute'))), 0,
     'every read RPC is executable by authenticated and service_role and not by anon');
+
+-- ═══ Mixed invoice: an unflagged part linked to a TTR is reportable (spec 3.2, 3.4; 8b D2) ════════════
+select pg_temp.mk_tx('t_mx1', '11111111-1111-1111-1111-111111111111', 'draft');
+select pg_temp.mk_purchase('MX1', pg_temp.u('cK'), pg_temp.u('kOld'), p_invoice => 'INV-MX', p_tx => pg_temp.u('t_mx1'));
+select pg_temp.mk_purchase('MX2', pg_temp.u('cK'), pg_temp.u('kOld'), p_invoice => 'INV-MX', p_tx => pg_temp.u('t_m2'));
+select is(pg_temp.n_as(pg_temp.s1(), 'aal2', format('select * from gold.search_gold_purchases(%L::jsonb, 1, 100) where id = %L', '{"status": "austrac_pending"}', pg_temp.u('MX1'))), 1,
+    'austrac_pending includes an unflagged part linked to a draft TTR');
+select is(pg_temp.n_as(pg_temp.s1(), 'aal2', format('select * from gold.search_gold_purchases(%L::jsonb, 1, 100) where id = %L', '{"status": "austrac_pending"}', pg_temp.u('MX2'))), 0,
+    'austrac_pending excludes an unflagged part whose TTR is complete');
+select is(pg_temp.n_as(pg_temp.s1(), 'aal2', format('select * from gold.search_gold_purchases(%L::jsonb, 1, 100) where id = %L', '{"status": "austrac"}', pg_temp.u('MX2'))), 1,
+    'austrac includes an unflagged part linked to a complete TTR');
+select is(pg_temp.n_as(pg_temp.s1(), 'aal2', format('select * from gold.search_gold_purchases(%L::jsonb, 1, 100) where id = %L', '{"status": "austrac"}', pg_temp.u('MX1'))), 0,
+    'austrac excludes an unflagged part whose TTR is a draft');
+select is(pg_temp.n_as(pg_temp.s1(), 'aal2', format('select * from gold.search_gold_purchases(%L::jsonb, 1, 100) where id = %L', '{"status": "incomplete"}', pg_temp.u('MX1'))), 1,
+    'incomplete includes an unflagged part linked to a draft TTR');
+select is(pg_temp.n_as(pg_temp.s1(), 'aal2', format('select * from gold.search_gold_purchases(%L::jsonb, 1, 100) where id = %L', '{"status": "complete"}', pg_temp.u('MX1'))), 0,
+    'complete excludes an unflagged part linked to a draft TTR');
+select is(pg_temp.n_as(pg_temp.s1(), 'aal2', format('select * from gold.search_gold_purchases(%L::jsonb, 1, 100) where id = %L', '{"status": "complete"}', pg_temp.u('MX2'))), 1,
+    'complete includes an unflagged part linked to a complete TTR');
 
 select * from finish();
 rollback;

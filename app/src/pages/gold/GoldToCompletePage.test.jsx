@@ -118,6 +118,33 @@ describe("GoldToCompletePage", () => {
         expect(await screen.findByTestId("where")).toHaveTextContent("/open-ttr/t1");
     });
 
+    it("lists an unflagged part linked to a draft TTR under AUSTRAC pending, with the due line (mixed invoice)", async () => {
+        goldApi.listIncompleteTransactions.mockResolvedValue([
+            purchaseOf({
+                id: "p1",
+                cash_10k_or_more: true,
+                erp_invoice_no: "INV-1",
+                ttr_transaction_id: "t1",
+                ttr_status: "draft",
+            }),
+            purchaseOf({
+                id: "p2",
+                purchase_type: "bullion",
+                erp_invoice_no: "INV-1",
+                ttr_transaction_id: "t2",
+                ttr_status: "draft",
+            }),
+        ]);
+        open();
+
+        const heading = await screen.findByRole("heading", { name: "AUSTRAC pending (2)" });
+        const rows = within(heading.closest("section")).getAllByRole("listitem");
+        expect(rows).toHaveLength(2);
+        expect(within(rows[1]).getByText("AUSTRAC pending")).toBeInTheDocument();
+        expect(within(rows[1]).getByText(/AUSTRAC report due/)).toBeInTheDocument();
+        expect(screen.queryByRole("heading", { name: /Other purchases/ })).not.toBeInTheDocument();
+    });
+
     it("shows what went wrong when the report could not be started, and stays on the list", async () => {
         const user = userEvent.setup();
         goldApi.listIncompleteTransactions.mockResolvedValue([

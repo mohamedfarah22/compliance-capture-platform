@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import Button from "../../components/ui/Button.jsx";
 import { getPurchaseStaffNames, goToAustracForm, listIncompleteTransactions } from "../../lib/goldApi.js";
-import { DueLine, GOLD_ROUTES, PurchaseTags, formatDateTime, goldPath } from "./shared/index.js";
+import { DueLine, GOLD_ROUTES, PurchaseTags, formatDateTime, goldPath, isAustracReportable } from "./shared/index.js";
 import styles from "./GoldToCompletePage.module.css";
 
 const NOTICE_MS = 4000;
@@ -107,7 +107,7 @@ const GoldToCompletePage = () => {
                         {staff[purchase.created_by_staff_id] ? ` by ${staff[purchase.created_by_staff_id]}` : ""} |{" "}
                         {purchase.photo_count} photo{purchase.photo_count === 1 ? "" : "s"}
                     </p>
-                    {purchase.cash_10k_or_more ? <DueLine purchase={purchase} /> : null}
+                    {isAustracReportable(purchase) ? <DueLine purchase={purchase} /> : null}
                 </div>
                 {renderAction(purchase)}
             </li>
@@ -118,8 +118,8 @@ const GoldToCompletePage = () => {
         if (!loaded) return <p className={styles.hint}>Loading…</p>;
         if (loaded.hasFailed) return <p className={styles.error}>Could not load the purchases. Try again.</p>;
         const { rows, staff } = loaded;
-        const pending = rows.filter((row) => row.cash_10k_or_more);
-        const other = rows.filter((row) => !row.cash_10k_or_more);
+        const pending = rows.filter(isAustracReportable);
+        const other = rows.filter((row) => !isAustracReportable(row));
         return (
             <>
                 {rows.length === 0 ? (

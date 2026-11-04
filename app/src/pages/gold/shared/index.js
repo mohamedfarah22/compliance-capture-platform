@@ -10,6 +10,7 @@ export { default as JointSellerPanel } from "./JointSellerPanel.jsx";
 export { default as Lightbox } from "./Lightbox.jsx";
 export { default as LinkedInvoice } from "./LinkedInvoice.jsx";
 export { default as PurchaseTags } from "./PurchaseTags.jsx";
+export { isAustracReportable } from "./purchaseAustrac.js";
 export { default as Segmented } from "./Segmented.jsx";
 export { default as YesNo } from "./YesNo.jsx";
 export { businessDaysUntil, daysUntil, formatAud, formatDate, formatDateTime } from "./format.js";
