@@ -229,7 +229,7 @@ select pg_temp.mk_purchase('X1', pg_temp.u('cX'), pg_temp.u('capX'), '22222222-2
 select pg_temp.mk_purchase('X2', pg_temp.u('cX'), pg_temp.u('capX'), '22222222-2222-2222-2222-222222222222', pg_temp.s2(),
     p_date => '2026-10-05', p_created => '2026-10-05 12:10');
 
-select plan(113);
+select plan(119);
 
 -- ═══ customer_current_id ═══════════════════════════════════════════════════════════════════
 select is(pg_temp.scalar_as(pg_temp.s1(), 'aal2', format('(select verification_id from public.customer_current_id(%L))', pg_temp.u('cA'))),
@@ -430,6 +430,9 @@ select is(pg_temp.sgp('{"q": "alice", "status": "incomplete"}'), pg_temp.ids('M1
 select is(pg_temp.sgp_n('{"q": "a"}'), 0, 'q under two characters matches nothing');
 select is(pg_temp.sgp('{"q": "  "}'), pg_temp.ids('M2','M1','L7','L6','L5','L4','L3','L2','L1'), 'a blank q is no filter');
 select is(pg_temp.sgp_n('{"q": "nobody"}'), 0, 'q with no match');
+select is(pg_temp.sgp('{"q": "inv-78"}'), pg_temp.ids('L4'), 'q finds an invoice number, case-insensitively (8b)');
+select is(pg_temp.sgp('{"q": "inv-9"}'), pg_temp.ids('M2','M1'), 'q finds part of an invoice number, newest first (8b)');
+select is(pg_temp.sgp('{"q": "inv-9", "type": "bullion"}'), pg_temp.ids('M2'), 'an invoice q combines with the other filters (8b)');
 select is(pg_temp.q_as(pg_temp.s1(), 'aal2', format($q$select customer_first_name, customer_last_name, joint_customer_first_name, joint_customer_last_name, ttr_status, ttr_transaction_ref
         from gold.search_gold_purchases('{}', 1, 100) where id = %L$q$, pg_temp.u('L2'))),
     jsonb_build_array(jsonb_build_object('customer_first_name', 'Bob', 'customer_last_name', 'Beta', 'joint_customer_first_name', 'Alice',
@@ -454,6 +457,12 @@ select is(pg_temp.col_as(pg_temp.s1(), 'aal2', 'select staff_member_id, full_nam
     'staff who recorded purchases, by name');
 select is(pg_temp.col_as(pg_temp.s2(), 'aal2', 'select staff_member_id, full_name from gold.list_recorded_by()', 'full_name'), 'Staff Two', 'only in the caller''s entity');
 select is(pg_temp.n_as(pg_temp.s1(), 'aal1', 'select * from gold.list_recorded_by()'), 0, 'aal1 sees nothing');
+
+-- ═══ gold.list_purchase_staff (recorders and completers; 8b) ══════════════════════════════
+select is(pg_temp.col_as(pg_temp.s1(), 'aal2', 'select staff_member_id, full_name from gold.list_purchase_staff()', 'full_name'), 'Manager One,Staff One',
+    'staff who recorded or completed purchases, by name');
+select is(pg_temp.col_as(pg_temp.s2(), 'aal2', 'select staff_member_id, full_name from gold.list_purchase_staff()', 'full_name'), 'Staff Two', 'only in the caller''s entity');
+select is(pg_temp.n_as(pg_temp.s1(), 'aal1', 'select * from gold.list_purchase_staff()'), 0, 'aal1 sees nothing');
 
 -- ═══ gold.purchase_id_used ════════════════════════════════════════════════════════════════
 select pg_temp.mk_cust('cK', '11111111-1111-1111-1111-111111111111', 'Kay', 'Kilo', '1979-01-01', '0412 999 000');

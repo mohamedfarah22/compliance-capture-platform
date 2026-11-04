@@ -7,9 +7,13 @@ import ConductingPersonPage from "./pages/conducting-person/ConductingPersonPage
 import CustomerSearchPage from "./pages/customers/CustomerSearchPage.jsx";
 import CreateCustomerPage from "./pages/customers/create/CreateCustomerPage.jsx";
 import GoldCustomerFormPage from "./pages/gold/GoldCustomerFormPage.jsx";
+import GoldCompletePurchasePage from "./pages/gold/GoldCompletePurchasePage.jsx";
 import GoldCustomerPage from "./pages/gold/GoldCustomerPage.jsx";
 import GoldLayout from "./pages/gold/GoldLayout.jsx";
+import GoldPurchaseRecordPage from "./pages/gold/GoldPurchaseRecordPage.jsx";
+import GoldPurchasesPage from "./pages/gold/GoldPurchasesPage.jsx";
 import GoldSearchPage from "./pages/gold/GoldSearchPage.jsx";
+import GoldToCompletePage from "./pages/gold/GoldToCompletePage.jsx";
 import { GOLD_ROUTES } from "./pages/gold/shared/index.js";
 import { OPEN_TTR_ROUTE } from "./lib/ttrRoutes.js";
 import IdVerificationPage from "./pages/id-verification/IdVerificationPage.jsx";
@@ -72,6 +76,10 @@ export const AppRoutes = () => {
                 <Route path={GOLD_ROUTES.customer} element={<GoldCustomerPage />} />
                 <Route path={GOLD_ROUTES.updateId} element={<GoldCustomerFormPage mode="update" />} />
                 <Route path={GOLD_ROUTES.editCustomer} element={<GoldCustomerFormPage mode="edit" />} />
+                <Route path={GOLD_ROUTES.toComplete} element={<GoldToCompletePage />} />
+                <Route path={GOLD_ROUTES.completePurchase} element={<GoldCompletePurchasePage />} />
+                <Route path={GOLD_ROUTES.purchases} element={<GoldPurchasesPage />} />
+                <Route path={GOLD_ROUTES.purchase} element={<GoldPurchaseRecordPage />} />
                 <Route path="*" element={<Navigate to={GOLD_ROUTES.search} replace />} />
             </Route>
             <Route

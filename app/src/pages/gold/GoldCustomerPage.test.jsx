@@ -7,12 +7,16 @@ import { GoldApiError } from "../../lib/goldApi.js";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { makeAuthValue } from "../../test/testUtils.jsx";
 import GoldCustomerPage from "./GoldCustomerPage.jsx";
+import { GoldDraftProvider } from "./shared/index.js";
 
 vi.mock("../../lib/goldApi.js", async (importOriginal) => ({
     ...(await importOriginal()),
     getCustomer: vi.fn(),
     getCustomerIdImages: vi.fn(),
     updateCustomerPhone: vi.fn(),
+    getTtrReadiness: vi.fn(),
+    listTransactions: vi.fn(),
+    getCustomerNames: vi.fn(),
 }));
 vi.mock("../../context/AuthContext.jsx", () => ({ useAuth: vi.fn() }));
 vi.mock("../../lib/supabase.js", () => ({ supabase: {} }));
@@ -59,20 +63,22 @@ const Where = () => <p data-testid="where">{useLocation().pathname}</p>;
 const open = ({ entry = "/gold/customers/c1" } = {}) =>
     render(
         <MemoryRouter initialEntries={[entry]}>
-            <Routes>
-                <Route path="/gold" element={<SearchLanding />} />
-                <Route
-                    path="/gold/customers/:customerId"
-                    element={
-                        <>
-                            <GoldCustomerPage />
-                            <Where />
-                        </>
-                    }
-                />
-                <Route path="/gold/customers/:customerId/update-id" element={<UpdateIdLanding />} />
-                <Route path="/gold/customers/:customerId/edit" element={<EditLanding />} />
-            </Routes>
+            <GoldDraftProvider>
+                <Routes>
+                    <Route path="/gold" element={<SearchLanding />} />
+                    <Route
+                        path="/gold/customers/:customerId"
+                        element={
+                            <>
+                                <GoldCustomerPage />
+                                <Where />
+                            </>
+                        }
+                    />
+                    <Route path="/gold/customers/:customerId/update-id" element={<UpdateIdLanding />} />
+                    <Route path="/gold/customers/:customerId/edit" element={<EditLanding />} />
+                </Routes>
+            </GoldDraftProvider>
         </MemoryRouter>
     );
 
@@ -87,6 +93,9 @@ beforeEach(() => {
         front: "https://signed/front.jpg",
         back: "https://signed/back.jpg",
     });
+    goldApi.getTtrReadiness.mockResolvedValue([]);
+    goldApi.listTransactions.mockResolvedValue([]);
+    goldApi.getCustomerNames.mockResolvedValue({});
 });
 afterEach(cleanup);
 
@@ -134,20 +143,23 @@ describe("GoldCustomerPage: details", () => {
         expect(screen.getByRole("link", { name: "Back to Find customer" })).toHaveAttribute("href", "/gold");
     });
 
-    it("has a placeholder where the purchase form goes, and Back to search", async () => {
+    it("has the purchase form and the history beside the details, and Back to search", async () => {
         open();
 
         await screen.findByRole("heading", { name: "Jane Q Citizen" });
-        expect(screen.getByTestId("purchase-form-placeholder")).toHaveTextContent("Recording purchases is coming");
+        expect(screen.getByRole("heading", { name: "Record purchase" })).toBeInTheDocument();
+        expect(await screen.findByText("No purchases recorded for this customer yet.")).toBeInTheDocument();
         expect(screen.getByRole("link", { name: "Back to search" })).toHaveAttribute("href", "/gold");
     });
 
     it("shows a notice handed on by the screen before, once", async () => {
         render(
             <MemoryRouter initialEntries={[{ pathname: "/gold/customers/c1", state: { notice: "Customer created" } }]}>
-                <Routes>
-                    <Route path="/gold/customers/:customerId" element={<GoldCustomerPage />} />
-                </Routes>
+                <GoldDraftProvider>
+                    <Routes>
+                        <Route path="/gold/customers/:customerId" element={<GoldCustomerPage />} />
+                    </Routes>
+                </GoldDraftProvider>
             </MemoryRouter>
         );
 

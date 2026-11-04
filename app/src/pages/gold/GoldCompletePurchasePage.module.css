@@ -1,0 +1,166 @@
+.message {
+    text-align: center;
+}
+
+.card {
+    display: grid;
+    gap: 1.25rem;
+    width: min(100%, 48rem);
+    margin: 0 auto;
+    border: 1px solid var(--color-border-soft);
+    border-radius: var(--radius-lg);
+    background: var(--color-surface);
+    padding: 2rem;
+    box-shadow: var(--shadow-soft);
+}
+
+.back {
+    justify-self: start;
+    color: var(--color-muted);
+    font-size: 0.875rem;
+    font-weight: 500;
+    text-decoration: none;
+}
+
+.back:hover {
+    color: var(--color-text);
+}
+
+.heading {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.title {
+    margin: 0;
+    font-size: 1.5rem;
+}
+
+.hint {
+    margin: 0;
+    color: var(--color-muted);
+    font-size: 0.875rem;
+}
+
+.error {
+    margin: 0;
+    color: var(--color-danger);
+    font-weight: 600;
+}
+
+.warning {
+    margin: 0.375rem 0 0;
+    color: #92400e;
+    font-size: 0.8125rem;
+    font-weight: 600;
+}
+
+.sellers {
+    display: grid;
+    gap: 0.5rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.seller {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    border: 1px solid var(--color-border-soft);
+    border-radius: var(--radius-md);
+    padding: 1rem;
+    font-size: 0.875rem;
+}
+
+.seller > span {
+    display: grid;
+}
+
+.role,
+.label {
+    color: var(--color-muted);
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.photos {
+    display: grid;
+    gap: 0.5rem;
+}
+
+.photoList {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(6rem, 1fr));
+    gap: 0.5rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.photoButton {
+    display: block;
+    width: 100%;
+    border: 0;
+    background: transparent;
+    padding: 0;
+}
+
+.photo {
+    width: 100%;
+    height: 6rem;
+    border-radius: var(--radius-md);
+    background: #f3f4f6;
+    object-fit: cover;
+}
+
+.cash {
+    display: grid;
+    gap: 0.25rem;
+}
+
+.banner {
+    display: grid;
+    gap: 0.5rem;
+    border: 1px solid;
+    border-radius: var(--radius-md);
+    padding: 1rem;
+    font-size: 0.875rem;
+}
+
+.banner p {
+    margin: 0;
+}
+
+.bannerTitle {
+    font-weight: 700;
+}
+
+.bannerBlocking {
+    border-color: #fecaca;
+    background: var(--color-danger-soft);
+    color: #7f1d1d;
+}
+
+.bannerAttention {
+    border-color: #fde68a;
+    background: #fffbeb;
+    color: #78350f;
+}
+
+.actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.75rem;
+}
+
+@media (max-width: 640px) {
+    .card {
+        padding: 1.25rem;
+    }
+}

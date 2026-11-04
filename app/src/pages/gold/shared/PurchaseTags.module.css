@@ -1,0 +1,33 @@
+.tag {
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid;
+    border-radius: 999px;
+    padding: 0.0625rem 0.5rem;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.neutral {
+    border-color: var(--color-border-soft);
+    background: #f9fafb;
+    color: var(--color-muted);
+}
+
+.attention {
+    border-color: #fcd34d;
+    background: #fffbeb;
+    color: #92400e;
+}
+
+.blockingSolid {
+    border-color: #fca5a5;
+    background: var(--color-danger-soft);
+    color: var(--color-danger);
+}
+
+.blocking {
+    border-color: #fca5a5;
+    color: var(--color-danger);
+}

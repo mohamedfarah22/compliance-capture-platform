@@ -30,6 +30,24 @@ export const daysUntil = (iso) => {
     return Math.round(dayNumber(iso) - dayNumber(businessDate()));
 };
 
+// Monday to Friday days from today (the shop's date) to a YYYY-MM-DD date. Negative once it has passed. Public
+// holidays are not skipped, the same as the deadline itself (spec 3.3).
+export const businessDaysUntil = (iso) => {
+    const target = Date.parse(`${iso}T00:00:00Z`) / DAY_MS;
+    let day = Date.parse(`${businessDate()}T00:00:00Z`) / DAY_MS;
+    const step = target >= day ? 1 : -1;
+    let count = 0;
+    while (day !== target) {
+        day += step;
+        const weekday = new Date(day * DAY_MS).getUTCDay();
+        if (weekday !== 0 && weekday !== 6) count += step;
+    }
+    return count;
+};
+
+const audFormat = new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD" });
+export const formatAud = (value) => audFormat.format(value);
+
 // Scale (width, height) down so the long side is at most maxSide. Never scales up.
 export const fitWithin = (width, height, maxSide = MAX_IMAGE_SIDE) => {
     const scale = Math.min(1, maxSide / Math.max(width, height));
