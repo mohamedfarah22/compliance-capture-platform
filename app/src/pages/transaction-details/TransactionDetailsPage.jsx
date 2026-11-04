@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Button from "../../components/ui/Button.jsx";
 import ConfirmModal from "../../components/ui/ConfirmModal.jsx";
@@ -12,6 +12,7 @@ import {
     describeSaveError,
     getTransactionId,
     initTransaction,
+    loadGoldDraft,
     migrateNewParties,
     saveTransaction,
 } from "../../lib/wizardApi.js";
@@ -67,6 +68,9 @@ const TransactionDetailsPage = () => {
     const [fxRate, setFxRate] = useState("");
     const [rateSource, setRateSource] = useState("");
 
+    // Set for a report started from gold purchases: the cash the whole sale was paid (see meetsThreshold).
+    const [goldLinkedCash, setGoldLinkedCash] = useState(null);
+
     const [errors, setErrors] = useState({});
     const [showExitModal, setShowExitModal] = useState(false);
     const [saving, setSaving] = useState(false);
@@ -80,6 +84,28 @@ const TransactionDetailsPage = () => {
             : foreignCurrencyAmount && fxRate
               ? (parseFloat(foreignCurrencyAmount) * parseFloat(fxRate)).toFixed(2)
               : "";
+
+    // A report linked to gold purchases whose sale was paid $10,000 or more across all types meets the threshold
+    // whatever its own type's cash is (spec 3.4: a $6,000 + $6,000 invoice gives two reports of $6,000). The server
+    // re-checks this in complete-transaction.
+    const meetsThreshold = audValue >= 10000 || (goldLinkedCash !== null && goldLinkedCash >= 10000 && audValue > 0);
+
+    // A report started from gold shows the cash gold saved for it.
+    useEffect(() => {
+        const id = getTransactionId();
+        if (!id) return undefined;
+        let cancelled = false;
+        loadGoldDraft(id)
+            .then((draft) => {
+                if (cancelled || !draft) return;
+                setGoldLinkedCash(draft.linkedCash);
+                setCashAmount((typed) => typed || draft.cashAmount);
+            })
+            .catch(() => {});
+        return () => {
+            cancelled = true;
+        };
+    }, []);
 
     const validateForm = () => {
         const newErrors = {};
@@ -155,7 +181,7 @@ const TransactionDetailsPage = () => {
             onExit={() => setShowExitModal(true)}
             actions={
                 <>
-                    <Button disabled={saving || audValue < 10000} onClick={handleContinue}>
+                    <Button disabled={saving || !meetsThreshold} onClick={handleContinue}>
                         {saving ? "Saving…" : "Continue"}
                     </Button>
                 </>
@@ -424,9 +450,9 @@ const TransactionDetailsPage = () => {
                     <div>
                         <span className={styles.summaryLabel}>Meets TTR threshold</span>
                         <p
-                            className={`${styles.summaryValue} ${audValue >= 10000 ? styles.summaryPositive : styles.summaryNegative}`}
+                            className={`${styles.summaryValue} ${meetsThreshold ? styles.summaryPositive : styles.summaryNegative}`}
                         >
-                            {audValue >= 10000 ? "Yes" : "No"}
+                            {meetsThreshold ? "Yes" : "No"}
                         </p>
                     </div>
                     <div>
@@ -440,7 +466,7 @@ const TransactionDetailsPage = () => {
                 </div>
             </div>
 
-            {audValue && parseFloat(audValue) < 10000 ? (
+            {audValue && parseFloat(audValue) < 10000 && !meetsThreshold ? (
                 <p className={styles.thresholdWarning}>
                     Ensure the cash transaction amount is greater than $10,000 for it to be reportable.
                 </p>

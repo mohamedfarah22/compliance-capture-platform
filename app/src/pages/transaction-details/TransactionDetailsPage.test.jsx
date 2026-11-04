@@ -8,6 +8,7 @@ import {
     deleteTransaction,
     getTransactionId,
     initTransaction,
+    loadGoldDraft,
     migrateNewParties,
     saveTransaction,
 } from "../../lib/wizardApi.js";
@@ -21,6 +22,7 @@ vi.mock("../../lib/wizardApi.js", async () => ({
     deleteTransaction: vi.fn(),
     getTransactionId: vi.fn(),
     initTransaction: vi.fn(),
+    loadGoldDraft: vi.fn(),
     migrateNewParties: vi.fn(),
     saveTransaction: vi.fn(),
 }));
@@ -68,6 +70,7 @@ describe("TransactionDetailsPage", () => {
             signOut: vi.fn(),
         });
         getTransactionId.mockReturnValue(null);
+        loadGoldDraft.mockResolvedValue(null);
         initTransaction.mockResolvedValue("tx-new-1");
         saveTransaction.mockResolvedValue(undefined);
         migrateNewParties.mockResolvedValue(undefined);
@@ -120,6 +123,65 @@ describe("TransactionDetailsPage", () => {
         await user.type(screen.getByLabelText("Cash amount"), "5000");
 
         expect(screen.getByText(/Ensure the cash transaction amount is greater than \$10,000/)).toBeInTheDocument();
+    });
+
+    // Gold hand-off (spec 3.2, 3.4): a report started from gold shows gold's cash, and a report of one type of a
+    // mixed invoice ($6,000 + $6,000) meets the threshold because the whole sale reached $10,000.
+    describe("a report started from gold purchases", () => {
+        it("shows the cash saved for the draft and enables Continue", async () => {
+            getTransactionId.mockReturnValue("tx-gold-1");
+            loadGoldDraft.mockResolvedValue({ linkedCash: 12000, cashAmount: "12000" });
+            renderPage();
+
+            await waitFor(() => expect(screen.getByLabelText("Cash amount")).toHaveValue(12000));
+            expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled();
+        });
+
+        it("meets the threshold at $6,000 when the sale's linked cash is $12,000", async () => {
+            getTransactionId.mockReturnValue("tx-gold-1");
+            loadGoldDraft.mockResolvedValue({ linkedCash: 12000, cashAmount: "6000" });
+            renderPage();
+
+            await waitFor(() => expect(screen.getByLabelText("Cash amount")).toHaveValue(6000));
+            expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled();
+            expect(
+                screen.queryByText(/Ensure the cash transaction amount is greater than \$10,000/)
+            ).not.toBeInTheDocument();
+        });
+
+        it("keeps the $10,000 rule when the sale's linked cash is under $10,000", async () => {
+            getTransactionId.mockReturnValue("tx-gold-1");
+            loadGoldDraft.mockResolvedValue({ linkedCash: 6000, cashAmount: "6000" });
+            renderPage();
+
+            await waitFor(() => expect(screen.getByLabelText("Cash amount")).toHaveValue(6000));
+            expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+        });
+
+        it("does not overwrite cash the staff member has already typed", async () => {
+            const user = userEvent.setup();
+            getTransactionId.mockReturnValue("tx-gold-1");
+            let finish;
+            loadGoldDraft.mockReturnValue(new Promise((resolve) => (finish = resolve)));
+            renderPage();
+
+            await user.type(screen.getByLabelText("Cash amount"), "15000");
+            finish({ linkedCash: 12000, cashAmount: "12000" });
+
+            await waitFor(() => expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled());
+            expect(screen.getByLabelText("Cash amount")).toHaveValue(15000);
+        });
+    });
+
+    it("keeps the $10,000 rule for a report that is not linked to gold", async () => {
+        const user = userEvent.setup();
+        getTransactionId.mockReturnValue("tx-wizard-1");
+        loadGoldDraft.mockResolvedValue(null);
+        renderPage();
+
+        await user.type(screen.getByLabelText("Cash amount"), "6000");
+
+        expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
     });
 
     it("reveals all foreign currency fields when currency is switched to Other", async () => {

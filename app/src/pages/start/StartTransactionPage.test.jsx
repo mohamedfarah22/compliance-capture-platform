@@ -11,6 +11,8 @@ vi.mock("../../lib/wizardApi.js", () => ({
     deleteTransaction: vi.fn(),
     findTransactionByRef: vi.fn(),
     loadCustomers: vi.fn(),
+    // A plain function (not vi.fn) so restoreAllMocks cannot blank it.
+    toDbScenario: (serviceType, scenario) => (scenario ? `${serviceType}_${scenario}` : null),
 }));
 
 vi.mock("../../context/AuthContext.jsx", () => ({
@@ -219,6 +221,88 @@ describe("StartTransactionPage", () => {
 
             await waitFor(() => expect(screen.queryByText(blockedMessage)).not.toBeInTheDocument());
         });
+    });
+
+    // Spec 3.4: a reference is unique per scenario, so the same invoice can carry a bullion and a precious metal report.
+    describe("reference check includes the scenario", () => {
+        it("looks the reference up for the chosen scenario on submit", async () => {
+            const user = userEvent.setup();
+            renderPage();
+
+            await user.click(screen.getByRole("radio", { name: /sell bullion to customer/i }));
+            await user.type(screen.getByLabelText(/transaction reference/i), "INV-900");
+            await user.click(screen.getByRole("button", { name: /start transaction/i }));
+
+            await waitFor(() => expect(findTransactionByRef).toHaveBeenCalledWith("INV-900", "bullion_sell"));
+        });
+
+        it("re-checks when the scenario changes, so a reference taken for the other scenario is not reported", async () => {
+            const user = userEvent.setup();
+            findTransactionByRef.mockImplementation(async (ref, scenario) =>
+                scenario === "bullion_sell"
+                    ? {
+                          scenario: "sell",
+                          serviceType: "bullion",
+                          transactionRef: ref,
+                          dateTime: "",
+                          status: "complete",
+                      }
+                    : null
+            );
+            renderPage();
+
+            await user.type(screen.getByLabelText(/transaction reference/i), "INV-900");
+            await user.click(screen.getByRole("radio", { name: /sell bullion to customer/i }));
+            expect(await screen.findByText(/belongs to a completed transaction/i)).toBeInTheDocument();
+
+            await user.click(screen.getByRole("radio", { name: /buy bullion from customer/i }));
+            await waitFor(() =>
+                expect(screen.queryByText(/belongs to a completed transaction/i)).not.toBeInTheDocument()
+            );
+            expect(findTransactionByRef).toHaveBeenLastCalledWith("INV-900", "bullion_buy");
+        });
+    });
+
+    // UAT 9.68: the reference's blur look-up runs before the scenario click lands. It must not swap the page to
+    // the other scenario's draft once the staff member has chosen one.
+    it("keeps the chosen scenario when a look-up started before the choice finds another scenario's draft", async () => {
+        const user = userEvent.setup();
+        let finishEarly;
+        findTransactionByRef.mockImplementation((ref, scenario) =>
+            scenario
+                ? Promise.resolve(null)
+                : new Promise((resolve) => {
+                      finishEarly = () =>
+                          resolve({
+                              scenario: "buy",
+                              serviceType: "precious_metal",
+                              transactionRef: ref,
+                              dateTime: "2026-07-04T10:00",
+                              status: "draft",
+                          });
+                  })
+        );
+        renderPage();
+
+        await user.type(screen.getByLabelText(/transaction reference/i), "INV-900");
+        await user.tab(); // blur: the look-up starts with no scenario
+        await user.click(screen.getByRole("radio", { name: /buy bullion from customer/i }));
+        finishEarly();
+
+        await waitFor(() => expect(findTransactionByRef).toHaveBeenLastCalledWith("INV-900", "bullion_buy"));
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(screen.getByRole("radio", { name: /buy bullion from customer/i })).toBeChecked();
+        expect(screen.queryByText(/existing draft found/i)).not.toBeInTheDocument();
+    });
+
+    it("asks the scenario-less look-up not to adopt a draft", async () => {
+        const user = userEvent.setup();
+        renderPage();
+
+        await user.type(screen.getByLabelText(/transaction reference/i), "INV-900");
+        await user.tab();
+
+        await waitFor(() => expect(findTransactionByRef).toHaveBeenCalledWith("INV-900", null, { adopt: false }));
     });
 
     it("shows cancel confirmation modal when the exit button is clicked", async () => {

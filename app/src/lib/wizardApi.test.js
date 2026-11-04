@@ -3,8 +3,15 @@ import {
     completeTransaction,
     deleteParty,
     deleteTransaction,
+    countGoldPurchases,
+    describeSaveError,
+    findOtherActiveDraft,
     findTransactionByRef,
+    findWaitingReport,
+    firstStepNeedingInput,
     initTransaction,
+    openTransaction,
+    toDbScenario,
     loadConductingPerson,
     loadCustomers,
     loadPreciousMetalItems,
@@ -795,12 +802,180 @@ describe("wizardApi", () => {
             expect(window.sessionStorage.getItem("ttr.transactionId")).toBe("tx-9");
         });
 
+        it("does not adopt the draft when asked not to (the Start page's look-ahead before a scenario is chosen)", async () => {
+            fromMock.mockReturnValue(makeBuilder({ data: rowFor("draft"), error: null }));
+
+            const result = await findTransactionByRef("INV-9", null, { adopt: false });
+
+            expect(result).toMatchObject({ transactionRef: "INV-9", status: "draft" });
+            expect(window.sessionStorage.getItem("ttr.transactionId")).toBeNull();
+        });
+
         it("returns null for an unused reference", async () => {
             fromMock.mockReturnValue(makeBuilder({ data: null, error: null }));
 
             expect(await findTransactionByRef("INV-UNUSED")).toBeNull();
             expect(window.sessionStorage.getItem("ttr.transactionId")).toBeNull();
         });
+    });
+
+    // ─── Phase 9a: the TTR hand-off from gold (spec 3.2, 3.4) ───────────────────────────────
+    describe("scenario-aware reference (spec 3.4)", () => {
+        it("findTransactionByRef() filters on the scenario when one is given", async () => {
+            const builder = makeBuilder({ data: null, error: null });
+            fromMock.mockReturnValue(builder);
+
+            await findTransactionByRef("INV-900", "bullion_buy");
+
+            expect(builder.eq).toHaveBeenCalledWith("transaction_ref", "INV-900");
+            expect(builder.eq).toHaveBeenCalledWith("scenario", "bullion_buy");
+        });
+
+        it("toDbScenario() maps the Start page choice to the database code", () => {
+            expect(toDbScenario("bullion", "buy")).toBe("bullion_buy");
+            expect(toDbScenario("precious_metal", "buy")).toBe("precious_metal_buy");
+            expect(toDbScenario("bullion", "")).toBeNull();
+        });
+
+        it("describeSaveError() explains that a reference is unique per scenario", () => {
+            const message = describeSaveError({ code: "23505", message: "violates uq_tx_ref_per_entity" });
+            expect(message).toMatch(/transaction reference is already in use for this scenario/i);
+            expect(message).toMatch(/once for each scenario/i);
+            expect(describeSaveError(new Error("boom"))).toBe("boom");
+        });
+    });
+
+    describe("openTransaction() (spec 3.2)", () => {
+        const txRow = (over = {}) => ({
+            id: "tx-1",
+            scenario: "precious_metal_buy",
+            transaction_ref: "INV-900",
+            transaction_datetime: "2026-11-06T23:30:00Z",
+            status: "draft",
+            ...over,
+        });
+        const party = {
+            id: "party-1",
+            party_type: "individual",
+            is_complete: true,
+            first_name: "Jane",
+            last_name: "Citizen",
+        };
+        const idRow = (over = {}) => ({
+            id: "idv-1",
+            party_id: "party-1",
+            verification_basis: "relied_on_prior_identification",
+            reliance_reason: "customer_confirmed_details_unchanged",
+            counter_confirmed_at: "2026-11-06T23:30:00Z",
+            is_complete: true,
+            ...over,
+        });
+        const seed = ({ tx = txRow(), parties = [party], ids = [idRow()] } = {}) => {
+            const tables = { transactions: tx, parties, id_verifications: ids };
+            fromMock.mockImplementation((table) => makeBuilder({ data: tables[table], error: null }));
+        };
+
+        it("case A: sets the active transaction, seeds what the pages read, and opens Transaction Details", async () => {
+            seed();
+            const { path } = await openTransaction("tx-1");
+
+            expect(path).toBe("/transaction-details");
+            expect(window.sessionStorage.getItem("ttr.transactionId")).toBe("tx-1");
+            expect(JSON.parse(window.sessionStorage.getItem("ttr.selfConductedFastPath"))).toBe(true);
+            expect(JSON.parse(window.sessionStorage.getItem("ttr.customers"))).toEqual([
+                expect.objectContaining({ id: "party-1", _migrated: true }),
+            ]);
+            expect(JSON.parse(window.sessionStorage.getItem("ttr.transaction"))).toMatchObject({
+                scenario: "buy",
+                serviceType: "precious_metal",
+                transactionRef: "INV-900",
+                status: "draft",
+            });
+        });
+
+        it("seeds the sale time as a local datetime, so saving Transaction Details writes back the same instant", async () => {
+            seed();
+            await openTransaction("tx-1");
+            const { dateTime } = JSON.parse(window.sessionStorage.getItem("ttr.transaction"));
+            expect(new Date(dateTime).toISOString()).toBe("2026-11-06T23:30:00.000Z");
+        });
+
+        it("case A with its ID row not complete opens ID verification first", async () => {
+            seed({ ids: [idRow({ is_complete: false })] });
+            expect((await openTransaction("tx-1")).path).toBe("/id-verification");
+        });
+
+        it("case B (no confirmation, a changed reliance reason, a joint sale) opens Customers on the full path", async () => {
+            for (const seeded of [
+                { ids: [idRow({ counter_confirmed_at: null })] },
+                { ids: [idRow({ reliance_reason: "prior_id_reviewed_still_valid" })] },
+                {
+                    parties: [party, { ...party, id: "party-2" }],
+                    ids: [idRow(), idRow({ id: "idv-2", party_id: "party-2" })],
+                },
+            ]) {
+                window.sessionStorage.clear();
+                seed(seeded);
+                expect((await openTransaction("tx-1")).path).toBe("/customers");
+                expect(JSON.parse(window.sessionStorage.getItem("ttr.selfConductedFastPath"))).toBe(false);
+            }
+        });
+
+        it("replaces whatever a previous report left in the session", async () => {
+            window.sessionStorage.setItem("ttr.customers", JSON.stringify([{ id: "stale" }]));
+            window.sessionStorage.setItem("ttr.transactionId", "tx-old");
+            seed();
+            await openTransaction("tx-1");
+            expect(window.sessionStorage.getItem("ttr.transactionId")).toBe("tx-1");
+            expect(window.sessionStorage.getItem("ttr.customers")).not.toContain("stale");
+        });
+
+        it("refuses a completed report and a missing one, leaving the session alone", async () => {
+            window.sessionStorage.setItem("ttr.transactionId", "tx-old");
+            seed({ tx: txRow({ status: "complete" }) });
+            await expect(openTransaction("tx-1")).rejects.toThrow(/already complete/i);
+            seed({ tx: null });
+            await expect(openTransaction("tx-1")).rejects.toThrow(/could not be found/i);
+            expect(window.sessionStorage.getItem("ttr.transactionId")).toBe("tx-old");
+        });
+
+        it("firstStepNeedingInput() sends case A down the fast path and anything else to Customers", () => {
+            expect(firstStepNeedingInput({ caseA: true, idComplete: true })).toBe("/transaction-details");
+            expect(firstStepNeedingInput({ caseA: true, idComplete: false })).toBe("/id-verification");
+            expect(firstStepNeedingInput({ caseA: false, idComplete: true })).toBe("/customers");
+        });
+    });
+
+    describe("findOtherActiveDraft() (spec 3.2 warning)", () => {
+        it("returns the active draft when it is a different report", async () => {
+            window.sessionStorage.setItem("ttr.transactionId", "tx-old");
+            fromMock.mockReturnValue(
+                makeBuilder({ data: { id: "tx-old", transaction_ref: "INV-1", status: "draft" }, error: null })
+            );
+            expect(await findOtherActiveDraft("tx-new")).toEqual({ id: "tx-old", transactionRef: "INV-1" });
+        });
+
+        it("returns null with no active report, or when the target is the active one", async () => {
+            expect(await findOtherActiveDraft("tx-new")).toBeNull();
+            window.sessionStorage.setItem("ttr.transactionId", "tx-new");
+            expect(await findOtherActiveDraft("tx-new")).toBeNull();
+        });
+    });
+
+    it("countGoldPurchases() and findWaitingReport() read the link and the other half of a mixed invoice", async () => {
+        const countBuilder = makeBuilder({ count: 2, error: null });
+        fromMock.mockReturnValue(countBuilder);
+        expect(await countGoldPurchases("tx-1")).toBe(2);
+        expect(countBuilder.eq).toHaveBeenCalledWith("ttr_transaction_id", "tx-1");
+
+        const waitingBuilder = makeBuilder({ data: { id: "tx-2" }, error: null });
+        fromMock.mockReturnValue(waitingBuilder);
+        expect(await findWaitingReport("INV-900")).toEqual({ id: "tx-2" });
+        expect(waitingBuilder.eq).toHaveBeenCalledWith("status", "draft");
+
+        fromMock.mockReturnValue(makeBuilder({ data: null, error: { code: "42501" } }));
+        expect(await countGoldPurchases("tx-1")).toBe(0);
+        expect(await findWaitingReport("INV-900")).toBeNull();
     });
 
     it("deleteTransaction() calls the delete-draft-transaction edge function with the current transactionId and clears it", async () => {

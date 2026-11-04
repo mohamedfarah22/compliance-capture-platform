@@ -23,6 +23,7 @@ const {
     findPossibleDuplicates,
     getCustomer,
     getCustomerIdImages,
+    goToAustracForm,
     searchCustomers,
     updateCustomerDetails,
     updateCustomerId,
@@ -271,6 +272,31 @@ describe("edge function calls", () => {
         expect(url).toMatch(/\/functions\/v1\/gold-update-customer$/);
         expect(init.headers["Content-Type"]).toBe("application/json");
         expect(JSON.parse(init.body)).toEqual({ customerId: "c1", changes: { lastName: "Smith" } });
+    });
+
+    it("goToAustracForm calls gold-start-ttr with the purchase id and returns the route that opens the first report", async () => {
+        const ttrs = [
+            { id: "t-1", type: "scrap", scenario: "precious_metal_buy", status: "draft", created: true, case: "A" },
+            { id: "t-2", type: "bullion", scenario: "bullion_buy", status: "draft", created: true, case: "A" },
+        ];
+        fetch.mockResolvedValue(reply(200, { ttrs }));
+
+        const result = await goToAustracForm("p-1");
+
+        const [url, init] = fetch.mock.calls[0];
+        expect(url).toMatch(/\/functions\/v1\/gold-start-ttr$/);
+        expect(JSON.parse(init.body)).toEqual({ purchaseId: "p-1" });
+        expect(result).toEqual({ ttrs, path: "/open-ttr/t-1" });
+    });
+
+    it.each([
+        ["invoice_required", 422, /Enter the ERP invoice number/],
+        ["not_reportable", 422, /under \$10,000/],
+        ["no_cash", 422, /paid in cash/],
+        ["ttr_reference_in_use", 409, /already uses this invoice number/],
+    ])("goToAustracForm explains %s", async (code, status, words) => {
+        fetch.mockResolvedValue(reply(status, { error: code }));
+        await expect(goToAustracForm("p-1")).rejects.toThrow(words);
     });
 
     it("turns a refusal into a GoldApiError carrying the status, code and body", async () => {

@@ -3,6 +3,7 @@
 // phone change, which is an RPC. Errors are GoldApiError, whose message is safe to show to staff.
 import { supabase } from "./supabase.js";
 import { getIdImageSignedUrls } from "./wizardApi.js";
+import { openTtrPath } from "./ttrRoutes.js";
 
 const EDGE_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1`;
 
@@ -16,6 +17,12 @@ const MESSAGES = {
     document_not_on_file:
         "That document is not on file for this customer. Choose “Different document” to record a new one.",
     invalid_phone: "Phone number looks too short.",
+    purchase_not_found: "Purchase not found.",
+    invoice_required: "Enter the ERP invoice number before starting the AUSTRAC report.",
+    not_reportable: "This sale is under $10,000 in cash, so there is no AUSTRAC report to start.",
+    no_cash: "No part of this sale was paid in cash, so there is no AUSTRAC report to start.",
+    ttr_reference_in_use:
+        "Another AUSTRAC report already uses this invoice number for this type of sale. Open it from the TTR start page.",
 };
 const GENERIC_MESSAGE = "Could not save. Try again.";
 
@@ -188,4 +195,15 @@ export async function updateCustomerPhone(customerId, phone) {
     // The RPC's message is its error code: invalid_phone, forbidden or customer_not_found.
     if (error) throw new GoldApiError({ code: error.message });
     return data;
+}
+
+/**
+ * Starts the TTR draft(s) for a purchase that has an ERP invoice number (spec 3.2, 3.4): one per type with cash
+ * above $0. Resolves { ttrs, path }: ttrs is [{ id, type, scenario, status, created, case }], this purchase's type
+ * first, and path is the route that opens the first one (it warns if another report is in progress, then opens
+ * the first step that needs input). Safe to call again: a type that already has a TTR is reused.
+ */
+export async function goToAustracForm(purchaseId) {
+    const { ttrs } = await callFunction("gold-start-ttr", { json: { purchaseId } });
+    return { ttrs, path: openTtrPath(ttrs[0].id) };
 }

@@ -194,6 +194,7 @@ const emptyVerification = () => ({
     relianceReason: null,
     newCaptureReason: null,
     imageApproved: false,
+    counterConfirmedAt: null,
     idCountryCode: "AU",
 });
 
@@ -411,7 +412,24 @@ const IdVerificationPage = () => {
                 const initial = {};
                 loaded.forEach((p) => {
                     if (saved[p.id]) {
-                        initial[p.id] = saved[p.id];
+                        // A reliance row started from gold has no summary of the record it relies on; rebuild it
+                        // so the page shows that record and its confirmation instead of the picker.
+                        const savedPrior = (priorsById[p.id] ?? []).find(
+                            (r) => r.id === saved[p.id].priorVerificationId
+                        );
+                        initial[p.id] =
+                            savedPrior && saved[p.id].counterConfirmedAt && !saved[p.id].priorVerificationSummary
+                                ? {
+                                      ...saved[p.id],
+                                      priorVerificationSummary: {
+                                          documentType: savedPrior.document_type,
+                                          documentNumber: savedPrior.document_number,
+                                          verifiedDate: new Date(savedPrior.created_at).toLocaleDateString("en-AU"),
+                                          verifiedBy: savedPrior.verified_by_name,
+                                          transactionRef: savedPrior.transaction_ref,
+                                      },
+                                  }
+                                : saved[p.id];
                     } else {
                         const eligiblePrior = (priorsById[p.id] ?? [])
                             .map((r) => ({ ...r, eligibility: evaluateReliance(r, autoPolicy) }))
@@ -433,6 +451,7 @@ const IdVerificationPage = () => {
                                 issuer: eligiblePrior.issuer,
                                 relianceReason: "prior_id_reviewed_still_valid",
                                 imageApproved: false,
+                                counterConfirmedAt: null,
                             };
                         } else {
                             initial[p.id] = emptyVerification();
@@ -779,7 +798,7 @@ const IdVerificationPage = () => {
             if (!currentData.priorVerificationId)
                 e.priorVerificationId = "Select a prior verification record to rely on";
             const prior = currentPriors.find((r) => r.id === currentData.priorVerificationId);
-            if (prior?.front_image_id && !currentData.imageApproved)
+            if (prior?.front_image_id && !currentData.imageApproved && !currentData.counterConfirmedAt)
                 e.imageApproval = "Confirm the ID images match the person present";
         } else {
             if (requiresCaptureReason && !currentData.newCaptureReason)
@@ -1360,6 +1379,7 @@ const IdVerificationPage = () => {
                                                             priorVerificationId: null,
                                                             priorVerificationSummary: null,
                                                             imageApproved: false,
+                                                            counterConfirmedAt: null,
                                                         })
                                                     }
                                                 >
@@ -1397,7 +1417,14 @@ const IdVerificationPage = () => {
                                                 </div>
                                             )}
 
-                                            {selectedPrior?.front_image_id && (
+                                            {selectedPrior?.front_image_id && currentData.counterConfirmedAt && (
+                                                <p className={styles.relianceInfo}>
+                                                    ID sighted and matched to this record at the counter on{" "}
+                                                    {new Date(currentData.counterConfirmedAt).toLocaleString("en-AU")}.
+                                                    No further confirmation is needed.
+                                                </p>
+                                            )}
+                                            {selectedPrior?.front_image_id && !currentData.counterConfirmedAt && (
                                                 <label className={styles.priorImageApproval}>
                                                     <input
                                                         type="checkbox"
@@ -1435,6 +1462,7 @@ const IdVerificationPage = () => {
                                                     documentNumber: record.document_number,
                                                     issuer: record.issuer,
                                                     imageApproved: false,
+                                                    counterConfirmedAt: null,
                                                 })
                                             }
                                         />

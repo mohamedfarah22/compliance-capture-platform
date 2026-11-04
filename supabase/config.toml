@@ -84,6 +84,9 @@ verify_jwt = true
 [functions.gold-save-purchase]
 verify_jwt = true
 
+[functions.gold-start-ttr]
+verify_jwt = true
+
 [functions.gold-complete-purchase]
 verify_jwt = true
 

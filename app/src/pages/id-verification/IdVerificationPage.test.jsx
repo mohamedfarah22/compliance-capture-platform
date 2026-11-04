@@ -235,6 +235,73 @@ describe("IdVerificationPage", () => {
         expect(saveIdVerifications).not.toHaveBeenCalled();
     });
 
+    // Spec 3.2: gold-start-ttr copies the counter confirmation onto the reliance row; the page accepts it instead of
+    // asking for the "images match the person present" tick again.
+    describe("counter confirmation copied from gold", () => {
+        const PRIOR_WITH_PHOTO = {
+            id: "prior-1",
+            document_type: "Driver licence",
+            document_number: "DL999",
+            issuer: "VicRoads",
+            created_at: new Date().toISOString(),
+            has_expiry: false,
+            expiry_date: null,
+            verified_by_name: "Gold Staff",
+            transaction_ref: null,
+            front_image_id: "front-1",
+            back_image_id: null,
+        };
+        const goldRow = (over = {}) =>
+            completeVerification({
+                verificationMethod: "Relied on prior identification",
+                priorVerificationId: "prior-1",
+                relianceReason: "customer_confirmed_details_unchanged",
+                documentType: "Driver licence",
+                documentNumber: "DL999",
+                isComplete: true,
+                ...over,
+            });
+        const open = async (row) => {
+            loadCustomers.mockResolvedValue([JANE]);
+            fetchPriorVerifications.mockResolvedValue([PRIOR_WITH_PHOTO]);
+            loadIdVerifications.mockResolvedValue({ "party-ind-001": row });
+            renderPage();
+            await screen.findByLabelText("Verification method");
+        };
+
+        it("continues without the tick, and says the ID was matched at the counter", async () => {
+            const user = userEvent.setup();
+            await open(goldRow({ counterConfirmedAt: "2026-11-07T01:00:00Z" }));
+
+            expect(await screen.findByText(/matched to this record at the counter/i)).toBeInTheDocument();
+            expect(screen.queryByLabelText(/person presenting today matches/i)).not.toBeInTheDocument();
+
+            await user.click(screen.getByRole("button", { name: "Continue" }));
+            await waitFor(() => expect(saveIdVerifications).toHaveBeenCalled());
+            expect(screen.queryByText("Confirm the ID images match the person present")).not.toBeInTheDocument();
+        });
+
+        it("without a copied confirmation the tick is still required", async () => {
+            const user = userEvent.setup();
+            await open(
+                goldRow({
+                    counterConfirmedAt: null,
+                    priorVerificationSummary: {
+                        documentType: "Driver licence",
+                        documentNumber: "DL999",
+                        verifiedDate: "7 Nov 2026",
+                        verifiedBy: "Gold Staff",
+                    },
+                })
+            );
+
+            await user.click(screen.getByRole("button", { name: "Continue" }));
+
+            expect(await screen.findByText("Confirm the ID images match the person present")).toBeInTheDocument();
+            expect(saveIdVerifications).not.toHaveBeenCalled();
+        });
+    });
+
     it("prevents navigation to the next page until every listed person has a complete verification record", async () => {
         const user = userEvent.setup();
         loadIdVerifications.mockResolvedValue({

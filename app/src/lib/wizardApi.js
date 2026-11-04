@@ -1,5 +1,7 @@
 import { supabase } from "./supabase.js";
-import { wizardStorageKeys, writeWizardData } from "../components/wizardStorage.js";
+import { clearWizardData, wizardStorageKeys, writeWizardData } from "../components/wizardStorage.js";
+import { LOCATION_SNAPSHOT } from "@gold-rules";
+import { TTR_DESIGNATED_SERVICES } from "@ttr-defaults";
 
 // ─── Transaction ID pointer (only thing kept in sessionStorage post-init) ─────
 const TX_KEY = "ttr.transactionId";
@@ -17,7 +19,11 @@ const ttr = () => supabase.schema("ttr");
 export function describeSaveError(err) {
     const text = `${err?.code ?? ""} ${err?.message ?? ""}`;
     if (text.includes("23505") || text.includes("uq_tx_ref_per_entity")) {
-        return "That transaction reference is already in use. Go back to the start and enter a different reference.";
+        return (
+            "That transaction reference is already in use for this scenario. A reference can be used once for each " +
+            "scenario (for example one bullion purchase and one precious metal purchase on the same invoice). " +
+            "Go back to the start and enter a different reference or choose a different scenario."
+        );
     }
     return err?.message || "Failed to save. Please try again.";
 }
@@ -49,12 +55,12 @@ const SCENARIO_FROM_DB = {
     precious_metal_buy: { scenario: "buy", serviceType: "precious_metal" },
 };
 
-const DESIGNATED_SERVICES = {
-    bullion_sell: "Sale of bullion for physical cash",
-    bullion_buy: "Purchase of bullion for physical cash",
-    precious_metal_sell: "Sale of precious metal for physical cash",
-    precious_metal_buy: "Purchase of precious metal for physical cash",
-};
+// Shared with gold-start-ttr (supabase/functions/_shared/ttrDefaults.js), so a TTR started from gold reads the same.
+const DESIGNATED_SERVICES = TTR_DESIGNATED_SERVICES;
+
+// The database scenario code for the Start page's serviceType + buy/sell choice.
+export const toDbScenario = (serviceType, scenario) =>
+    SCENARIO_TO_DB[serviceType || "bullion"]?.[scenario] || scenario || null;
 
 // ─── TRANSACTION ──────────────────────────────────────────────────────────────
 
@@ -78,7 +84,7 @@ export async function initTransaction({ startData, financialData, parties, staff
             transaction_ref: startData.transactionRef,
             transaction_datetime: new Date(startData.dateTime).toISOString(),
             designated_service: DESIGNATED_SERVICES[scenario],
-            location_snapshot: "Coburg, VIC",
+            location_snapshot: LOCATION_SNAPSHOT,
             staff_member_name: staffMember.full_name,
             staff_member_email: staffMember.email,
             cash_currency: isFx ? "other" : "AUD",
@@ -154,20 +160,128 @@ export async function loadTransaction() {
 
 // Returns the transaction for a ref whatever its status — callers need to tell a completed
 // transaction apart from an unused ref, since uq_tx_ref_per_entity blocks re-using either.
-export async function findTransactionByRef(transactionRef) {
-    const { data, error } = await ttr()
-        .from("transactions")
-        .select("*")
-        .eq("transaction_ref", transactionRef)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
+// A reference is unique per scenario (a mixed gold invoice has two reports on one reference), so pass the
+// scenario (database code, see toDbScenario) to find the right one. Without it, the newest report with that
+// ref is returned. A draft found becomes the session's active transaction unless adopt is false (the Start page's
+// look-ahead before a scenario is chosen: it must not leave another scenario's draft active).
+export async function findTransactionByRef(transactionRef, scenario, { adopt = true } = {}) {
+    let query = ttr().from("transactions").select("*").eq("transaction_ref", transactionRef);
+    if (scenario) query = query.eq("scenario", scenario);
+    const { data, error } = await query.order("created_at", { ascending: false }).limit(1).maybeSingle();
     if (error) throw error;
     if (!data) return null;
     // A completed transaction must never become the session's active transaction — it can't be
     // updated or deleted (trg_lock_completed), so adopting its id would wedge the wizard.
-    if (data.status === "draft") setTransactionId(data.id);
+    if (adopt && data.status === "draft") setTransactionId(data.id);
     return dbRowToTransaction(data);
+}
+
+// ─── Opening a TTR by id (gold hand-off, spec 3.2) ────────────────────────────
+
+// A different draft already active in this session, or null. Gold shows "You have another AUSTRAC report in
+// progress ({ref})" before opening a TTR over it; the draft stays saved.
+export async function findOtherActiveDraft(id) {
+    const active = getTransactionId();
+    if (!active || active === id) return null;
+    const { data, error } = await ttr()
+        .from("transactions")
+        .select("id, transaction_ref, status")
+        .eq("id", active)
+        .maybeSingle();
+    if (error) throw error;
+    return data && data.status === "draft" ? { id: data.id, transactionRef: data.transaction_ref } : null;
+}
+
+// The first wizard step that still needs input. Case A (one individual, the reliance row gold wrote with its
+// counter confirmation, ID row complete) follows the self-conducted fast path: ID verification, Transaction
+// Details (staff confirm the cash), Party Details. Anything else (a third party, changed details, a joint sale,
+// a customer with missing fields) starts at Customers, which asks who is acting and then runs the full path.
+export function firstStepNeedingInput({ caseA, idComplete }) {
+    if (!caseA) return "/customers";
+    return idComplete ? "/transaction-details" : "/id-verification";
+}
+
+// Local "YYYY-MM-DDTHH:mm" for a datetime-local input, so saving Transaction Details writes back the same instant.
+const toLocalDateTimeValue = (iso) => {
+    const date = new Date(iso);
+    return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+};
+
+// Makes a draft TTR the session's active transaction, seeds the session data the pages read before the database
+// (the parties, the Start page data, the fast-path flag), and returns { path } of the first step that needs input.
+// Opens by id because two reports can share a reference (a mixed invoice). A completed report cannot be opened.
+export async function openTransaction(id) {
+    const { data: row, error } = await ttr().from("transactions").select("*").eq("id", id).maybeSingle();
+    if (error) throw error;
+    if (!row) throw new Error("That AUSTRAC report could not be found.");
+    if (row.status !== "draft") throw new Error("That AUSTRAC report is already complete.");
+
+    clearWizardData();
+    setTransactionId(id);
+
+    const [parties, verifications] = await Promise.all([loadCustomers(), loadIdVerifications()]);
+    const transaction = dbRowToTransaction(row);
+    const idRows = parties.map((p) => verifications[`party-${p.id}`]);
+    const caseA =
+        parties.length === 1 &&
+        parties[0].type === "individual" &&
+        idRows[0]?.verificationBasis === "relied_on_prior_identification" &&
+        idRows[0]?.relianceReason === "customer_confirmed_details_unchanged" &&
+        Boolean(idRows[0]?.counterConfirmedAt);
+
+    writeWizardData(
+        wizardStorageKeys.customers,
+        parties.map((p) => ({ ...p, _migrated: true }))
+    );
+    writeWizardData(wizardStorageKeys.transaction, {
+        scenario: transaction.scenario,
+        serviceType: transaction.serviceType,
+        transactionRef: transaction.transactionRef,
+        dateTime: toLocalDateTimeValue(row.transaction_datetime),
+        status: transaction.status,
+        createdAt: new Date().toISOString(),
+    });
+    writeWizardData(wizardStorageKeys.selfConductedFastPath, caseA);
+
+    return { path: firstStepNeedingInput({ caseA, idComplete: idRows.every((v) => v?.isComplete) }) };
+}
+
+// How many gold purchases are linked to this TTR (the review's "From gold purchase(s)" line). 0 when gold can't be read.
+export async function countGoldPurchases(transactionId) {
+    const { count, error } = await supabase
+        .schema("gold")
+        .from("purchases")
+        .select("id", { count: "exact", head: true })
+        .eq("ttr_transaction_id", transactionId);
+    return error ? 0 : (count ?? 0);
+}
+
+// What a gold-started draft carries for Transaction Details: its saved cash, and the cash its gold sale was paid
+// across all types (gold.ttr_linked_cash, the figure complete-transaction re-checks). null when no gold purchase
+// is linked to the draft (a wizard-started report) or gold can't be read, so the plain $10,000 rule applies.
+export async function loadGoldDraft(transactionId) {
+    const { data: linkedCash, error } = await supabase.schema("gold").rpc("ttr_linked_cash", { p_ttr: transactionId });
+    if (error || linkedCash === null || linkedCash === undefined) return null;
+    const { data: row, error: rowError } = await ttr()
+        .from("transactions")
+        .select("cash_amount, cash_currency")
+        .eq("id", transactionId)
+        .maybeSingle();
+    const cashAmount =
+        !rowError && row?.cash_currency === "AUD" && row.cash_amount != null ? String(row.cash_amount) : "";
+    return { linkedCash: Number(linkedCash), cashAmount };
+}
+
+// Another draft report on the same reference (the other half of a mixed invoice), or null.
+export async function findWaitingReport(transactionRef) {
+    const { data, error } = await ttr()
+        .from("transactions")
+        .select("id")
+        .eq("transaction_ref", transactionRef)
+        .eq("status", "draft")
+        .limit(1)
+        .maybeSingle();
+    return error ? null : data;
 }
 
 // Updates the existing transaction row (e.g. if user edits fields on TransactionDetailsPage)
@@ -1101,6 +1215,8 @@ function dbRowToIdVerification(row) {
         priorVerificationId: row.prior_verification_id || null,
         relianceReason: row.reliance_reason || null,
         newCaptureReason: row.new_capture_reason || null,
+        // Set by gold-start-ttr: the counter confirmation copied from the purchase (spec 3.2).
+        counterConfirmedAt: row.counter_confirmed_at || null,
         elecDataSrc: row.elec_data_src || "",
         idCountryCode: row.id_country_code || "",
     };
