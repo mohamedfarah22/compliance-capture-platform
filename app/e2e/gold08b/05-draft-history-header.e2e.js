@@ -48,6 +48,8 @@ test('8b.32 — the draft survives a trip to Purchases, is dropped by Switch jou
   await expect(scrapCash(page, 'Yes')).toHaveAttribute('aria-checked', 'true')
   await page.getByRole('link', { name: 'Switch journey' }).click()
   await expect(page).not.toHaveURL(/\/gold/)
+  // Wait for the journey picker itself: the URL can change before the gold screens are replaced.
+  await expect(page.getByRole('heading', { name: 'What would you like to do?' })).toBeVisible()
   await page.goBack()
   await expect(page.getByRole('heading', { name: 'Record purchase' })).toBeVisible()
   await expect(invoiceBox(page)).toHaveValue('')

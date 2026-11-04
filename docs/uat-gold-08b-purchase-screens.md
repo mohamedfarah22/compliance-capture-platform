@@ -248,3 +248,7 @@ Work on the PC (the preview from step 1, or the local fallback). Open **Lena Hos
 - CI `uat` red in **part0** on R11, R18, R24 or R27 and stuck on `/id-verification`: known issue #20 (a double load). Re-run the failed job once before investigating.
 
 ☐ Section A green on commit ______ · ☐ Section B · Notes: ______________________________
+
+---
+
+**Progress note (UAT automation).** All 63 rows are Playwright tests (`app/e2e/gold08b/`, 10 files). Break-and-revert done for every row: production breaks for the rules the screens and this phase's migrations enforce (photo cap, 1600 px compression, counter-question visibility, phone change, deadline colour, status tags, filters in the URL, paging, hand-off to the wizard, Complete purchase hand-off and "wasn't asked" notice, expired-ID button, draft kept across Update ID / Purchases, joint dialog Escape, Resume/Start label, start-TTR failure notice, and `gold.list_purchase_staff` / invoice search in the two 8b migrations, which the pgTAP rows in `supabase/tests/08_gold_reads.test.sql` also failed on), and one expectation flip per remaining row. Breaks left: none. Open defect: D1 (8b.63), whose test stays red.
