@@ -103,16 +103,19 @@ export const countPurchases = async () => (await sql`select count(*)::int as n f
 export const ttrOfInvoice = (number) => sql`select * from ttr.transactions where transaction_ref = ${number} order by scenario`
 
 /**
- * What To complete should list for a business, worked out from the tables (spec 4.6: no invoice, or reportable with the
- * TTR not complete). pending = reportable ones; other = the rest.
+ * What To complete should list for a business, worked out from the tables. Spec 3.4 "Finishing both" and 3.2: no invoice, or
+ * reportable with the TTR not complete. A part linked to a TTR belongs to a reportable invoice even when its own
+ * cash_10k_or_more flag is false (the earlier part of a mixed invoice), so it counts as reportable.
+ * pending = reportable ones; other = the rest.
  */
 export const expectedToComplete = async (entity = E1) => {
   const [r] = await sql`
-    select count(*) filter (where p.cash_10k_or_more)::int as pending,
-           count(*) filter (where not p.cash_10k_or_more)::int as other
+    select count(*) filter (where p.cash_10k_or_more or p.ttr_transaction_id is not null)::int as pending,
+           count(*) filter (where not (p.cash_10k_or_more or p.ttr_transaction_id is not null))::int as other
     from gold.purchases p left join ttr.transactions t on t.id = p.ttr_transaction_id
     where p.reporting_entity_id = ${entity}
-      and (p.erp_invoice_no is null or (p.cash_10k_or_more and t.status is distinct from 'complete'))`
+      and (p.erp_invoice_no is null
+           or ((p.cash_10k_or_more or p.ttr_transaction_id is not null) and t.status is distinct from 'complete'))`
   return { ...r, total: r.pending + r.other }
 }
 export const expectedToCompleteCount = async (entity = E1) => (await expectedToComplete(entity)).total
