@@ -134,6 +134,15 @@ describe("GoldPurchaseRecordPage", () => {
         expect(screen.queryByText(/AUSTRAC report:/)).not.toBeInTheDocument();
     });
 
+    it("shows the AUSTRAC report for an unflagged part that is linked to a TTR (earlier part of a mixed invoice)", async () => {
+        goldApi.getTransaction.mockResolvedValue(
+            purchaseOf({ cash_10k_or_more: false, ttr: { id: "t1", status: "draft" } })
+        );
+        open();
+        expect(await screen.findByText(/AUSTRAC report: draft in progress/)).toBeInTheDocument();
+        expect(screen.getByRole("link", { name: "Open AUSTRAC report" })).toHaveAttribute("href", "/open-ttr/t1");
+    });
+
     it("offers Complete only while the purchase has no invoice, and never a Download", async () => {
         const user = userEvent.setup();
         goldApi.getTransaction.mockResolvedValue(purchaseOf({ erp_invoice_no: null }));

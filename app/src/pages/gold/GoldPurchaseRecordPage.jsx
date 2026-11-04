@@ -89,7 +89,7 @@ const GoldPurchaseRecordPage = () => {
     const tagged = { ...purchase, ttr_status: purchase.ttr?.status ?? null };
 
     const renderAustrac = () => {
-        if (!purchase.cash_10k_or_more) return null;
+        if (!purchase.cash_10k_or_more && !purchase.ttr) return null;
         if (!purchase.ttr) return <p className={styles.austrac}>AUSTRAC report: not started</p>;
         if (purchase.ttr.status === "complete") return <p className={styles.austrac}>AUSTRAC report: complete</p>;
         return (
