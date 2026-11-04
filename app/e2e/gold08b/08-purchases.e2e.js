@@ -11,7 +11,6 @@ import {
   open,
   reportableWithTtr,
   seed,
-  sql,
   startTtr,
   tokenOf,
   uniq,
@@ -47,12 +46,12 @@ const filtersOf = (p) => ({
 
 test('8b.50 — 26 purchases: 25 on the first page, Next shows the 26th with page=2 in the URL, Previous goes back, a row opens its record', async () => {
   const c = await jane({ entity: E2 })
-  const [{ n }] = await sql`select count(*)::int as n from gold.purchases where reporting_entity_id = ${E2}`
-  expect(n, 'business Two must not already hold more than 26 purchases').toBeLessThanOrEqual(26)
   let last
-  for (let i = n; i < 26; i++) last = await buy('s2', { customerId: c.id, erpInvoiceNo: inv('P') })
+  for (let i = 0; i < 26; i++) last = await buy('s2', { customerId: c.id, erpInvoiceNo: inv('P') })
   const p = two.page
   await p.goto('/gold/purchases')
+  // Searching for this customer's unique name makes the list exactly these 26, whatever else the business holds.
+  await filtersOf(p).search.fill(c.last)
   await expect(summary(p)).toHaveText('26 purchases')
   await expect(rows(p)).toHaveCount(25)
   await expect(rows(p).first()).toContainText('INV-8B-')

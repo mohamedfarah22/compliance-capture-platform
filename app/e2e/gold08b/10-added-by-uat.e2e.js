@@ -4,7 +4,11 @@ import { expect, test } from '@playwright/test'
 import {
   E2,
   buy,
+  completeTtr,
   countPurchases,
+  startTtr,
+  tokenOf,
+  yes,
   fillCommon,
   freshTab,
   inv,
@@ -99,4 +103,29 @@ test('8b.62 (added by UAT, spec 3.2) — if the TTR cannot be started after the 
   await page.goto('/gold/to-complete')
   await expect(page.locator('main li').filter({ hasText: c.name }).getByRole('button', { name: 'Start TTR' })).toBeVisible()
   expect(await sql`select 1 from ttr.transactions where transaction_ref = ${number}`).toHaveLength(0)
+})
+
+test('8b.63 (added by UAT, spec 3.4 "Finishing both") — To complete lists both purchases of a mixed invoice, each with Resume TTR, until both TTRs are complete', async () => {
+  const c = await jane()
+  const number = inv('X5')
+  await buy('s1', { customerId: c.id, cash10k: 'true', cashAmount: '6000', erpInvoiceNo: number })
+  const second = await buy('s1', { customerId: c.id, purchaseType: 'bullion', cash10k: undefined, bullionBand: '5k_to_10k', partAmount: '6000', erpInvoiceNo: number, ...yes })
+  const s = await startTtr(await tokenOf('s1'), { purchaseId: second })
+  expect(s.status, s.text).toBe(200)
+  expect(s.body.ttrs).toHaveLength(2)
+  const rowsOf = async () => {
+    await page.goto('/gold/to-complete')
+    await expect(page.getByRole('heading', { name: 'To complete' })).toBeVisible()
+    await expect(page.getByText('Loading…')).toHaveCount(0)
+    return page.locator('main li').filter({ hasText: c.name })
+  }
+  let rows = await rowsOf()
+  await expect(rows).toHaveCount(2)
+  await expect(rows.getByRole('button', { name: 'Resume TTR' })).toHaveCount(2)
+  await completeTtr(s.body.ttrs[0].id)
+  rows = await rowsOf()
+  await expect(rows).toHaveCount(1)
+  await completeTtr(s.body.ttrs[1].id)
+  rows = await rowsOf()
+  await expect(rows).toHaveCount(0)
 })
