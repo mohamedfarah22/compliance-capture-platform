@@ -184,17 +184,27 @@ test('8b.16 — with another TTR draft active in the tab, the hand-off warns fir
   expect(state).toContain(tx.id)
 })
 
-test('8b.17 — case A with the invoice entered at the counter starts the TTR on the self-conducted fast path (Transaction Details)', async () => {
+test('8b.17 — case A with the invoice entered at the counter starts the TTR but does not open it: the notice says so, gold stays on the customer page with the confirmation, and Resume TTR on To complete opens it on the self-conducted fast path (Transaction Details)', async () => {
   const c = await jane()
   const number = inv('B4')
   await openCustomer(page, c)
   await scrapCash(page, 'Yes').click()
   await answerBoth(c)
   await fillCommon(page, img, { invoice: number })
-  await page.getByRole('button', { name: 'Record purchase and continue to AUSTRAC' }).click()
-  await expect(page).toHaveURL(/\/transaction-details$/)
+  await expect(page.getByRole('status').filter({ hasText: 'After you record this purchase, the AUSTRAC report will be started. Finish it from To complete.' })).toBeVisible()
+  await expect(page.getByText('the AUSTRAC form will open')).toHaveCount(0)
+  await recordButton(page).click()
+  await expect(page.getByText('AUSTRAC report started. Finish it from To complete.')).toBeVisible()
+  await expect(page).toHaveURL(new RegExp(`/gold/customers/${c.id}$`))
   const [tx] = await txByRef(number)
   expect(tx.status).toBe('draft')
+  expect((await saved(c))[0].ttr_transaction_id).toBe(tx.id)
+  // Started, not opened: this tab has no active TTR yet.
+  expect(await page.evaluate(() => Object.values(sessionStorage).join(' '))).not.toContain(tx.id)
+  await page.goto('/gold/to-complete')
+  await page.locator('main li').filter({ hasText: c.name }).getByRole('button', { name: 'Resume TTR' }).click()
+  await expect(page).toHaveURL(/\/transaction-details$/)
+  expect(await page.evaluate(() => Object.values(sessionStorage).join(' '))).toContain(tx.id)
 })
 
 test('8b.18 — a reportable purchase with an invoice already used by another purchase is refused: nothing is saved', async () => {

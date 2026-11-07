@@ -69,7 +69,7 @@ test('8b.20 — the same invoice as an earlier purchase today shows the linked-p
   expect(await purchasesOf(c.id)).toHaveLength(1)
 })
 
-test('8b.21 — $6,000 on each part makes $12,000 on the invoice: the panel says it is reportable once, and the save is a reportable purchase that hands over', async () => {
+test('8b.21 — $6,000 on each part makes $12,000 on the invoice: the panel says it is reportable once, and the save is a reportable purchase whose TTRs are started but not opened', async () => {
   const number = inv('B7')
   const c = await secondPart(number)
   await earlierBox().fill('6000')
@@ -78,7 +78,9 @@ test('8b.21 — $6,000 on each part makes $12,000 on the invoice: the panel says
   await yesNo(page, `Is ${c.name} acting on their own behalf?`, 'Yes').click()
   await yesNo(page, 'Are these details still correct?', 'Yes').click()
   await page.getByRole('button', { name: 'Record purchase and continue to AUSTRAC' }).click()
-  await expect(page).not.toHaveURL(/\/gold/)
+  // Jane is ready and answered Yes twice: case A. The TTRs are started and gold stays on her page (spec 3.3).
+  await expect(page.getByText('AUSTRAC report started. Finish it from To complete.')).toBeVisible()
+  await expect(page).toHaveURL(new RegExp(`/gold/customers/${c.id}$`))
   const rows = await purchasesOf(c.id)
   expect(rows).toHaveLength(2)
   expect(rows.map((r) => Number(r.cash_amount))).toEqual([6000, 6000])
