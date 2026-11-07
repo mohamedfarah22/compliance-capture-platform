@@ -256,6 +256,18 @@ export async function countGoldPurchases(transactionId) {
     return error ? 0 : (count ?? 0);
 }
 
+// True when a linked gold purchase became reportable on Complete purchase, so its customer was never asked the
+// counter questions (spec 3.3). The same test as the Complete purchase page. false when gold can't be read.
+export async function hasUnconfirmedGoldPurchase(transactionId) {
+    const { data, error } = await supabase
+        .schema("gold")
+        .from("purchases")
+        .select("cash_10k_or_more, ttr_self_conducted, ttr_details_confirmed")
+        .eq("ttr_transaction_id", transactionId);
+    if (error || !data) return false;
+    return data.some((p) => !p.cash_10k_or_more && p.ttr_self_conducted === null && p.ttr_details_confirmed === null);
+}
+
 // What a gold-started draft carries for Transaction Details: its saved cash, and the cash its gold sale was paid
 // across all types (gold.ttr_linked_cash, the figure complete-transaction re-checks). null when no gold purchase
 // is linked to the draft (a wizard-started report) or gold can't be read, so the plain $10,000 rule applies.
