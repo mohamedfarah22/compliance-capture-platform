@@ -228,6 +228,12 @@ const PurchaseForm = ({ customer, onRecorded }) => {
         }
         try {
             const { path } = await goToAustracForm(saved.purchaseId);
+            // Case A started at the counter is finished later from To complete, so the wizard is not opened.
+            if (saved.ttr === "A") {
+                onRecorded("AUSTRAC report started. Finish it from To complete.");
+                setIsBusy(false);
+                return;
+            }
             navigate(path);
         } catch (err) {
             onRecorded(
@@ -489,11 +495,13 @@ const PurchaseForm = ({ customer, onRecorded }) => {
                 {cash.reportable && !cash.alreadyReported && blocked.length === 0 ? (
                     <div className={`${styles.banner} ${styles.bannerAttention}`} role="status">
                         <p>
-                            {hasInvoice
-                                ? `After you record this purchase, the AUSTRAC form will open with ${hasJoint ? "these customers" : "this customer"} loaded.`
-                                : ttr.invoiceRequired && !isAwaitingAnswers
-                                  ? "This sale needs the ERP invoice number now. The AUSTRAC form opens straight after you record it."
-                                  : `No invoice number yet, so this purchase will be saved as AUSTRAC pending. Add the invoice number within ${AUSTRAC_REPORT_BUSINESS_DAYS} business days from To complete.`}
+                            {hasInvoice && ttr.case === "A"
+                                ? "After you record this purchase, the AUSTRAC report will be started. Finish it from To complete."
+                                : hasInvoice
+                                  ? `After you record this purchase, the AUSTRAC form will open with ${hasJoint ? "these customers" : "this customer"} loaded.`
+                                  : ttr.invoiceRequired && !isAwaitingAnswers
+                                    ? "This sale needs the ERP invoice number now. The AUSTRAC form opens straight after you record it."
+                                    : `No invoice number yet, so this purchase will be saved as AUSTRAC pending. Add the invoice number within ${AUSTRAC_REPORT_BUSINESS_DAYS} business days from To complete.`}
                         </p>
                     </div>
                 ) : null}

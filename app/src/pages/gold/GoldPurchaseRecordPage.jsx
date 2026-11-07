@@ -121,7 +121,14 @@ const GoldPurchaseRecordPage = () => {
     const renderAustrac = () => {
         if (!purchase.cash_10k_or_more && !purchase.ttr) return null;
         if (!purchase.ttr) return <p className={styles.austrac}>AUSTRAC report: not started</p>;
-        if (purchase.ttr.status === "complete") return <p className={styles.austrac}>AUSTRAC report: complete</p>;
+        if (purchase.ttr.status === "complete") {
+            const { transaction_ref: reference, completed_at: completedAt } = purchase.ttr;
+            return (
+                <p className={styles.austrac}>
+                    AUSTRAC report: complete. Reference {reference}, completed {formatDate(completedAt)}.
+                </p>
+            );
+        }
         return (
             <p className={styles.austrac}>
                 AUSTRAC report: draft in progress. <Link to={openTtrPath(purchase.ttr.id)}>Open AUSTRAC report</Link>

@@ -285,6 +285,50 @@ describe("purchase form: reportable purchases (spec 3.3, 3.3a)", () => {
         expect(goldApi.goToAustracForm).not.toHaveBeenCalled();
     });
 
+    const fillCaseAWithInvoice = async (user) => {
+        open();
+        await screen.findByRole("heading", { name: "Record purchase" });
+        await cashYes(user);
+        await user.type(screen.getByLabelText("ERP invoice number"), "INV-A1");
+        await addPhoto(user);
+        await tickSighted(user);
+        await answerYes(user, "Is Jane Citizen acting on their own behalf?");
+        await answerYes(user, "Are these details still correct?");
+    };
+
+    it("case A with an invoice: starts the report but stays in gold and does not open it", async () => {
+        const user = userEvent.setup();
+        goldApi.createTransaction.mockResolvedValue({ purchaseId: "p1", ttr: "A", warnings: {} });
+        goldApi.goToAustracForm.mockResolvedValue({ ttrs: [{ id: "t1" }], path: "/open-ttr/t1" });
+        await fillCaseAWithInvoice(user);
+
+        expect(
+            await screen.findByText(
+                "After you record this purchase, the AUSTRAC report will be started. Finish it from To complete."
+            )
+        ).toBeInTheDocument();
+        await record(user, "Record purchase and continue to AUSTRAC");
+
+        await waitFor(() => expect(goldApi.goToAustracForm).toHaveBeenCalledWith("p1"));
+        expect(await screen.findByText("AUSTRAC report started. Finish it from To complete.")).toBeInTheDocument();
+        expect(screen.queryByTestId("where")).not.toBeInTheDocument();
+    });
+
+    it("case A with an invoice: keeps the purchase and says so when the report could not be started", async () => {
+        const user = userEvent.setup();
+        goldApi.createTransaction.mockResolvedValue({ purchaseId: "p1", ttr: "A", warnings: {} });
+        goldApi.goToAustracForm.mockRejectedValue(new GoldApiError({ status: 409, code: "ttr_reference_in_use" }));
+        await fillCaseAWithInvoice(user);
+
+        await record(user, "Record purchase and continue to AUSTRAC");
+
+        expect(
+            await screen.findByText(/Purchase recorded, but the AUSTRAC report could not be started/)
+        ).toBeInTheDocument();
+        expect(screen.queryByText("AUSTRAC report started. Finish it from To complete.")).not.toBeInTheDocument();
+        expect(screen.queryByTestId("where")).not.toBeInTheDocument();
+    });
+
     it("case B: a customer who is not ready has no questions and must give the invoice number now", async () => {
         const user = userEvent.setup();
         goldApi.getTtrReadiness.mockResolvedValue(["occupation", "gender"]);

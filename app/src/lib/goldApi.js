@@ -227,14 +227,14 @@ const goldRpc = async (name, args) => {
     return data;
 };
 
-// { [ttr transaction id]: { id, status, transaction_ref, scenario } } for the TTRs the purchases point at.
+// { [ttr transaction id]: { id, status, transaction_ref, scenario, completed_at } } for the TTRs the purchases point at.
 const loadTtrs = async (purchases) => {
     const ids = [...new Set(purchases.map((p) => p.ttr_transaction_id).filter(Boolean))];
     if (ids.length === 0) return {};
     const { data, error } = await supabase
         .schema("ttr")
         .from("transactions")
-        .select("id, status, transaction_ref, scenario")
+        .select("id, status, transaction_ref, scenario, completed_at")
         .in("id", ids);
     if (error) throw readFailed();
     return Object.fromEntries(data.map((t) => [t.id, t]));
@@ -298,7 +298,7 @@ export async function listTransactions(customerId) {
 
 /**
  * One purchase with its goods photo rows (goods_photos: [{ id, sort_order }]) and its TTR (null, or
- * { id, status, transaction_ref, scenario }). Throws a 404 GoldApiError when it is not found.
+ * { id, status, transaction_ref, scenario, completed_at }). Throws a 404 GoldApiError when it is not found.
  */
 export async function getTransaction(id) {
     const { data, error } = await gold()

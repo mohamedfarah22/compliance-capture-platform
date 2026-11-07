@@ -126,9 +126,15 @@ describe("GoldPurchaseRecordPage", () => {
         expect(screen.getByText("AUSTRAC pending")).toBeInTheDocument();
         unmount();
 
-        goldApi.getTransaction.mockResolvedValue(purchaseOf({ ttr: { id: "t1", status: "complete" } }));
+        goldApi.getTransaction.mockResolvedValue(
+            purchaseOf({
+                ttr: { id: "t1", status: "complete", transaction_ref: "INV-77", completed_at: "2026-11-04T01:00:00Z" },
+            })
+        );
         const second = open();
-        expect(await screen.findByText("AUSTRAC report: complete")).toBeInTheDocument();
+        expect(
+            await screen.findByText("AUSTRAC report: complete. Reference INV-77, completed 04 Nov 2026.")
+        ).toBeInTheDocument();
         expect(screen.queryByRole("link", { name: "Open AUSTRAC report" })).not.toBeInTheDocument();
         second.unmount();
 
