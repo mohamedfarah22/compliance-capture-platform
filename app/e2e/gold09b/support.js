@@ -104,7 +104,7 @@ export const parseCsv = (text) => {
 /** The zip's purchases.csv as { header, rows: [{column: value}], bytes }. */
 export const csvOf = (files) => {
   const bytes = files['purchases.csv']
-  const rows = parseCsv(bytes.toString('utf8').replace(/^﻿/, ''))
+  const rows = parseCsv(bytes.toString('utf8').replace(String.fromCharCode(0xfeff), ''))
   const header = rows[0]
   return { bytes, header, rows: rows.slice(1).map((r) => Object.fromEntries(header.map((h, i) => [h, r[i]]))) }
 }

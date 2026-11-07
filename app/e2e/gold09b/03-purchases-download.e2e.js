@@ -14,7 +14,6 @@ import {
   jane,
   makeImage,
   open,
-  photo,
   sql,
   tokenOf,
   uniq,
@@ -182,7 +181,7 @@ test('9b.30 ⚠ — (a) purchases.csv starts with the UTF-8 byte order mark (EF 
 
 test('9b.30 ⚠ — (b) lines end CRLF and every cell is in double quotes', async () => {
   const { bytes } = await accentDownload()
-  const lines = bytes.toString('utf8').replace(/^﻿/, '').split('\r\n')
+  const lines = bytes.toString('utf8').replace(String.fromCharCode(0xfeff), '').split('\r\n')
   expect(lines).toHaveLength(3) // header, one purchase, and the empty piece after the last CRLF
   expect(lines[2]).toBe('')
   for (const line of lines.slice(0, 2)) expect(line).toMatch(/^"(?:[^"]|"")*"(?:,"(?:[^"]|"")*")*$/)

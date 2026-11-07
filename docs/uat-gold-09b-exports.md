@@ -55,7 +55,7 @@ cd ../supabase/functions && deno task test                      # Deno: _shared/
 - 9b.34: the first goods photo request is aborted in the browser.
 - 9b.36: `gold-export` is answered by the test with a 403 and then a 500.
 - 9b.41: the view rows are matched to the four stored images of Jane's and Joan's licences by id.
-- 9b.14: the service role is exercised through PostgREST (`PATCH` and `DELETE` on `export_audit_log` with the `sb_secret`-equivalent local service key): `P0001` from the append-only trigger; a manager's `POST` is `42501`.
+- 9b.14: the service role is exercised through PostgREST (`PATCH` and `DELETE` on `export_audit_log` with the local service-role key): `P0001` from the append-only trigger; a manager's `POST` is `42501`.
 
 **Earlier-phase rows changed by this phase** (this branch only; the 8b branch is untouched): 8b.54 expected "no Download button for staff or an admin". Since 9b adds Download for managers and admins (spec §2.3, §5.2) it now expects staff to see none and a manager and an admin to see "Download (n)". 8b.58 is checked as staff and still holds. See `docs/uat-gold-08b-purchase-screens.md`.
 
@@ -160,3 +160,5 @@ Only what the local tests cannot see: deploying to dev, which project the previe
 - CI red in `uat` part0 on R11/R18/R24/R27 (stuck on `/id-verification`) is known issue #20; re-run the failed job once.
 
 ☐ Section A green on commit ______ · ☐ Section B · Notes:
+
+*Progress note (UAT agent): all rows written; production breaks done for 9b.3, 6, 7, 8, 9, 10, 11, 12, 13, 16, 17, 19, 20, 23, 25, 28, 30, 31, 33, 35 to 39, 42, 45, 46 (each failed for its own reason); expectation flips done for 9b.1 (not yet), 2, 4, 5, 14, 15, 18, 21, 22, 24, 26; flips still to run: 9b.27, 29, 34, 40, 41, 44; final full `npm run uat:gold09b` after the last revert still to run.*
