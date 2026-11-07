@@ -56,19 +56,23 @@ const download = async (page, last, query = '') => {
   return { n, name: dl.suggestedFilename(), files: unzip(readFileSync(path)) }
 }
 
-test('9b.23 — Staff Sam sees no "Download (n)" and no "Download record"; Manager Mel and Admin Ada see both', async () => {
-  for (const [who, shown] of [[s1, false], [m1, true], [a1, true]]) {
-    const p = who.page
+for (const [who, label, shown] of [['s1', 'Staff Sam', false], ['m1', 'Manager Mel', true], ['a1', 'Admin Ada', true]]) {
+  test(`9b.23 — ${label} ${shown ? 'sees' : 'sees no'} "Download (n)" on Purchases`, async () => {
+    const p = { s1, m1, a1 }[who].page
     await p.goto('/gold/purchases')
     await expect(p.getByRole('heading', { name: 'Purchases' })).toBeVisible()
     await expect(summary(p)).toHaveText(/\d+ purchases?$/)
     await expect(p.getByRole('button', { name: /^Download/ })).toHaveCount(shown ? 1 : 0)
+  })
+
+  test(`9b.23 — ${label} ${shown ? 'sees' : 'sees no'} "Download record" on a purchase record`, async () => {
+    const p = { s1, m1, a1 }[who].page
     await p.goto(`/gold/purchases/${w.p2}`)
     await expect(p.getByRole('heading', { level: 1, name: /purchase$/ })).toBeVisible()
     await expect(p.getByRole('button', { name: 'Download record' })).toHaveCount(shown ? 1 : 0)
     await expect(p.getByText('Opens the print dialog with the ID photos')).toHaveCount(shown ? 1 : 0)
-  }
-})
+  })
+}
 
 test('9b.24 — the button reads "Download (n)" with n the count under the filters, follows the filters, and is disabled with 0 results', async () => {
   const p = m1.page
@@ -213,6 +217,15 @@ test('9b.31 ⚠ — a cell that starts with = + - @ a tab or a carriage return i
   expect(raw).toContain(`"Plain Citizen ${tag}"`)
 })
 
+test('9b.31 ⚠ — (b) the same protection applies to any column: an ERP invoice number of =1+1 is written as \'=1+1', async () => {
+  const c = await jane({ first: 'Invoice' })
+  await buy('m1', { customerId: c.id, erpInvoiceNo: '=1+1' })
+  const { files } = await download(m1.page, c.last)
+  const [row] = csvOf(files).rows
+  expect(row.erp_invoice_no).toBe("'=1+1")
+  expect(files['purchases.csv'].toString('utf8')).toContain(`,"'=1+1",`)
+})
+
 test('9b.32 — P1 and P3: P1 Completed / AUSTRAC Yes / complete INV-1 reference; P3 Incomplete / AUSTRAC No / empty TTR / 0 goods photos and a NO-INVOICE folder with no images', async () => {
   const { files } = await download(m1.page, w.jane.last, '?type=scrap')
   const { rows } = csvOf(files)
@@ -288,6 +301,7 @@ test('9b.28 ⚠ — C1 in the zip: after the licence is renewed the downloaded I
   expect(shownBytes.equals(NEW_FRONT.bytes)).toBe(true)
   const { files } = await download(p, c.last)
   const dir = await folder(pid, (await sql`select erp_invoice_no from gold.purchases where id = ${pid}`)[0].erp_invoice_no)
+  expect(Object.keys(files), "the newer copy's ID photos are in the zip").toContain(`${dir}/main-seller-id-front.jpg`)
   expect(files[`${dir}/main-seller-id-front.jpg`].equals(NEW_FRONT.bytes)).toBe(true)
   expect(files[`${dir}/main-seller-id-back.jpg`].equals(NEW_BACK.bytes)).toBe(true)
   const [row] = csvOf(files).rows

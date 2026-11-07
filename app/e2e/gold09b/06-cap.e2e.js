@@ -1,4 +1,4 @@
-// Gold Phase 9b UAT, rows 9b.7, 9b.25 and 9b.45: the 200-purchase cap, on gold-export and on the Download button
+// Gold Phase 9b UAT, rows 9b.7, 9b.25 and 9b.44: the 200-purchase cap, on gold-export and on the Download button
 // (spec 6.2 "at most 200 purchases per export"). 201 purchases of one customer are saved once for the file.
 import { readFileSync } from 'node:fs'
 import { expect, test } from '@playwright/test'
@@ -59,7 +59,7 @@ test('9b.25 — with 201 matches the button is disabled and the page says "Too m
   await expect(p.getByText('Too many purchases to download')).toHaveCount(0)
 })
 
-test('9b.45 — (added by UAT, spec 6.2) Download (200) takes every matching purchase, not just the first page: the zip has 200 CSV rows and 200 folders, and the audit row holds the same 200 ids', async () => {
+test('9b.44 — (added by UAT, spec 6.2) Download (200) takes every matching purchase, not just the first page: the zip has 200 CSV rows and 200 folders, and the audit row holds the same 200 ids', async () => {
   const p = m1.page
   await p.goto(`/gold/purchases?from=${melbourneDate()}`)
   await p.getByLabel('Search').fill(customer.last)

@@ -77,7 +77,8 @@ test('9b.11 ⚠ — (a) a zip writes one audit row from the verified caller: Mel
 
 test('9b.11 ⚠ — (b) the audit row\'s filters hold exactly the seven known keys with the values sent, and nothing from staffId / reportingEntityId / unknown', async () => {
   const before = (await auditRows(E1)).length
-  const res = await exportReq(await tokenOf('m1'), lying({ ...FILTERS, staffId: ACCOUNTS.a1.id, reportingEntityId: E2, unknown: 1 }))
+  const filters = { ...FILTERS, staffId: ACCOUNTS.a1.id, reportingEntityId: E2, unknown: 1 }
+  const res = await exportReq(await tokenOf('m1'), { kind: 'zip', filters, purchaseIds: [w.p1, w.p2] })
   expect(res.status, res.text).toBe(200)
   const rows = await newAudit(before)
   expect(rows).toHaveLength(1)
@@ -172,13 +173,18 @@ test('9b.16 — a zip of P1, P2, P3 returns one entry per purchase with every CS
   expect(e3.row).toMatchObject({ erp_invoice_no: '', goods_photo_count: 0, joint_seller_name: '', joint_id_number: '', completed_at: null })
 })
 
-test('9b.17 — each purchase\'s photo entries: P1 two goods and Jane\'s ID front and back, P2 one goods and both sellers\' ID photos, P3 none; every URL expires within 300 seconds', async () => {
+test('9b.17 — (a) each purchase\'s photo entries: P1 two goods and Jane\'s ID front and back, P2 one goods and both sellers\' ID photos, P3 none', async () => {
   const res = await zipReq(await tokenOf('m1'), [w.p1, w.p2, w.p3])
   const names = (e) => e.photos.map((p) => p.name).sort()
   const [e1, e2, e3] = res.body.purchases
   expect(names(e1)).toEqual(['goods-1', 'goods-2', 'main-seller-id-back', 'main-seller-id-front'])
   expect(names(e2)).toEqual(['goods-1', 'joint-seller-id-back', 'joint-seller-id-front', 'main-seller-id-back', 'main-seller-id-front'])
   expect(e3.photos).toEqual([])
+})
+
+test('9b.17 — (b) every photo URL is a signed storage URL whose token expires within 300 seconds', async () => {
+  const res = await zipReq(await tokenOf('m1'), [w.p1, w.p2])
+  const [e1, e2] = res.body.purchases
   const now = Date.now() / 1000
   for (const p of [...e1.photos, ...e2.photos]) {
     const exp = signedExp(p.url)
@@ -216,7 +222,8 @@ const melbourneDay = async (iso) => (await sql`select (${iso}::timestamptz at ti
 const NEW_FRONT = photo('c1-new-front')
 const NEW_BACK = photo('c1-new-back')
 
-test('9b.20 ⚠ — C1: after the licence is renewed (same document, new photos) the export carries the newer copy\'s photos, says "newer copy" with its date, and still names the document P1 used', async () => {
+// A customer whose licence was used for a purchase and then renewed (same document, new photos).
+const renewed = async () => {
   const front = await makeImage(m1.page, { width: 300, height: 200, label: 'ORIG-F' })
   const back = await makeImage(m1.page, { width: 300, height: 200, label: 'ORIG-B' })
   const number = `DLC1${uniq()}`
@@ -228,9 +235,18 @@ test('9b.20 ⚠ — C1: after the licence is renewed (same document, new photos)
   const upd = await postMultipart('gold-update-customer-id', await tokenOf('m1'), idPayload(c.id, { documentNumber: number }), { front: NEW_FRONT, back: NEW_BACK })
   expect(upd.status, upd.text).toBe(201)
   const res = await zipReq(await tokenOf('m1'), [pid])
-  const [e] = res.body.purchases
+  return { entry: res.body.purchases[0], number, orig }
+}
+
+test('9b.20 ⚠ — (a) C1: after the licence is renewed the export carries the newer copy\'s ID front and back photos (the current images)', async () => {
+  const { entry: e } = await renewed()
+  expect(photoOf(e, 'main-seller-id-front'), "the newer copy's front photo is in the export").toBeDefined()
   expect((await bytes(photoOf(e, 'main-seller-id-front').url)).equals(NEW_FRONT.bytes)).toBe(true)
   expect((await bytes(photoOf(e, 'main-seller-id-back').url)).equals(NEW_BACK.bytes)).toBe(true)
+})
+
+test('9b.20 ⚠ — (b) C1: id_photo_copy_taken says "newer copy" with the date taken, and id_document_used still names the document P1 used', async () => {
+  const { entry: e, number, orig } = await renewed()
   const today = await melbourneDay(new Date().toISOString())
   expect(e.row.id_photo_copy_taken).toBe(`main: newer copy, taken ${today}`)
   expect(e.row.id_document_used).toBe(`main: Driver licence, captured ${await melbourneDay(orig.created_at.toISOString())}`)

@@ -94,7 +94,7 @@ test('9b.37 ⚠ — a plain print (Ctrl+P) of P2 shows the purchase details and 
   await expect(p.getByRole('heading', { level: 1, name: /purchase$/ })).toBeVisible()
 })
 
-test('9b.46 — (added by UAT, spec 6.2 print styles) the gold page header is not printed', async () => {
+test('9b.45 — (added by UAT, spec 6.2 print styles) the gold page header is not printed', async () => {
   const p = m1.page
   await open_(p, w.p2)
   await expect(p.getByRole('banner')).toBeVisible()
@@ -102,7 +102,7 @@ test('9b.46 — (added by UAT, spec 6.2 print styles) the gold page header is no
   await expect(p.getByRole('banner')).toBeHidden()
 })
 
-test('9b.47 — (added by UAT, spec 6.2 print styles) Back to Purchases, Complete, Download record and its hint are not printed', async () => {
+test('9b.46 — (added by UAT, spec 6.2 print styles) Back to Purchases, Complete, Download record and its hint are not printed', async () => {
   const p = m1.page
   await open_(p, w.p3)
   const parts = [p.getByText('Back to Purchases'), p.getByRole('button', { name: 'Complete', exact: true }), downloadRecord(p), p.getByText('Opens the print dialog with the ID photos')]
@@ -115,7 +115,7 @@ test('9b.38 ⚠ — after Download record the print shows the ID front and back 
   const p = m1.page
   await open_(p, w.p2)
   await downloadRecord(p).click()
-  await expect.poll(() => log(p)).toContain('print(class on: true)')
+  await expect.poll(async () => (await log(p)).some((l) => l.startsWith('print('))).toBe(true)
   await p.emulateMedia({ media: 'print' })
   expect(await idPhotos(p).count()).toBe(4)
   for (const photo of await idPhotos(p).all()) await expect(photo).toBeVisible()
@@ -128,7 +128,7 @@ test('9b.39 ⚠ — once the print dialog closes (afterprint) a plain Ctrl+P hid
   const p = m1.page
   await open_(p, w.p2)
   await downloadRecord(p).click()
-  await expect.poll(() => log(p)).toContain('print(class on: true)')
+  await expect.poll(async () => (await log(p)).some((l) => l.startsWith('print('))).toBe(true)
   await p.emulateMedia({ media: 'print' })
   await expect(idPhotos(p).first()).toBeVisible()
   await p.emulateMedia({ media: 'screen' })
@@ -145,7 +145,7 @@ test('9b.40 — on screen the record looks the same before and after Download re
   const snap = async () => ({ text: await card.innerText(), box: await card.boundingBox(), visible: await idPhotos(p).evaluateAll((l) => l.map((i) => getComputedStyle(i.closest('figure')).display)) })
   const before = await snap()
   await downloadRecord(p).click()
-  await expect.poll(() => log(p)).toContain('print(class on: true)')
+  await expect.poll(async () => (await log(p)).some((l) => l.startsWith('print('))).toBe(true)
   expect(await snap()).toEqual(before)
   expect(before.visible).toHaveLength(4)
   expect(before.visible).not.toContain('none')

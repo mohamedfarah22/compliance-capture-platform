@@ -167,11 +167,15 @@ test('8b.53 — the Status options and what each shows: AUSTRAC pending (reporta
   expect([noInvoice, pending.purchaseId].every(Boolean)).toBe(true)
 })
 
-test('8b.54 — there is no Download or print button on Purchases, for staff or an admin (that is Phase 9b)', async () => {
-  for (const who of [staff, admin]) {
+// Changed in Phase 9b (spec 2.3, 5.2 Purchases row: "Download hidden for staff"): a manager or an admin now sees the
+// Download (n) button; staff still see no Download or print button.
+test('8b.54 — there is no Download or print button on Purchases for staff; a manager and an admin see Download (n) (Phase 9b)', async () => {
+  for (const [who, shown] of [[staff, false], [manager, true], [admin, true]]) {
     await who.page.goto('/gold/purchases')
     await expect(who.page.getByRole('heading', { name: 'Purchases' })).toBeVisible()
-    await expect(who.page.getByRole('button', { name: /download|print|export/i })).toHaveCount(0)
+    await expect(who.page.getByRole('button', { name: /^Download \(\d+\)$/ })).toHaveCount(shown ? 1 : 0)
+    await expect(who.page.getByRole('button', { name: /print|export/i })).toHaveCount(0)
     await expect(who.page.getByRole('link', { name: /download|print|export/i })).toHaveCount(0)
+    if (!shown) await expect(who.page.getByRole('button', { name: /download/i })).toHaveCount(0)
   }
 })
