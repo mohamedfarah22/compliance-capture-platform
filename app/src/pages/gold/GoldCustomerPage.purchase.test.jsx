@@ -307,7 +307,10 @@ describe("purchase form: reportable purchases (spec 3.3, 3.3a)", () => {
                 "After you record this purchase, the AUSTRAC report will be started. Finish it from To complete."
             )
         ).toBeInTheDocument();
-        await record(user, "Record purchase and continue to AUSTRAC");
+        expect(
+            screen.queryByRole("button", { name: "Record purchase and continue to AUSTRAC" })
+        ).not.toBeInTheDocument();
+        await record(user, "Record purchase and start AUSTRAC report");
 
         await waitFor(() => expect(goldApi.goToAustracForm).toHaveBeenCalledWith("p1"));
         expect(await screen.findByText("AUSTRAC report started. Finish it from To complete.")).toBeInTheDocument();
@@ -320,7 +323,7 @@ describe("purchase form: reportable purchases (spec 3.3, 3.3a)", () => {
         goldApi.goToAustracForm.mockRejectedValue(new GoldApiError({ status: 409, code: "ttr_reference_in_use" }));
         await fillCaseAWithInvoice(user);
 
-        await record(user, "Record purchase and continue to AUSTRAC");
+        await record(user, "Record purchase and start AUSTRAC report");
 
         expect(
             await screen.findByText(/Purchase recorded, but the AUSTRAC report could not be started/)

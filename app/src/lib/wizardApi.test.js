@@ -989,11 +989,33 @@ describe("wizardApi", () => {
         expect(await hasUnconfirmedGoldPurchase("tx-1")).toBe(false);
         expect(builder.eq).toHaveBeenCalledWith("ttr_transaction_id", "tx-1");
 
-        fromMock.mockReturnValue(makeBuilder({ data: [answered, late], error: null }));
+        // Became reportable on Complete purchase: nothing else on the invoice has the answers.
+        fromMock
+            .mockReturnValueOnce(makeBuilder({ data: [answered, late], error: null }))
+            .mockReturnValueOnce(makeBuilder({ data: [late], error: null }));
         expect(await hasUnconfirmedGoldPurchase("tx-1")).toBe(true);
 
         fromMock.mockReturnValue(makeBuilder({ data: null, error: { code: "42501" } }));
         expect(await hasUnconfirmedGoldPurchase("tx-1")).toBe(false);
+    });
+
+    it("hasUnconfirmedGoldPurchase() is false for a mixed invoice's scrap part when another part has the answers", async () => {
+        const scrap = {
+            cash_10k_or_more: false,
+            ttr_self_conducted: null,
+            ttr_details_confirmed: null,
+            customer_id: "c-1",
+            erp_invoice_norm: "INV-900",
+            sale_date: "2026-11-07",
+        };
+        const bullion = { ttr_self_conducted: true, ttr_details_confirmed: true };
+        const sameInvoice = makeBuilder({ data: [scrap, bullion], error: null });
+        fromMock.mockReturnValueOnce(makeBuilder({ data: [scrap], error: null })).mockReturnValueOnce(sameInvoice);
+
+        expect(await hasUnconfirmedGoldPurchase("tx-1")).toBe(false);
+        expect(sameInvoice.eq).toHaveBeenCalledWith("customer_id", "c-1");
+        expect(sameInvoice.eq).toHaveBeenCalledWith("erp_invoice_norm", "INV-900");
+        expect(sameInvoice.eq).toHaveBeenCalledWith("sale_date", "2026-11-07");
     });
 
     it("deleteTransaction() calls the delete-draft-transaction edge function with the current transactionId and clears it", async () => {

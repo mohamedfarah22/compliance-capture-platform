@@ -156,6 +156,12 @@ const PurchaseForm = ({ customer, onRecorded }) => {
     const shown = { ...(hasTried ? errors : {}), ...serverErrors };
     const hasInvoice = Boolean(invoice);
     const isHandOff = cash.reportable && hasInvoice && !cash.alreadyReported;
+    // Case A only starts the report (it stays in gold); case B opens it.
+    const recordLabel = !isHandOff
+        ? "Record purchase"
+        : ttr.case === "A"
+          ? "Record purchase and start AUSTRAC report"
+          : "Record purchase and continue to AUSTRAC";
     // The main seller's re-verify notice is the banner above the form; only the joint seller's is added here.
     const jointReverify = reverify.filter((seller) => seller.role === "joint");
     const names = (rows) => rows.map(({ customer: c }) => c.full_name).join(" and ");
@@ -527,7 +533,7 @@ const PurchaseForm = ({ customer, onRecorded }) => {
                 ) : null}
 
                 <Button type="submit" disabled={isBusy || isJointLoading || blocked.length > 0}>
-                    {isBusy ? "Saving…" : isHandOff ? "Record purchase and continue to AUSTRAC" : "Record purchase"}
+                    {isBusy ? "Saving…" : recordLabel}
                 </Button>
             </form>
 
