@@ -77,7 +77,7 @@ test('8b.21 — $6,000 on each part makes $12,000 on the invoice: the panel says
   await expect(page.getByText('Cash on ' + number + ' today: $12,000.00. That’s $10,000.00 or more, so the invoice will be reported to AUSTRAC once.')).toBeVisible()
   await yesNo(page, `Is ${c.name} acting on their own behalf?`, 'Yes').click()
   await yesNo(page, 'Are these details still correct?', 'Yes').click()
-  await page.getByRole('button', { name: 'Record purchase and continue to AUSTRAC' }).click()
+  await page.getByRole('button', { name: 'Record purchase and start AUSTRAC report' }).click()
   // Jane is ready and answered Yes twice: case A. The TTRs are started and gold stays on her page (spec 3.3).
   await expect(page.getByText('AUSTRAC report started. Finish it from To complete.')).toBeVisible()
   await expect(page).toHaveURL(new RegExp(`/gold/customers/${c.id}$`))
