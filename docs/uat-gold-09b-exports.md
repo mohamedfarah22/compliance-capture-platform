@@ -161,4 +161,4 @@ Only what the local tests cannot see: deploying to dev, which project the previe
 
 ☐ Section A green on commit ______ · ☐ Section B · Notes:
 
-*Progress note (UAT agent): all rows written; production breaks done for 9b.3, 6, 7, 8, 9, 10, 11, 12, 13, 16, 17, 19, 20, 23, 25, 28, 30, 31, 33, 35 to 39, 42, 45, 46 (each failed for its own reason); expectation flips done for 9b.1 (not yet), 2, 4, 5, 14, 15, 18, 21, 22, 24, 26; flips still to run: 9b.27, 29, 34, 40, 41, 44; final full `npm run uat:gold09b` after the last revert still to run.*
+*Progress note (UAT agent): all 46 rows automated and green locally (gold09b 61 Playwright tests, Deno 11 + the whole suite 387, pgTAP 871, Vitest 833, 8b.54 and 8b.58 re-run). Production breaks and expectation flips were done once each and reverted; no defects.*
