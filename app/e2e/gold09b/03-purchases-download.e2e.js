@@ -95,6 +95,8 @@ test('9b.24 — the button reads "Download (n)" with n the count under the filte
 })
 
 let zip12
+// The zip of P1 and P2: the one 9b.26 saved, or (after a worker restart) a fresh download of the same two purchases.
+const pairZip = async () => zip12 ?? (zip12 = (await download(m1.page, w.jane.last, '?cash=yes')).files)
 test('9b.26 — Download (2) for P1 and P2 shows "Preparing… x/2", saves purchases-<today>.zip, writes one zip audit row with the current filters (search text included) and exactly P1, P2, and says "Downloaded 2 purchases"', async () => {
   const p = m1.page
   await p.route('**/functions/v1/gold-export', async (route) => {
@@ -123,7 +125,7 @@ test('9b.26 — Download (2) for P1 and P2 shows "Preparing… x/2", saves purch
 })
 
 test('9b.27 — the zip holds purchases.csv, READ ME.txt and one folder per purchase with the ID front/back (both sellers for P2) and goods photos, the files being the stored images', async () => {
-  const f12 = zip12
+  const f12 = await pairZip()
   const d1 = await folder(w.p1, w.n1)
   const d2 = await folder(w.p2, w.n2)
   expect(Object.keys(f12).sort()).toEqual(
@@ -150,7 +152,7 @@ test('9b.27 — the zip holds purchases.csv, READ ME.txt and one folder per purc
 })
 
 test('9b.29 — purchases.csv has the 30 columns in order, one row per purchase, and folder matches the zip folder', async () => {
-  const { header, rows } = csvOf(zip12)
+  const { header, rows } = csvOf(await pairZip())
   expect(header).toEqual(
     'purchase_id,recorded_at,recorded_by,status,completed_at,completed_by,erp_invoice_no,purchase_type,cash_paid,austrac_reportable,cash_amount_aud,main_seller_name,main_seller_phone,main_id_type,main_id_number,main_id_expiry,joint_seller_name,joint_seller_phone,joint_id_type,joint_id_number,joint_id_expiry,phone_at_purchase,id_sighted,id_expired_at_time,goods_photo_count,folder,ttr_status,ttr_reference,id_document_used,id_photo_copy_taken'.split(','),
   )
