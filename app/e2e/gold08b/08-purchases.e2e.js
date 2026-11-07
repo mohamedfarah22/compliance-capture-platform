@@ -153,7 +153,7 @@ test('8b.53 — the Status options and what each shows: AUSTRAC pending (reporta
   const p = staff.page
   await p.goto('/gold/purchases')
   const f = filtersOf(p)
-  expect(await f.status.locator('option').allInnerTexts()).toEqual(['All', 'Incomplete', 'Completed', 'AUSTRAC pending', 'AUSTRAC'])
+  await expect(f.status.locator('option')).toHaveText(['All', 'Incomplete', 'Completed', 'AUSTRAC pending', 'AUSTRAC'])
   await f.search.fill(c.last)
   const shown = async (status) => {
     await f.status.selectOption({ label: status })
