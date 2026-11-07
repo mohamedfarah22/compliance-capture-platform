@@ -137,7 +137,7 @@ Rows 8a.1 to 8a.59 are the implementer's; **8a.60 was added by UAT** from §4.5 
 | 8a.53 | §4.6 | Click "Change" by the phone, enter a valid new number, press Enter | The phone updates in place with "Phone number updated"; `customer_audit_log` has one row (source `phone_change`); the focus returns to "Change". Saving the same number writes nothing | `app/e2e/gold08a/07-customer-page.e2e.js` › 8a.53 (x2: the save, and the focus return) |
 | 8a.54 | §4.6 | In the phone editor enter 7 digits, then press Escape | "Phone number looks too short." shows and nothing is saved; Escape closes the editor with the old number | `app/e2e/gold08a/07-customer-page.e2e.js` › 8a.54 |
 | 8a.55 | §6.1 | Open `/gold/customers/<id>` for another business's customer, and for an unknown id | "Customer not found." with a link back to Find customer. The same on the update-id and edit pages. No details of the other business are shown | `app/e2e/gold08a/07-customer-page.e2e.js` › 8a.55 |
-| 8a.56 | §5.2 | Look at the right-hand side of the customer page | A clearly marked placeholder where the purchase form goes (Phase 8b). Nothing can be recorded. "Back to search" returns to `/gold` | `app/e2e/gold08a/07-customer-page.e2e.js` › 8a.56 |
+| 8a.56 | §5.2 | Look at the right-hand side of the customer page of a customer with no ID on file (Phase 8b replaced the placeholder with the purchase form) | The heading "Record purchase" and "Add the customer’s ID before recording a purchase." with no form; nothing can be recorded. "Back to search" returns to `/gold` | `app/e2e/gold08a/07-customer-page.e2e.js` › 8a.56 |
 
 ### Privacy and context
 

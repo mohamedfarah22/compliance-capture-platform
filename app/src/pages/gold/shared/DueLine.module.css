@@ -1,0 +1,13 @@
+.line {
+    margin: 0;
+    font-size: 0.875rem;
+    font-weight: 600;
+}
+
+.soon {
+    color: #92400e;
+}
+
+.urgent {
+    color: var(--color-danger);
+}

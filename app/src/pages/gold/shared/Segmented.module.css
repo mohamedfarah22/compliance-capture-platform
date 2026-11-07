@@ -1,0 +1,12 @@
+.group {
+    composes: group from "./YesNo.module.css";
+    flex-wrap: wrap;
+}
+
+.option {
+    composes: option from "./YesNo.module.css";
+}
+
+.selected {
+    composes: selected from "./YesNo.module.css";
+}

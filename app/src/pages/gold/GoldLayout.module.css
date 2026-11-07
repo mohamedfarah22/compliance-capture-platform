@@ -72,3 +72,13 @@
         padding: 1.25rem 1rem 2rem;
     }
 }
+
+@media print {
+    .header {
+        display: none;
+    }
+
+    .main {
+        padding: 0;
+    }
+}

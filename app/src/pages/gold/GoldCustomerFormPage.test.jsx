@@ -55,9 +55,12 @@ const CustomerLanding = () => {
     const { customerId } = useParams();
     const { state } = useLocation();
     return (
-        <p>
-            Customer page {customerId}: {state?.notice}
-        </p>
+        <>
+            <p>
+                Customer page {customerId}: {state?.notice}
+            </p>
+            <p data-testid="joint">{state?.jointId}</p>
+        </>
     );
 };
 
@@ -416,6 +419,50 @@ describe("GoldCustomerFormPage: create", () => {
 
         expect(await screen.findByText(/That photo could not be read/)).toBeInTheDocument();
         expect(screen.getByRole("group", { name: "ID front" })).toHaveTextContent("No photo yet");
+    });
+});
+
+describe("GoldCustomerFormPage: sent here by a purchase form", () => {
+    it("creating the joint seller goes back to the main seller's page, handing the new customer on", async () => {
+        const user = userEvent.setup();
+        goldApi.createCustomer.mockResolvedValue({ customerId: "new-1" });
+        renderPage({ path: { pathname: "/gold/customers/new", state: { jointFor: "main-1" } }, mode: "create" });
+        await fillPerson(user);
+        await fillId(user);
+
+        await user.click(screen.getByRole("button", { name: "Create customer" }));
+
+        await screen.findByText("Customer page main-1: Customer created");
+        expect(screen.getByTestId("joint")).toHaveTextContent("new-1");
+    });
+
+    it("Cancel on the joint seller's create form goes back to the main seller", async () => {
+        const user = userEvent.setup();
+        renderPage({ path: { pathname: "/gold/customers/new", state: { jointFor: "main-1" } }, mode: "create" });
+
+        await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+        await screen.findByText(/Customer page main-1/);
+    });
+
+    it("updating a seller's ID goes back to the purchase's customer, not to the seller", async () => {
+        const user = userEvent.setup();
+        goldApi.getCustomer.mockResolvedValue(jane);
+        goldApi.updateCustomerId.mockResolvedValue({ superseded: 0 });
+        renderPage({
+            path: { pathname: "/gold/customers/c1/update-id", state: { returnTo: "main-1" } },
+            mode: "update",
+        });
+        await user.click(await screen.findByRole("radio", { name: /Renewed/ }));
+        await user.click(screen.getByRole("radio", { name: "Yes" }));
+        await user.type(screen.getByLabelText("ID expiry date"), "01/01/2099");
+        await uploadFront(user);
+        await uploadBack(user);
+        await user.click(screen.getByRole("checkbox", { name: /sighted the original ID/ }));
+
+        await user.click(screen.getByRole("button", { name: "Save new ID" }));
+
+        await screen.findByText("Customer page main-1: ID updated");
     });
 });
 

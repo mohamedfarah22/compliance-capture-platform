@@ -8,6 +8,7 @@ import { ITEM_AND_DELIVERY_CAPTURE_ENABLED } from "../../config/featureFlags.js"
 import {
     completeTransaction,
     countGoldPurchases,
+    hasUnconfirmedGoldPurchase,
     getTransactionId,
     loadBullionItems,
     loadConductingPerson,
@@ -51,11 +52,15 @@ const ReviewSubmitPage = () => {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [submitError, setSubmitError] = useState("");
     const [goldPurchaseCount, setGoldPurchaseCount] = useState(0);
+    const [isGoldUnconfirmed, setIsGoldUnconfirmed] = useState(false);
 
     // A TTR started from gold records which purchases it came from (spec 3.2).
     useEffect(() => {
         const id = getTransactionId();
-        if (id) countGoldPurchases(id).then(setGoldPurchaseCount);
+        if (id) {
+            countGoldPurchases(id).then(setGoldPurchaseCount);
+            hasUnconfirmedGoldPurchase(id).then(setIsGoldUnconfirmed);
+        }
     }, []);
 
     useEffect(() => {
@@ -250,6 +255,15 @@ const ReviewSubmitPage = () => {
 
                 {goldPurchaseCount > 0 && (
                     <p className={styles.bannerSub}>From gold purchase(s) on invoice {txn.transactionRef}</p>
+                )}
+
+                {isGoldUnconfirmed && (
+                    <div className={`${styles.banner} ${styles.bannerWarning}`} role="status">
+                        <p>
+                            The customer wasn’t asked to confirm their details at the counter. Contact them to confirm
+                            before completing the TTR.
+                        </p>
+                    </div>
                 )}
 
                 {submitError && (

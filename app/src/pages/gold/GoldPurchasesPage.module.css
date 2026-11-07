@@ -1,0 +1,148 @@
+.card {
+    display: grid;
+    gap: 1.25rem;
+    width: min(100%, 64rem);
+    margin: 0 auto;
+    border: 1px solid var(--color-border-soft);
+    border-radius: var(--radius-lg);
+    background: var(--color-surface);
+    padding: 2rem;
+    box-shadow: var(--shadow-soft);
+}
+
+.title {
+    margin: 0;
+    font-size: 1.5rem;
+}
+
+.hint {
+    margin: 0;
+    color: var(--color-muted);
+    font-size: 0.875rem;
+}
+
+.error {
+    margin: 0;
+    color: var(--color-danger);
+    font-weight: 600;
+}
+
+.empty {
+    margin: 0;
+    border-radius: var(--radius-md);
+    background: #f9fafb;
+    padding: 1rem;
+    color: var(--color-muted);
+    font-size: 0.875rem;
+}
+
+.filters {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1rem;
+}
+
+.wide {
+    grid-column: 1 / -1;
+}
+
+.select {
+    width: 100%;
+    min-height: 44px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+    padding: 0.5rem 0.75rem;
+    font: inherit;
+}
+
+.summary {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    min-height: 2.25rem;
+    color: var(--color-muted);
+    font-size: 0.875rem;
+}
+
+.list {
+    margin: 0;
+    padding: 0;
+    border-top: 1px solid var(--color-border-soft);
+    list-style: none;
+}
+
+.row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    border-bottom: 1px solid var(--color-border-soft);
+    padding: 0.75rem 0.5rem;
+    color: inherit;
+    text-decoration: none;
+}
+
+.row:hover {
+    background: #f9fafb;
+}
+
+.row:focus-visible {
+    outline: 3px solid rgba(37, 99, 235, 0.28);
+    outline-offset: -3px;
+}
+
+.rowBody {
+    display: grid;
+    flex: 1 1 auto;
+    gap: 0.25rem;
+    min-width: 0;
+    font-size: 0.875rem;
+}
+
+.rowTitle {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    font-weight: 600;
+}
+
+.view {
+    color: var(--color-muted);
+    font-size: 0.875rem;
+    font-weight: 600;
+}
+
+.pager {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+}
+
+@media (max-width: 640px) {
+    .card {
+        padding: 1.25rem;
+    }
+
+    .filters {
+        grid-template-columns: 1fr;
+    }
+}
+
+.titleRow {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+
+.notice {
+    margin: 0;
+    color: var(--color-muted);
+    font-size: 0.875rem;
+    font-weight: 600;
+}
