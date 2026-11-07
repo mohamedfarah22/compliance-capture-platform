@@ -29,6 +29,7 @@ const MESSAGES = {
     linked_part_changed:
         "An earlier part of this invoice changed while you were working. Reload the page and try again.",
     already_has_invoice: "This purchase already has an invoice number.",
+    too_many_purchases: "Too many purchases to download. Narrow the filters to 200 or fewer.",
 };
 const GENERIC_MESSAGE = "Could not save. Try again.";
 
@@ -337,6 +338,18 @@ export async function countIncompleteTransactions() {
     return (await goldRpc("list_incomplete_purchases")).length;
 }
 
+const ID_PAGE_SIZE = 100;
+
+const searchFilters = (filters) => ({
+    q: filters.q ?? "",
+    type: filters.type ?? "",
+    status: filters.status ?? "",
+    cash: filters.cash ?? "",
+    date_from: filters.from ?? "",
+    date_to: filters.to ?? "",
+    recorded_by: filters.recordedBy ?? "",
+});
+
 /**
  * One page of purchases. filters: { q, type, status, cash, from, to, recordedBy } (blank = any; status is
  * incomplete | complete | austrac_pending | austrac; cash is yes | no; recordedBy is a staff id).
@@ -344,19 +357,46 @@ export async function countIncompleteTransactions() {
  */
 export async function searchTransactions(filters, { page = 1, pageSize = 25 } = {}) {
     const data = await goldRpc("search_gold_purchases", {
-        p_filters: {
-            q: filters.q ?? "",
-            type: filters.type ?? "",
-            status: filters.status ?? "",
-            cash: filters.cash ?? "",
-            date_from: filters.from ?? "",
-            date_to: filters.to ?? "",
-            recorded_by: filters.recordedBy ?? "",
-        },
+        p_filters: searchFilters(filters),
         p_page: page,
         p_page_size: pageSize,
     });
     return { rows: await withPhotoCounts(data), total: Number(data[0]?.total_count ?? 0) };
+}
+
+/** The ids of every purchase the filters match (the same filters as searchTransactions), newest first. */
+export async function listPurchaseIds(filters) {
+    const ids = [];
+    let total = 0;
+    for (let page = 1; page === 1 || ids.length < total; page += 1) {
+        const data = await goldRpc("search_gold_purchases", {
+            p_filters: searchFilters(filters),
+            p_page: page,
+            p_page_size: ID_PAGE_SIZE,
+        });
+        total = Number(data[0]?.total_count ?? 0);
+        if (data.length === 0) break;
+        ids.push(...data.map((row) => row.id));
+    }
+    return ids;
+}
+
+const DOWNLOAD_FAILED = "Could not prepare the download. Try again.";
+
+/**
+ * Asks gold-export for a download or a print of purchase records (managers and admins only; the server checks).
+ * It writes the audit row first. kind "zip" resolves { purchases: [{ id, row, photos: [{ name, url }] }] } with
+ * 5-minute signed photo URLs; kind "record" resolves { ok: true }. filters is the Purchases filters (or null).
+ */
+export async function recordDownload({ kind, filters, purchaseIds }) {
+    try {
+        return await callFunction("gold-export", { json: { kind, filters, purchaseIds } });
+    } catch (err) {
+        if (err instanceof GoldApiError && !MESSAGES[err.code]) {
+            throw new GoldApiError({ status: err.status, code: err.code, body: err.body, message: DOWNLOAD_FAILED });
+        }
+        throw err;
+    }
 }
 
 /** Earlier parts of this invoice for this customer on this day (YYYY-MM-DD): the same-day invoice rule. */

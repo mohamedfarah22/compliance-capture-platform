@@ -3,8 +3,23 @@ import { Link, useSearchParams } from "react-router-dom";
 import Button from "../../components/ui/Button.jsx";
 import FormField from "../../components/ui/FormField.jsx";
 import TextInput from "../../components/ui/TextInput.jsx";
-import { getPurchaseStaffNames, listRecordedBy, searchTransactions } from "../../lib/goldApi.js";
-import { GOLD_ROUTES, PurchaseTags, formatDateTime, goldPath } from "./shared/index.js";
+import { useAuth } from "../../context/AuthContext.jsx";
+import {
+    getPurchaseStaffNames,
+    listPurchaseIds,
+    listRecordedBy,
+    recordDownload,
+    searchTransactions,
+} from "../../lib/goldApi.js";
+import {
+    GOLD_ROUTES,
+    MAX_EXPORT_PURCHASES,
+    PurchaseTags,
+    buildPurchasesZip,
+    formatDateTime,
+    goldPath,
+    saveBlob,
+} from "./shared/index.js";
 import styles from "./GoldPurchasesPage.module.css";
 
 const PAGE_SIZE = 25;
@@ -21,8 +36,11 @@ const sellerName = (first, last) => [first, last].filter(Boolean).join(" ");
 
 // Every purchase, with filters and server paging (spec 5.2, Purchases row). The filters and the page are in the
 // URL, so a reload or a shared link shows the same list; the search text is not, because it can be a customer's
-// name, phone or ID number. Download is Phase 9b.
+// name, phone or ID number. Managers and admins can download the matching purchases as a zip (spec 6.2); the
+// server (gold-export) is the real gate, hiding the button for staff is a courtesy.
 const GoldPurchasesPage = () => {
+    const { staffMember } = useAuth();
+    const canDownload = ["manager", "admin"].includes(staffMember?.role);
     const [params, setParams] = useSearchParams();
     const filters = Object.fromEntries(Object.entries(FILTER_KEYS).map(([name, key]) => [name, params.get(key) ?? ""]));
     const page = Math.max(1, Number(params.get("page")) || 1);
@@ -73,6 +91,32 @@ const GoldPurchasesPage = () => {
 
     const hasFilters = Boolean(query.trim()) || Object.values(filters).some(Boolean);
     const isCurrent = loaded?.key === key;
+
+    // The download: the ids of everything the filters match, then gold-export (audit row, then signed URLs), then
+    // the zip is built here and saved.
+    const [progress, setProgress] = useState(null);
+    const [downloadMessage, setDownloadMessage] = useState({ text: "", isError: false });
+    const total = isCurrent && !loaded.hasFailed ? loaded.total : null;
+    const download = async () => {
+        setDownloadMessage({ text: "", isError: false });
+        setProgress({ done: 0, total });
+        try {
+            const sent = { q: query.trim(), ...filters };
+            const purchaseIds = await listPurchaseIds(sent);
+            const { purchases } = await recordDownload({ kind: "zip", filters: sent, purchaseIds });
+            const { blob, filename } = await buildPurchasesZip(purchases, (done, all) =>
+                setProgress({ done, total: all })
+            );
+            saveBlob(blob, filename);
+            const text = `Downloaded ${purchases.length} purchase${purchases.length === 1 ? "" : "s"}`;
+            setDownloadMessage({ text, isError: false });
+        } catch (err) {
+            setDownloadMessage({ text: err.message || "Could not prepare the download. Try again.", isError: true });
+        } finally {
+            setProgress(null);
+        }
+    };
+    const isTooMany = total != null && total > MAX_EXPORT_PURCHASES;
 
     const renderResults = () => {
         if (!isCurrent) return null;
@@ -136,10 +180,27 @@ const GoldPurchasesPage = () => {
 
     return (
         <section className={styles.card}>
-            <div>
-                <h1 className={styles.title}>Purchases</h1>
-                <p className={styles.hint}>Find previous purchases.</p>
+            <div className={styles.titleRow}>
+                <div>
+                    <h1 className={styles.title}>Purchases</h1>
+                    <p className={styles.hint}>Find previous purchases.</p>
+                </div>
+                {canDownload ? (
+                    <Button onClick={download} disabled={!total || isTooMany || Boolean(progress)}>
+                        {progress ? `Preparing… ${progress.done}/${progress.total}` : `Download (${total ?? 0})`}
+                    </Button>
+                ) : null}
             </div>
+            {isTooMany ? (
+                <p className={styles.error} role="alert">
+                    Too many purchases to download ({total}). Narrow the filters to {MAX_EXPORT_PURCHASES} or fewer.
+                </p>
+            ) : null}
+            {downloadMessage.text ? (
+                <p className={downloadMessage.isError ? styles.error : styles.notice} role="status">
+                    {downloadMessage.text}
+                </p>
+            ) : null}
 
             <div className={styles.filters}>
                 <div className={styles.wide}>

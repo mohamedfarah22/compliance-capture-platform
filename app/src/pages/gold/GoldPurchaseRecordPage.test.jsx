@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import * as goldApi from "../../lib/goldApi.js";
 import { GoldApiError } from "../../lib/goldApi.js";
+import { useAuth } from "../../context/AuthContext.jsx";
 import GoldPurchaseRecordPage from "./GoldPurchaseRecordPage.jsx";
 
 vi.mock("../../lib/goldApi.js", async (importOriginal) => ({
@@ -14,8 +15,10 @@ vi.mock("../../lib/goldApi.js", async (importOriginal) => ({
     getPurchaseIdUsed: vi.fn(),
     getGoldPhotoUrls: vi.fn(),
     getCustomerIdImages: vi.fn(),
+    recordDownload: vi.fn(),
 }));
 vi.mock("../../lib/supabase.js", () => ({ supabase: {} }));
+vi.mock("../../context/AuthContext.jsx", () => ({ useAuth: vi.fn() }));
 
 const Where = () => <p data-testid="where">{useLocation().pathname}</p>;
 
@@ -73,6 +76,7 @@ beforeEach(() => {
     goldApi.getPurchaseIdUsed.mockResolvedValue([usedOf()]);
     goldApi.getGoldPhotoUrls.mockResolvedValue([{ id: "g1", sortOrder: 0, url: "https://signed/g1.jpg" }]);
     goldApi.getCustomerIdImages.mockResolvedValue({ front: "https://signed/f.jpg", back: "https://signed/b.jpg" });
+    useAuth.mockReturnValue({ staffMember: { role: "staff" } });
 });
 afterEach(cleanup);
 
@@ -143,7 +147,7 @@ describe("GoldPurchaseRecordPage", () => {
         expect(screen.getByRole("link", { name: "Open AUSTRAC report" })).toHaveAttribute("href", "/open-ttr/t1");
     });
 
-    it("offers Complete only while the purchase has no invoice, and never a Download", async () => {
+    it("offers Complete only while the purchase has no invoice, and a staff member never sees Download record", async () => {
         const user = userEvent.setup();
         goldApi.getTransaction.mockResolvedValue(purchaseOf({ erp_invoice_no: null }));
         open();
@@ -157,6 +161,74 @@ describe("GoldPurchaseRecordPage", () => {
         await screen.findByRole("heading", { name: "Scrap jewellery purchase" });
         expect(screen.queryByRole("button", { name: "Complete" })).not.toBeInTheDocument();
         expect(screen.queryByRole("button", { name: /Download/ })).not.toBeInTheDocument();
+    });
+
+    describe("Download record, for managers and admins", () => {
+        const idPhotosOf = () => screen.getByAltText("Jane Citizen — ID front").closest("article");
+
+        beforeEach(() => {
+            useAuth.mockReturnValue({ staffMember: { role: "manager" } });
+            goldApi.recordDownload.mockResolvedValue({ ok: true });
+            vi.spyOn(window, "print").mockImplementation(() => {});
+        });
+        afterEach(() => vi.restoreAllMocks());
+
+        it("is shown to managers and admins", async () => {
+            open();
+            expect(await screen.findByRole("button", { name: "Download record" })).toBeInTheDocument();
+            cleanup();
+            useAuth.mockReturnValue({ staffMember: { role: "admin" } });
+            open();
+            expect(await screen.findByRole("button", { name: "Download record" })).toBeInTheDocument();
+        });
+
+        it("audits through gold-export first, then opens the print with the ID photos switched on", async () => {
+            const user = userEvent.setup();
+            const order = [];
+            goldApi.recordDownload.mockImplementation(async () => order.push("audit"));
+            let classesAtPrint = "";
+            window.print.mockImplementation(() => {
+                order.push("print");
+                classesAtPrint = idPhotosOf().className;
+            });
+            open();
+            await user.click(await screen.findByRole("button", { name: "Download record" }));
+
+            await waitFor(() => expect(window.print).toHaveBeenCalled());
+            expect(goldApi.recordDownload).toHaveBeenCalledWith({ kind: "record", filters: null, purchaseIds: ["p1"] });
+            expect(order).toEqual(["audit", "print"]);
+            expect(classesAtPrint).toMatch(/printIdPhotos/);
+        });
+
+        it("switches the ID photos off again when the print dialog closes (afterprint)", async () => {
+            const user = userEvent.setup();
+            open();
+            await user.click(await screen.findByRole("button", { name: "Download record" }));
+            await waitFor(() => expect(idPhotosOf().className).toMatch(/printIdPhotos/));
+
+            act(() => {
+                window.dispatchEvent(new Event("afterprint"));
+            });
+
+            expect(idPhotosOf().className).not.toMatch(/printIdPhotos/);
+        });
+
+        it("does not print, or switch the photos on, when gold-export refuses", async () => {
+            const user = userEvent.setup();
+            goldApi.recordDownload.mockRejectedValue(new Error("You do not have permission to do that."));
+            open();
+            await user.click(await screen.findByRole("button", { name: "Download record" }));
+
+            expect(await screen.findByRole("alert")).toHaveTextContent("You do not have permission to do that.");
+            expect(window.print).not.toHaveBeenCalled();
+            expect(idPhotosOf().className).not.toMatch(/printIdPhotos/);
+        });
+
+        it("has the ID photos off by default, so a plain print hides them", async () => {
+            open();
+            await screen.findByRole("button", { name: "Download record" });
+            expect(idPhotosOf().className).not.toMatch(/printIdPhotos/);
+        });
     });
 
     it("says Purchase not found for a purchase that is not there", async () => {
