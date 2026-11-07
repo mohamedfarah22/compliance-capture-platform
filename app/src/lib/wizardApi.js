@@ -256,6 +256,31 @@ export async function countGoldPurchases(transactionId) {
     return error ? 0 : (count ?? 0);
 }
 
+// True when a linked gold purchase became reportable on Complete purchase, so its customer was never asked the
+// counter questions (spec 3.3). The case is decided once for the invoice (3.4), so a part that was not reportable on
+// its own (a mixed invoice's scrap part) is not unconfirmed when another same-day part of that customer's invoice
+// has the counter answers. false when gold can't be read.
+export async function hasUnconfirmedGoldPurchase(transactionId) {
+    const purchases = () => supabase.schema("gold").from("purchases");
+    const { data, error } = await purchases()
+        .select("cash_10k_or_more, ttr_self_conducted, ttr_details_confirmed, customer_id, erp_invoice_norm, sale_date")
+        .eq("ttr_transaction_id", transactionId);
+    if (error || !data) return false;
+    const late = data.filter(
+        (p) => !p.cash_10k_or_more && p.ttr_self_conducted === null && p.ttr_details_confirmed === null
+    );
+    for (const part of late) {
+        const { data: sameInvoice, error: invoiceError } = await purchases()
+            .select("ttr_self_conducted, ttr_details_confirmed")
+            .eq("customer_id", part.customer_id)
+            .eq("erp_invoice_norm", part.erp_invoice_norm)
+            .eq("sale_date", part.sale_date);
+        if (invoiceError || !sameInvoice) return false;
+        if (!sameInvoice.some((p) => p.ttr_self_conducted !== null && p.ttr_details_confirmed !== null)) return true;
+    }
+    return false;
+}
+
 // What a gold-started draft carries for Transaction Details: its saved cash, and the cash its gold sale was paid
 // across all types (gold.ttr_linked_cash, the figure complete-transaction re-checks). null when no gold purchase
 // is linked to the draft (a wizard-started report) or gold can't be read, so the plain $10,000 rule applies.

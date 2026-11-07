@@ -23,6 +23,12 @@ const MESSAGES = {
     no_cash: "No part of this sale was paid in cash, so there is no AUSTRAC report to start.",
     ttr_reference_in_use:
         "Another AUSTRAC report already uses this invoice number for this type of sale. Open it from the TTR start page.",
+    no_id_on_file: "A seller has no ID on file. Add their ID, then record the purchase.",
+    photo_too_large: "A photo is too large. Take it again, or choose a smaller one.",
+    photo_not_jpeg: "Photos must be JPEG. Take the photo again.",
+    linked_part_changed:
+        "An earlier part of this invoice changed while you were working. Reload the page and try again.",
+    already_has_invoice: "This purchase already has an invoice number.",
 };
 const GENERIC_MESSAGE = "Could not save. Try again.";
 
@@ -206,4 +212,222 @@ export async function updateCustomerPhone(customerId, phone) {
 export async function goToAustracForm(purchaseId) {
     const { ttrs } = await callFunction("gold-start-ttr", { json: { purchaseId } });
     return { ttrs, path: openTtrPath(ttrs[0].id) };
+}
+
+// ─── Purchases: reads ───────────────────────────────────────────────────────────────
+
+const gold = () => supabase.schema("gold");
+const readFailed = () => new GoldApiError({ message: "Could not load purchases. Try again." });
+
+// One RPC in the gold schema; rows come back as the function wrote them.
+const goldRpc = async (name, args) => {
+    const { data, error } = await gold().rpc(name, args);
+    if (error) throw readFailed();
+    return data;
+};
+
+// { [ttr transaction id]: { id, status, transaction_ref, scenario, completed_at } } for the TTRs the purchases point at.
+const loadTtrs = async (purchases) => {
+    const ids = [...new Set(purchases.map((p) => p.ttr_transaction_id).filter(Boolean))];
+    if (ids.length === 0) return {};
+    const { data, error } = await supabase
+        .schema("ttr")
+        .from("transactions")
+        .select("id, status, transaction_ref, scenario, completed_at")
+        .in("id", ids);
+    if (error) throw readFailed();
+    return Object.fromEntries(data.map((t) => [t.id, t]));
+};
+
+const PHOTO_COUNT_CHUNK = 50;
+
+// Adds photo_count to purchase rows that come from an RPC, which does not count their photos.
+const withPhotoCounts = async (rows) => {
+    const counts = {};
+    for (let start = 0; start < rows.length; start += PHOTO_COUNT_CHUNK) {
+        const ids = rows.slice(start, start + PHOTO_COUNT_CHUNK).map((row) => row.id);
+        const { data, error } = await gold().from("goods_photos").select("purchase_id").in("purchase_id", ids);
+        if (error) throw readFailed();
+        data.forEach((photo) => {
+            counts[photo.purchase_id] = (counts[photo.purchase_id] ?? 0) + 1;
+        });
+    }
+    return rows.map((row) => ({ ...row, photo_count: counts[row.id] ?? 0 }));
+};
+
+/** The names of customers by id, as { [id]: "First Last" }. An unknown id is left out. */
+export async function getCustomerNames(ids) {
+    const unique = [...new Set(ids.filter(Boolean))];
+    if (unique.length === 0) return {};
+    const { data, error } = await supabase
+        .from("customers")
+        .select("id, first_name, middle_name, last_name")
+        .in("id", unique);
+    if (error) throw readFailed();
+    return Object.fromEntries(data.map((c) => [c.id, fullName(c)]));
+}
+
+/** Staff who recorded or completed purchases, as { [staff id]: full name }. */
+export async function getPurchaseStaffNames() {
+    const data = await goldRpc("list_purchase_staff");
+    return Object.fromEntries(data.map((s) => [s.staff_member_id, s.full_name]));
+}
+
+/** Staff who recorded purchases, for the "Recorded by" filter: [{ id, name }]. */
+export async function listRecordedBy() {
+    const data = await goldRpc("list_recorded_by");
+    return data.map((s) => ({ id: s.staff_member_id, name: s.full_name }));
+}
+
+/** Purchases where the customer is the main or joint seller, newest first, with photo_count and ttr_status. */
+export async function listTransactions(customerId) {
+    const { data, error } = await gold()
+        .from("purchases")
+        .select("*, goods_photos(count)")
+        .or(`customer_id.eq.${customerId},joint_customer_id.eq.${customerId}`)
+        .order("created_at", { ascending: false });
+    if (error) throw readFailed();
+    const ttrs = await loadTtrs(data);
+    return data.map(({ goods_photos: photos, ...p }) => ({
+        ...p,
+        photo_count: photos[0]?.count ?? 0,
+        ttr_status: ttrs[p.ttr_transaction_id]?.status ?? null,
+    }));
+}
+
+/**
+ * One purchase with its goods photo rows (goods_photos: [{ id, sort_order }]) and its TTR (null, or
+ * { id, status, transaction_ref, scenario, completed_at }). Throws a 404 GoldApiError when it is not found.
+ */
+export async function getTransaction(id) {
+    const { data, error } = await gold()
+        .from("purchases")
+        .select("*, goods_photos(id, sort_order)")
+        .eq("id", id)
+        .maybeSingle();
+    // A malformed id is "not found" too, not a server error.
+    if (error && error.code !== "22P02") throw readFailed();
+    if (!data) throw new GoldApiError({ status: 404, code: "purchase_not_found" });
+    const ttrs = await loadTtrs([data]);
+    return {
+        ...data,
+        goods_photos: [...data.goods_photos].sort((a, b) => a.sort_order - b.sort_order),
+        ttr: ttrs[data.ttr_transaction_id] ?? null,
+    };
+}
+
+/** The ID capture used for each seller of a purchase, with the newer-copy fields (C1): [{ role, ... }]. */
+export async function getPurchaseIdUsed(purchaseId) {
+    return goldRpc("purchase_id_used", { p_purchase_id: purchaseId });
+}
+
+/** Signed URLs for a purchase's goods photos, in photo order: [{ id, sortOrder, url }]. */
+export async function getGoldPhotoUrls(purchaseId) {
+    const { urls } = await callFunction("get-gold-photo-urls", { json: { purchaseId } });
+    return urls;
+}
+
+/** Purchases with no invoice yet, or reportable with a TTR that is not complete. Newest first. */
+export async function listIncompleteTransactions() {
+    return withPhotoCounts(await goldRpc("list_incomplete_purchases"));
+}
+
+/** How many purchases are waiting on To complete (the header count). */
+export async function countIncompleteTransactions() {
+    return (await goldRpc("list_incomplete_purchases")).length;
+}
+
+/**
+ * One page of purchases. filters: { q, type, status, cash, from, to, recordedBy } (blank = any; status is
+ * incomplete | complete | austrac_pending | austrac; cash is yes | no; recordedBy is a staff id).
+ * Resolves { rows, total }.
+ */
+export async function searchTransactions(filters, { page = 1, pageSize = 25 } = {}) {
+    const data = await goldRpc("search_gold_purchases", {
+        p_filters: {
+            q: filters.q ?? "",
+            type: filters.type ?? "",
+            status: filters.status ?? "",
+            cash: filters.cash ?? "",
+            date_from: filters.from ?? "",
+            date_to: filters.to ?? "",
+            recorded_by: filters.recordedBy ?? "",
+        },
+        p_page: page,
+        p_page_size: pageSize,
+    });
+    return { rows: await withPhotoCounts(data), total: Number(data[0]?.total_count ?? 0) };
+}
+
+/** Earlier parts of this invoice for this customer on this day (YYYY-MM-DD): the same-day invoice rule. */
+export async function findSameDayInvoicePurchases({ customerId, invoice, date, excludeId }) {
+    const data = await goldRpc("linked_parts", {
+        p_customer_id: customerId,
+        p_invoice_norm: invoice,
+        p_sale_date: date,
+    });
+    return data.filter((p) => p.id !== excludeId);
+}
+
+/** Every purchase already using this invoice number (any customer, any day), as [{ id, ... }]. */
+export async function findInvoicePurchases(invoice, excludeId) {
+    const data = await goldRpc("invoice_purchases", { p_invoice: invoice });
+    return data.filter((p) => p.id !== excludeId);
+}
+
+/** True when another purchase already uses this ERP invoice number. */
+export async function invoiceExists(invoice, excludeId) {
+    return (await findInvoicePurchases(invoice, excludeId)).length > 0;
+}
+
+/**
+ * The TTR fields this customer is missing (spec 3.3): [] means ready for case A. null when it could not be
+ * worked out, which the rules treat as not ready.
+ */
+export async function getTtrReadiness(customerId) {
+    const { data, error } = await supabase.rpc("customer_ttr_ready", { p_customer_id: customerId });
+    return error ? null : data;
+}
+
+// ─── Purchases: writes ──────────────────────────────────────────────────────────────
+
+const flag = (value) => (value === true ? "true" : "false");
+
+/**
+ * Record a purchase. data: { customerId, jointCustomerId, purchaseType: 'scrap' | 'bullion', cash10k,
+ * bullionBand, cashAmount, partAmount, linkedAmounts, phone, idSighted, erpInvoiceNo, ttrSelfConducted,
+ * ttrDetailsConfirmed, photos } where photos are JPEG Blobs. The server works out everything else.
+ * 422 validation_failed comes back as GoldApiError with { errors, warnings, blocked } in `body`.
+ * Resolves { purchaseId, ttr: null | 'A' | 'B', warnings }; the TTR itself starts with goToAustracForm.
+ */
+export async function createTransaction(data) {
+    const form = new FormData();
+    const fields = {
+        customerId: data.customerId,
+        jointCustomerId: data.jointCustomerId,
+        purchaseType: data.purchaseType,
+        phone: data.phone,
+        idSighted: flag(data.idSighted),
+        erpInvoiceNo: data.erpInvoiceNo,
+        cashAmount: data.cashAmount,
+        partAmount: data.partAmount,
+    };
+    if (data.purchaseType === "bullion") fields.bullionBand = data.bullionBand;
+    else fields.cash10k = flag(data.cash10k);
+    if (data.ttrSelfConducted != null) fields.ttrSelfConducted = flag(data.ttrSelfConducted);
+    if (data.ttrDetailsConfirmed != null) fields.ttrDetailsConfirmed = flag(data.ttrDetailsConfirmed);
+    if (Object.keys(data.linkedAmounts ?? {}).length > 0) fields.linkedAmounts = JSON.stringify(data.linkedAmounts);
+    Object.entries(fields).forEach(([key, value]) => {
+        if (value != null && value !== "") form.append(key, value);
+    });
+    data.photos.forEach((blob, index) => form.append("photos", blob, `photo-${index + 1}.jpg`));
+    return callFunction("gold-save-purchase", { form });
+}
+
+/**
+ * Add the ERP invoice number to a saved purchase. changes: { erpInvoiceNo, partAmount, linkedAmounts }.
+ * Resolves { purchaseId, ttr: null | 'A' | 'B', warnings }.
+ */
+export async function updateTransaction(purchaseId, { erpInvoiceNo, partAmount, linkedAmounts }) {
+    return callFunction("gold-complete-purchase", { json: { purchaseId, erpInvoiceNo, partAmount, linkedAmounts } });
 }

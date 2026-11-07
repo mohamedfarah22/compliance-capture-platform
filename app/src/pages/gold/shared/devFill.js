@@ -49,3 +49,5 @@ export const sampleImage = async (label) => {
     const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.82));
     return { blob, preview: await blobToDataURL(blob) };
 };
+
+export const sampleInvoice = () => `TEST-${randomDigits(5)}`;

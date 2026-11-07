@@ -1,0 +1,39 @@
+.overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    overflow-y: auto;
+    background: rgba(17, 24, 39, 0.5);
+    padding: 2.5rem 1rem;
+}
+
+.dialog {
+    display: grid;
+    gap: 1rem;
+    width: min(100%, 36rem);
+    border-radius: var(--radius-lg);
+    background: var(--color-surface);
+    padding: 1.5rem;
+    box-shadow: var(--shadow-soft);
+}
+
+.header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+
+.title {
+    margin: 0;
+    font-size: 1.125rem;
+}
+
+.text {
+    margin: 0;
+    color: var(--color-muted);
+    font-size: 0.875rem;
+}
