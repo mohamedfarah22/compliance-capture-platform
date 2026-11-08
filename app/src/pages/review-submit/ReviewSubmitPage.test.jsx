@@ -8,6 +8,7 @@ import {
     completeTransaction,
     countGoldPurchases,
     getTransactionId,
+    hasUnconfirmedGoldPurchase,
     loadBullionItems,
     loadConductingPerson,
     loadCustomers,
@@ -21,6 +22,7 @@ import { useAuth } from "../../context/AuthContext.jsx";
 vi.mock("../../lib/wizardApi.js", () => ({
     completeTransaction: vi.fn(),
     countGoldPurchases: vi.fn(),
+    hasUnconfirmedGoldPurchase: vi.fn(),
     getTransactionId: vi.fn(),
     loadBullionItems: vi.fn(),
     loadConductingPerson: vi.fn(),
@@ -114,6 +116,7 @@ describe("ReviewSubmitPage", () => {
         completeTransaction.mockResolvedValue({ ok: true, completedAt: "2026-07-04T00:00:00Z" });
         getTransactionId.mockReturnValue("tx-1");
         countGoldPurchases.mockResolvedValue(0);
+        hasUnconfirmedGoldPurchase.mockResolvedValue(false);
     });
 
     it("says where a gold-started report came from (spec 3.2), and says nothing for a wizard-started one", async () => {
@@ -128,6 +131,25 @@ describe("ReviewSubmitPage", () => {
         renderPage();
         await screen.findByText("This transaction is ready to be completed.");
         expect(screen.queryByText(/From gold purchase/)).not.toBeInTheDocument();
+    });
+
+    it("warns that the customer wasn’t asked to confirm their details when a linked purchase lacks the counter answers", async () => {
+        seedCompleteMocks();
+        countGoldPurchases.mockResolvedValue(1);
+        hasUnconfirmedGoldPurchase.mockResolvedValue(true);
+        renderPage();
+        expect(
+            await screen.findByText(
+                "The customer wasn’t asked to confirm their details at the counter. Contact them to confirm before completing the TTR."
+            )
+        ).toBeInTheDocument();
+        expect(hasUnconfirmedGoldPurchase).toHaveBeenCalledWith("tx-1");
+
+        cleanup();
+        hasUnconfirmedGoldPurchase.mockResolvedValue(false);
+        renderPage();
+        await screen.findByText("From gold purchase(s) on invoice INV-1");
+        expect(screen.queryByText(/wasn’t asked to confirm/)).not.toBeInTheDocument();
     });
 
     afterEach(() => {

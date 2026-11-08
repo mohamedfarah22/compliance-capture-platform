@@ -1,5 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { blobToDataURL, compressImage, daysUntil, fitWithin, formatDate, formatDateTime } from "./format.js";
+import {
+    blobToDataURL,
+    businessDaysUntil,
+    compressImage,
+    daysUntil,
+    fitWithin,
+    formatAud,
+    formatDate,
+    formatDateTime,
+} from "./format.js";
 
 // jsdom decodes no images and draws on no canvas, so both are stood in for. What is tested is the decision the
 // code makes: the size it draws at, and that what comes out is a JPEG whatever went in.
@@ -148,6 +157,27 @@ describe("dates", () => {
         expect(daysUntil("2026-11-12")).toBe(10);
         expect(daysUntil("2026-11-01")).toBe(-1);
         expect(daysUntil(null)).toBeNull();
+    });
+});
+
+describe("businessDaysUntil", () => {
+    afterEach(() => vi.useRealTimers());
+
+    it("counts Monday to Friday days from today, and negative once past", () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date("2026-11-06T01:00:00Z")); // Friday in Melbourne
+
+        expect(businessDaysUntil("2026-11-06")).toBe(0);
+        expect(businessDaysUntil("2026-11-09")).toBe(1); // the weekend is skipped
+        expect(businessDaysUntil("2026-11-20")).toBe(10);
+        expect(businessDaysUntil("2026-11-05")).toBe(-1);
+        expect(businessDaysUntil("2026-10-30")).toBe(-5);
+    });
+});
+
+describe("formatAud", () => {
+    it("shows dollars and cents", () => {
+        expect(formatAud(12000)).toBe("$12,000.00");
     });
 });
 

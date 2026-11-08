@@ -137,13 +137,13 @@ test("8a.55 — another business's customer and an unknown id show 'Customer not
   }
 })
 
-test('8a.56 — the purchase area is a marked placeholder that records nothing; "Back to search" returns to /gold', async () => {
+test('8a.56 — (Phase 8b replaced the placeholder) a customer with no ID has no purchase form, only a prompt to add the ID; "Back to search" returns to /gold', async () => {
   const { page } = staff
   const c = await seed({ first: 'Plac', last: `Holder${uniq()}`, id: false })
   await page.goto(`/gold/customers/${c.id}`)
-  const holder = page.getByTestId('purchase-form-placeholder')
-  await expect(holder).toContainText('Recording purchases is coming in the next release.')
-  await expect(holder.locator('input, select, textarea, button')).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: 'Record purchase' })).toBeVisible()
+  await expect(page.getByText('Add the customer’s ID before recording a purchase.')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Record purchase' })).toHaveCount(0)
   await page.getByRole('link', { name: 'Back to search' }).click()
   await expect(page).toHaveURL(/\/gold$/)
 })

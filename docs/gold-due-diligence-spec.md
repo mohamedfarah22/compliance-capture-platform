@@ -264,7 +264,10 @@ An edge function (service role, after the access checks in 6.2), called with a p
 - **Case B:** the wizard asks for whatever is missing (third party, changed details, the conducting person for a joint sale).
 - **`IdVerificationPage`** accepts the copied counter confirmation instead of asking for the `imageApproved` tick again.
 
-**Status in gold:** "AUSTRAC pending" = reportable and the TTR isn't complete. "AUSTRAC" = the TTR is complete. The purchase record links to the TTR; the TTR review shows "From gold purchase(s) on invoice {invoice}".
+**Status in gold:** "AUSTRAC pending" = reportable and the TTR isn't complete. "AUSTRAC" = the TTR is complete.
+- **Reportable is per sale.** A part linked to a TTR that isn't complete is AUSTRAC pending, even when that part alone is under the threshold.
+- **The purchase record** links to a draft TTR. For a completed TTR it shows plain text, no link: "AUSTRAC report: complete. Reference {invoice}, completed {date}."
+- **The TTR review** shows "From gold purchase(s) on invoice {invoice}", and the amber notice in 3.3 when a linked purchase never got the counter answers.
 
 ### 3.3 When the TTR starts
 
@@ -272,7 +275,7 @@ An edge function (service role, after the access checks in 6.2), called with a p
 
 | Case | When | Invoice at the counter | TTR |
 |---|---|---|---|
-| **A. Ready on file** | Single seller; the customer record has every field in the table below; the ID is valid and inside the re-verification window; both counter questions (3.3a) answered Yes | Optional | Created when the invoice is added on Complete purchase, fully prefilled; can be finished without the customer |
+| **A. Ready on file** | Single seller; the customer record has every field in the table below; the ID is valid and inside the re-verification window; both counter questions (3.3a) answered Yes | Optional | Started after the save when the invoice is entered at the counter, or when it is added on Complete purchase; fully prefilled; can be finished without the customer. **Started, not opened** at the counter (see rules) |
 | **B. Not ready** | Anything else: missing fields (e.g. a customer only ever seen in gold), a No answer, or a joint sale | **Required to save** | Opens at the counter straight after the save |
 
 **Rules:**
@@ -281,7 +284,9 @@ An edge function (service role, after the access checks in 6.2), called with a p
 - **Deadline:** the sale's `created_at` + 10 business days, Mon–Fri (handover §4.3). Public holidays are not skipped, which makes the deadline earlier, the safe side.
 - **Case B not finished at the counter:** the draft stays, and To complete shows "Resume TTR".
 - **After a TTR is completed,** its details are saved back to the customer (1.4), so the next reportable sale can be case A.
-- **Becoming reportable on Complete purchase** (e.g. the cash answer changed after the customer left): adding the invoice still creates and opens the TTR, with an amber notice, "The customer wasn't asked to confirm their details at the counter. Contact them to confirm before completing the TTR."
+- **Case A with the invoice entered at the counter:** after Record, gold starts the TTR (`gold-start-ttr`, so the draft is created and prefilled) but doesn't open it: no `openTransaction`, no navigation to the wizard, no "another report in progress" warning. Gold stays on the customer page with "AUSTRAC report started. Finish it from To complete." The purchase then shows on To complete with "Resume TTR" and the due line. If `gold-start-ttr` fails, the purchase stays saved and To complete offers "Start TTR". Case B still opens the TTR at the counter.
+- **Record button label (ruling):** for case A with the invoice entered at the counter the purchase form's button reads "Record purchase and start AUSTRAC report", because it starts the report without opening it. Case B keeps "Record purchase and continue to AUSTRAC"; a sale that isn't reportable keeps "Record purchase".
+- **Becoming reportable on Complete purchase** (e.g. the cash answer changed after the customer left): adding the invoice still creates and opens the TTR (5.2), with an amber notice, "The customer wasn't asked to confirm their details at the counter. Contact them to confirm before completing the TTR." The same notice shows on the TTR review, next to "From gold purchase(s) on invoice {invoice}", whenever a linked gold purchase became reportable that way and has no counter answers. The case is decided once for the invoice (3.4): when any same-day linked part of the customer's invoice has both counter answers (e.g. the bullion part that made a mixed invoice reportable at the counter), the notice does not show on either TTR.
 
 **Fields Party Details requires for an individual** (`PartyDetailsPage.jsx:154-175`):
 
@@ -510,12 +515,12 @@ Example: 10:00, Jane sells scrap for $12,000 cash on `INV-900`, and the TTR is c
 | `CustomerForm` (create) | `GoldCustomerFormPage` `mode="create"` | Adds DOB, residential address, name parts, ID issuing country and state, CCP's ID types. Back photo and expiry follow CCP's per-type rules (`BACK_REQUIRED_TYPES`, `has_expiry`). Duplicates: the collision prompt plus name + DOB and phone matches |
 | `CustomerForm` (update) | same page `mode="update"` | Asks why: renewed, different document, or photo unclear. The old copy of the same document is replaced |
 | — | same page `mode="edit"` | Managers and admins correct name, DOB and other profile fields (not ID details). Audited. Past TTR party copies are unchanged |
-| `CustomerDetail.jsx` | `GoldCustomerPage` | "ID last updated" = current capture date; re-verify state. Purchase form: required sighted box with hint; counter questions (3.3a); invoice required in case B; duplicate invoice blocks when reportable; case B opens the TTR after save |
+| `CustomerDetail.jsx` | `GoldCustomerPage` | "ID last updated" = current capture date; re-verify state. Purchase form: required sighted box with hint; counter questions (3.3a); invoice required in case B; duplicate invoice blocks when reportable; case B opens the TTR after save; case A with an invoice starts the TTR but stays in gold (3.3) |
 | `JointSellerPanel.jsx` | modal on `GoldCustomerPage` | A joint reportable sale is always case B |
 | `ToComplete.jsx` | `GoldToCompletePage` | Also lists reportable purchases whose TTR isn't complete: "Resume TTR" for drafts, "Start TTR" when the draft was deleted |
 | `CompletePurchase.jsx` | `GoldCompletePurchasePage` | Adding the invoice to a reportable case A purchase creates and opens the TTR; amber notice if it became reportable here without the counter answers |
-| `Purchases.jsx` | `GoldPurchasesPage` | Server paging; filters in the URL except the search text; Download hidden for `staff` |
-| `PurchaseRecord.jsx` | `GoldPurchaseRecordPage` | ID details used, with the newer copy label when replaced (C1); TTR status and link; Download record hidden for `staff` |
+| `Purchases.jsx` | `GoldPurchasesPage` | Server paging; filters in the URL except the search text; search matches the seller (name, phone, ID number) and also the ERP invoice number (2 or more characters, case-insensitive; migration `20261110000002`); Download hidden for `staff` |
+| `PurchaseRecord.jsx` | `GoldPurchaseRecordPage` | ID details used, with the newer copy label when replaced (C1); TTR status (a link for a draft; text with the reference and completion date once complete); Download record hidden for `staff` |
 | `AustracHandoff.jsx` | dropped | Replaced by the TTR wizard |
 
 **Unchanged from the handover:**
@@ -644,6 +649,7 @@ The privacy policy (§6) promises deletion 7 years after the transaction, and de
 - **A duplicate invoice blocks** a reportable purchase instead of only warning (§4.1).
 - **Downloads and prints** are limited to managers and admins (§12).
 - **Customer details** can be corrected by managers and admins (new).
+- **Q2:** no goods photos on Complete purchase in v1. The goods photo is taken when the purchase is recorded, as before; this differs from the handover.
 
 **Compliance officer:**
 - **AML/CTF triggers:** confirm the AML/CTF program has no trigger beyond ID and personal details (e.g. suspicion, unusual activity, a risk-rating change) that should stop a TTR being finished later without the customer (3.3a).

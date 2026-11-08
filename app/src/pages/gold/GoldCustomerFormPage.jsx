@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import Button from "../../components/ui/Button.jsx";
 import DatePicker from "../../components/ui/DatePicker.jsx";
 import FormField from "../../components/ui/FormField.jsx";
@@ -65,6 +65,7 @@ const describeOwner = (owner) => {
 const GoldCustomerFormPage = ({ mode = "create" }) => {
     const { customerId } = useParams();
     const navigate = useNavigate();
+    const location = useLocation();
     const { staffMember } = useAuth();
     const formRef = useRef(null);
 
@@ -110,8 +111,16 @@ const GoldCustomerFormPage = ({ mode = "create" }) => {
     // With no ID on file there is nothing to renew or re-photograph: the new ID is a different document.
     const reason = currentId ? form.reason : "different_document";
     const backIsRequired = BACK_REQUIRED_TYPES.has(form.documentType);
+    // A purchase form sent staff here: creating the joint seller (jointFor) or renewing a seller's ID (returnTo).
+    // Both go back to that purchase's customer page, where the unsaved form is still waiting.
+    const { jointFor, returnTo } = location.state ?? {};
+    const purchaseCustomerId = jointFor ?? returnTo;
     // Create has no customer yet; Cancel goes back to Find customer.
-    const customerRoute = isCreate ? GOLD_ROUTES.search : goldPath(GOLD_ROUTES.customer, { customerId });
+    const customerRoute = purchaseCustomerId
+        ? goldPath(GOLD_ROUTES.customer, { customerId: purchaseCustomerId })
+        : isCreate
+          ? GOLD_ROUTES.search
+          : goldPath(GOLD_ROUTES.customer, { customerId });
 
     const setField = (key, value) => {
         setForm((prev) => ({ ...prev, [key]: value }));
@@ -198,7 +207,9 @@ const GoldCustomerFormPage = ({ mode = "create" }) => {
                 front: front.blob,
                 back: back?.blob,
             });
-            return [goldPath(GOLD_ROUTES.customer, { customerId: created.customerId }), "Customer created"];
+            return jointFor
+                ? [customerRoute, "Customer created", { jointId: created.customerId }]
+                : [goldPath(GOLD_ROUTES.customer, { customerId: created.customerId }), "Customer created"];
         }
         if (isUpdate) {
             await updateCustomerId(customerId, { reason, ...idPayload(form), front: front.blob, back: back?.blob });
@@ -227,8 +238,8 @@ const GoldCustomerFormPage = ({ mode = "create" }) => {
 
         setIsBusy(true);
         try {
-            const [path, notice] = await submit();
-            navigate(path, { state: { notice } });
+            const [path, notice, extraState] = await submit();
+            navigate(path, { state: { notice, ...extraState } });
         } catch (err) {
             handleFailure(err);
             setIsBusy(false);

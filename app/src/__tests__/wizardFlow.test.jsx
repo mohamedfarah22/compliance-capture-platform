@@ -23,6 +23,7 @@ vi.mock("../lib/wizardApi.js", () => ({
     completeTransaction: vi.fn(),
     // Plain functions (not vi.fn) so restoreAllMocks cannot blank them.
     countGoldPurchases: () => Promise.resolve(0),
+    hasUnconfirmedGoldPurchase: () => Promise.resolve(false),
     findWaitingReport: () => Promise.resolve(null),
     toDbScenario: (serviceType, scenario) => (scenario ? `${serviceType}_${scenario}` : null),
     deleteTransaction: vi.fn(),
