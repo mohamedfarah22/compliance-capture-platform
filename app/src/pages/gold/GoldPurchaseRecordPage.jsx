@@ -1,7 +1,9 @@
 import { bandLabel, typeLabel } from "@gold-rules";
 import { useEffect, useState } from "react";
+import { flushSync } from "react-dom";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import Button from "../../components/ui/Button.jsx";
+import { useAuth } from "../../context/AuthContext.jsx";
 import { openTtrPath } from "../../lib/ttrRoutes.js";
 import {
     getCustomerIdImages,
@@ -10,6 +12,7 @@ import {
     getPurchaseIdUsed,
     getPurchaseStaffNames,
     getTransaction,
+    recordDownload,
 } from "../../lib/goldApi.js";
 import {
     DueLine,
@@ -33,13 +36,39 @@ const Item = ({ label, children }) => (
 
 // The full record of one purchase (spec 5.2, PurchaseRecord row): its details, the ID details used for each seller
 // (C1: if the photos were replaced, the newer copy, labelled), the goods photos, and the AUSTRAC report with a link
-// to it. Download record is Phase 9b.
+// to it. Printing (spec 6.2): the print styles hide the ID photos, so a plain Ctrl+P shows the details and the goods
+// photos only. Managers and admins get "Download record", which has gold-export audit the print first and then
+// shows the ID photos for that one print. The server is the real gate; hiding the button for staff is a courtesy.
 const GoldPurchaseRecordPage = () => {
     const { purchaseId } = useParams();
     const navigate = useNavigate();
+    const { staffMember } = useAuth();
+    const canDownload = ["manager", "admin"].includes(staffMember?.role);
     // The last purchase loaded: { id, purchase, names, staff, idUsed, idImages, photos } or { id, message }.
     const [loaded, setLoaded] = useState(null);
     const [zoom, setZoom] = useState(null);
+    const [isPrintingIds, setIsPrintingIds] = useState(false);
+    const [downloadError, setDownloadError] = useState("");
+
+    // Back to a plain print once the print dialog closes.
+    useEffect(() => {
+        const stop = () => setIsPrintingIds(false);
+        window.addEventListener("afterprint", stop);
+        return () => window.removeEventListener("afterprint", stop);
+    }, []);
+
+    const downloadRecord = async () => {
+        setDownloadError("");
+        try {
+            await recordDownload({ kind: "record", filters: null, purchaseIds: [purchaseId] });
+        } catch (err) {
+            setDownloadError(err.message);
+            return;
+        }
+        // The class must be on the page before the browser takes its copy for printing.
+        flushSync(() => setIsPrintingIds(true));
+        window.print();
+    };
 
     useEffect(() => {
         let isCancelled = false;
@@ -162,17 +191,30 @@ const GoldPurchaseRecordPage = () => {
                 <Link className={styles.back} to={GOLD_ROUTES.purchases}>
                     Back to Purchases
                 </Link>
-                {isIncomplete ? (
-                    <Button
-                        variant="secondary"
-                        onClick={() => navigate(goldPath(GOLD_ROUTES.completePurchase, { purchaseId }))}
-                    >
-                        Complete
-                    </Button>
-                ) : null}
+                <div className={styles.actions}>
+                    {isIncomplete ? (
+                        <Button
+                            variant="secondary"
+                            onClick={() => navigate(goldPath(GOLD_ROUTES.completePurchase, { purchaseId }))}
+                        >
+                            Complete
+                        </Button>
+                    ) : null}
+                    {canDownload ? <Button onClick={downloadRecord}>Download record</Button> : null}
+                </div>
             </div>
+            {canDownload ? (
+                <p className={styles.printHint}>
+                    Opens the print dialog with the ID photos. Choose “Save as PDF” to download.
+                </p>
+            ) : null}
+            {downloadError ? (
+                <p className={styles.downloadError} role="alert">
+                    {downloadError}
+                </p>
+            ) : null}
 
-            <article className={styles.card}>
+            <article className={`${styles.card} ${isPrintingIds ? styles.printIdPhotos : ""}`}>
                 <div className={styles.heading}>
                     <h1 className={styles.title}>{typeLabel(purchase.purchase_type)} purchase</h1>
                     <PurchaseTags purchase={tagged} />

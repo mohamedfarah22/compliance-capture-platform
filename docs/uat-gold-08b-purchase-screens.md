@@ -50,12 +50,12 @@ npx supabase test db --workdir ..                              # pgTAP: supabase
 - 8b.43: a manager completes a staff member's purchase, so the record's "Completed ... by UAT8a Manager" proves the completer's name (the `gold.list_purchase_staff` RPC) and not only the recorder's.
 - 8b.47: the "reportable, expired ID" purchase is seeded by saving a non-cash purchase for a customer with an expired licence and then setting the cash fields in SQL with triggers off, because the server refuses to save it directly.
 - 8b.50: the list is narrowed by searching for the customer's unique name, so it is exactly 26 whatever else the business holds.
-- 8b.54 and 8b.58: checked as staff and as an admin.
+- 8b.54: checked as staff, a manager and an admin (flipped in Phase 9b: managers and admins now see "Download (n)"). 8b.58: checked as staff.
 - 8b.55: the stored goods photos in the test data are not decodable JPEGs, so the goods photo is checked by its signed URL; the ID photos are real pictures and are checked as loaded.
 - 8b.56: the date label is "Newer copy of this ID, taken 04 Nov 2026" (two-digit day).
 
 **Spec questions** (the sheet and the code agree with each other; the spec is silent or can be read two ways)
-1. §5.2 says Purchases and Purchase record have "Download hidden for `staff`" (so managers and admins see it), while §8 step 7 puts Download in Phase 9b and this sheet says there is no Download for anyone. 8b.54 and 8b.58 check the Phase 9b reading (no Download for staff or admin). If Download should already show for admins here, those two rows change.
+1. (Answered by Phase 9b, which adds Download for managers and admins, spec §2.3 and §5.2.) 8b.54 now expects staff to see no Download and a manager and an admin to see "Download (n)"; 8b.58 is checked as staff, who still see no "Download record". This change is made on the 9b branch only.
 2. (Answered: defect D2 and the user's ruling make "reportable" per sale, now in spec §3.2. Rows 8b.36 and 8b.64 follow it.)
 3. (Answered by ruling Q5: a completed TTR is plain text with its reference and completion date, no link. Rows 8b.57 and 8b.72.)
 4. (Answered by the user's label ruling, spec §3.3 "Record button label": for case A with the invoice entered at the counter the button reads "Record purchase and start AUSTRAC report"; case B keeps "Record purchase and continue to AUSTRAC"; a sale that is not reportable keeps "Record purchase". Rows 8b.21 and 8b.73 assert the case A label, 8b.14 and 8b.73 the case B label.)
@@ -164,7 +164,7 @@ Rows 8b.1 to 8b.58 are the implementer's. Every row is one Playwright test whose
 | 8b.51 | §5.2, handover | Set Type Bullion, Status "AUSTRAC pending", Cash "Cash $10k+", From and To dates, Recorded by one staff member; reload the page. Then press **Clear filters**. | The URL carries `type`, `status`, `cash`, `from`, `to`, `by`. After the reload every control and the result list are the same. The search text is **not** in the URL. **Clear filters** resets all of them and the URL is plain `/gold/purchases`. | `08-purchases` |
 | 8b.52 | §5.2 | Type "Jane", then a phone, then Jane's licence number, then an invoice number. | Each finds the right purchases (including purchases where the person is the joint seller). | `08-purchases` |
 | 8b.53 | §3.2 | Status options. | All, Incomplete, Completed, AUSTRAC pending, AUSTRAC. "AUSTRAC pending" shows reportable purchases whose TTR is not complete; "AUSTRAC" those whose TTR is complete. | `08-purchases` |
-| 8b.54 | §5.2, §8 step 7 | Look for Download. | There is no Download button or print button on Purchases (Phase 9b). | `08-purchases` |
+| 8b.54 | §5.2, §2.3 | Look for Download as staff, as a manager and as an admin. | Staff see no Download button and no print button on Purchases. A manager and an admin see "Download (n)" (Phase 9b; before 9b nobody saw it). | `08-purchases` |
 
 ### A5 · Purchase record
 
@@ -173,7 +173,7 @@ Rows 8b.1 to 8b.58 are the implementer's. Every row is one Playwright test whose
 | 8b.55 | §5.2 | Open the record of Jane + Joan's purchase (8b.29). | Details: Recorded, Recorded by, Completed, Type, Cash paid, AUSTRAC report (cash $10,000 or more) Yes, Cash amount, Phone at purchase, Sighted in person Yes, ID expired at time Yes/No, Purchase ID. Under "Main seller" and "Joint seller": the ID details **used for that purchase** (type, number, issuer, expiry, "Captured by <staff> on <date>"), ID front and back photos, goods photos. | `09-purchase-record` |
 | 8b.56 | C1 | Jane renews her licence after a purchase (same document, "Renewed"). Open the older purchase's record. | The ID details are those at the time of the purchase; the photos shown are the new ones, labelled "Newer copy of this ID, taken <date>". | `09-purchase-record` |
 | 8b.57 | §3.2 (Q5) | Open the record of a reportable purchase with a draft TTR; then one with a completed TTR; then a non-reportable one. | Draft: "AUSTRAC report: draft in progress" and a link **Open AUSTRAC report** that opens it in the wizard. Completed: "AUSTRAC report: complete" (with its reference and completion date, see 8b.72) and no link to open (a completed TTR cannot be reopened). Non-reportable: no AUSTRAC report line. | `09-purchase-record` |
-| 8b.58 | §5.2 | An incomplete purchase. | A **Complete** button opens Complete purchase. There is no Download record or print button (Phase 9b). | `09-purchase-record` |
+| 8b.58 | §5.2 | An incomplete purchase. | A **Complete** button opens Complete purchase. As staff there is no Download record or print button (managers and admins get "Download record" from Phase 9b; see 9b.23). | `09-purchase-record` |
 
 
 ---

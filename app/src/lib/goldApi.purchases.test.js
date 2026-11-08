@@ -52,7 +52,9 @@ const {
     getTtrReadiness,
     invoiceExists,
     listIncompleteTransactions,
+    listPurchaseIds,
     listTransactions,
+    recordDownload,
     searchTransactions,
     updateTransaction,
 } = await import("./goldApi.js");
@@ -317,5 +319,65 @@ describe("edge function calls", () => {
 
         expect(await getGoldPhotoUrls("p1")).toEqual([{ id: "a", sortOrder: 0, url: "https://signed/a" }]);
         expect(globalThis.fetch.mock.calls[0][0]).toMatch(/\/get-gold-photo-urls$/);
+    });
+
+    it("listPurchaseIds asks for up to 100 at a time with the same filter names as the search", async () => {
+        mocks.results["gold.rpc.search_gold_purchases"] = ok([
+            { id: "p1", total_count: 2 },
+            { id: "p2", total_count: 2 },
+        ]);
+
+        expect(await listPurchaseIds({ q: "jane", status: "austrac", recordedBy: "s1" })).toEqual(["p1", "p2"]);
+
+        expect(callsTo("gold.rpc")).toEqual([
+            [
+                "search_gold_purchases",
+                {
+                    p_filters: {
+                        q: "jane",
+                        type: "",
+                        status: "austrac",
+                        cash: "",
+                        date_from: "",
+                        date_to: "",
+                        recorded_by: "s1",
+                    },
+                    p_page: 1,
+                    p_page_size: 100,
+                },
+            ],
+        ]);
+    });
+
+    it("recordDownload posts kind, filters and ids to gold-export and returns the body", async () => {
+        globalThis.fetch.mockResolvedValue(reply(200, { purchases: [] }));
+
+        expect(await recordDownload({ kind: "zip", filters: { q: "x" }, purchaseIds: ["p1"] })).toEqual({
+            purchases: [],
+        });
+
+        const [url, init] = globalThis.fetch.mock.calls[0];
+        expect(url).toMatch(/\/gold-export$/);
+        expect(init.headers.Authorization).toBe("Bearer jwt-1");
+        expect(JSON.parse(init.body)).toEqual({ kind: "zip", filters: { q: "x" }, purchaseIds: ["p1"] });
+    });
+
+    it("recordDownload says what to do for a refusal, and uses a download message for other failures", async () => {
+        globalThis.fetch.mockResolvedValue(reply(403, { error: "forbidden" }));
+        await expect(recordDownload({ kind: "record", filters: null, purchaseIds: ["p1"] })).rejects.toMatchObject({
+            code: "forbidden",
+            message: "You do not have permission to do that.",
+        });
+
+        globalThis.fetch.mockResolvedValue(reply(400, { error: "too_many_purchases" }));
+        await expect(recordDownload({ kind: "zip", filters: null, purchaseIds: ["p1"] })).rejects.toMatchObject({
+            message: "Too many purchases to download. Narrow the filters to 200 or fewer.",
+        });
+
+        globalThis.fetch.mockResolvedValue(reply(500, { error: "server_error" }));
+        await expect(recordDownload({ kind: "zip", filters: null, purchaseIds: ["p1"] })).rejects.toMatchObject({
+            code: "server_error",
+            message: "Could not prepare the download. Try again.",
+        });
     });
 });

@@ -188,3 +188,52 @@
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
+
+.actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.printHint {
+    margin: -0.5rem 0 1rem;
+    color: var(--color-muted);
+    font-size: 0.75rem;
+    text-align: right;
+}
+
+.downloadError {
+    margin: -0.5rem 0 1rem;
+    color: var(--color-danger);
+    font-size: 0.875rem;
+    font-weight: 600;
+    text-align: right;
+}
+
+/* Printing (spec 6.2). The ID photos are hidden unless Download record put .printIdPhotos on the card for this one
+   print, so a plain Ctrl+P shows the purchase details and the goods photos only. */
+@media print {
+    .topBar,
+    .printHint,
+    .downloadError {
+        display: none;
+    }
+
+    .page {
+        width: 100%;
+    }
+
+    .card {
+        border: 0;
+        padding: 0;
+        box-shadow: none;
+    }
+
+    .idPhotos {
+        display: none;
+    }
+
+    .printIdPhotos .idPhotos {
+        display: grid;
+    }
+}
